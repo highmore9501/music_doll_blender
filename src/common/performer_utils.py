@@ -86,17 +86,36 @@ def performer_from_object(full_name: str) -> tuple[str, str] | None:
     return None
 
 
+def _ancestor_collections(coll: bpy.types.Collection):
+    """向上遍历集合的祖先链（含自身），供 suffix_from_object 定位所属演奏者。
+
+    Blender 5.0 起 Collection.parent 属性被移除（一个集合可挂在多个父集合下），
+    只能通过遍历 bpy.data.collections 反查「children 中包含该集合」的父集合。
+    """
+    parents_of: dict[str, list[bpy.types.Collection]] = {}
+    for c in bpy.data.collections:
+        for child in c.children:
+            parents_of.setdefault(child.name, []).append(c)
+    stack = [coll]
+    seen = set()
+    while stack:
+        cur = stack.pop()
+        if cur.name in seen:
+            continue
+        seen.add(cur.name)
+        yield cur
+        stack.extend(parents_of.get(cur.name, []))
+
+
 def suffix_from_object(obj: bpy.types.Object) -> str | None:
     """给定任意对象，向上找所属演奏者集合，返回后缀（即「先按后缀定位归属」）。"""
     if obj is None:
         return None
     for coll in obj.users_collection:
-        cur = coll
-        while cur is not None:
+        for cur in _ancestor_collections(coll):
             suf = instrument_base.get_coll_attr(cur, "suffix")
             if suf:
                 return suf
-            cur = cur.parent
     return None
 
 
@@ -156,14 +175,14 @@ def list_performers(context=None) -> list[PerformerInfo]:
         return result
     root = bpy.data.collections[PERFORMERS_ROOT]
     for coll in root.children:
-        suf = instrument_base.get_coll_attr(coll, "suffix")
-        if not suf:
+        name = instrument_base.get_coll_attr(coll, "name") or coll.name
+        if not name:
             continue
         skel = _find_skeleton_in_collection(coll)
         inst = _find_instrument_in_collection(coll)
         result.append(PerformerInfo(
-            suffix=suf,
-            name=instrument_base.get_coll_attr(coll, "name") or coll.name,
+            suffix=name,
+            name=name,
             instrument=instrument_base.get_coll_attr(coll, "instrument") or "",
             collection=coll,
             target_skeleton=skel,
@@ -199,16 +218,18 @@ def get_or_create_performer(suffix: str, name: str, instrument: str,
     if existing is not None:
         return existing
 
+    # 名字即后缀：只存一份 md_name
+    final_name = name or suffix
+
     root = get_or_create_root_collection()
-    if name in bpy.data.collections:
-        coll = bpy.data.collections[name]
+    if final_name in bpy.data.collections:
+        coll = bpy.data.collections[final_name]
     else:
-        coll = bpy.data.collections.new(name)
+        coll = bpy.data.collections.new(final_name)
     if coll.name not in [c.name for c in root.children]:
         root.children.link(coll)
 
-    instrument_base.set_coll_attr(coll, "suffix", suffix)
-    instrument_base.set_coll_attr(coll, "name", name)
+    instrument_base.set_coll_attr(coll, "name", final_name)
     instrument_base.set_coll_attr(coll, "instrument", instrument)
     if target_skeleton is not None:
         instrument_base.set_coll_attr(coll, "skeleton", target_skeleton.name)
@@ -221,11 +242,11 @@ def get_or_create_performer(suffix: str, name: str, instrument: str,
         instrument_base.set_coll_attr(coll, "animation_path", animation_path)
 
     # 建 Body / Instruments 骨架（addons 由各乐器的 add_controllers 懒创建）
-    get_or_create_collection(suffix, "Body", parent=coll)
-    get_or_create_collection(suffix, "Instruments", parent=coll)
+    get_or_create_collection(final_name, "Body", parent=coll)
+    get_or_create_collection(final_name, "Instruments", parent=coll)
 
     return PerformerInfo(
-        suffix=suffix, name=name, instrument=instrument,
+        suffix=final_name, name=final_name, instrument=instrument,
         collection=coll, target_skeleton=target_skeleton,
         target_instrument=target_instrument,
         info_path=info_path, animation_path=animation_path,
@@ -391,10 +412,9 @@ def resuffix_performer(collection: bpy.types.Collection, new_suffix: str,
         obj.name = _swap_suffix_in_name(
             base, old_suffix, old_name, new_suffix, new_name)
 
-    # 3) 根集合改名 + 身份属性
+    # 3) 根集合改名 + 身份属性（名字即后缀，只写一份 md_name）
     collection.name = new_name
-    instrument_base.set_coll_attr(collection, "suffix", new_suffix)
-    instrument_base.set_coll_attr(collection, "name", new_name)
+    instrument_base.set_coll_attr(collection, "name", new_name or new_suffix)
     instrument_base.set_coll_attr(
         collection, "instrument", instrument_base.get_coll_attr(collection, "instrument") or "")
     old_skel = instrument_base.get_coll_attr(collection, "skeleton") or ""
@@ -412,8 +432,8 @@ def resuffix_performer(collection: bpy.types.Collection, new_suffix: str,
         instrument_base.set_coll_attr(collection, "instrument_obj", old_inst)
 
     return PerformerInfo(
-        suffix=new_suffix,
-        name=new_name,
+        suffix=new_name or new_suffix,
+        name=new_name or new_suffix,
         instrument=instrument_base.get_coll_attr(
             collection, "instrument") or "",
         collection=collection,

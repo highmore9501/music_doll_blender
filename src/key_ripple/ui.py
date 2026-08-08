@@ -95,12 +95,8 @@ def _get_key_ripple(props, suffix="", skeleton=None):
 # ── 演奏者/骨骼辅助 ──────────────────────────────────────────
 
 def _get_active_suffix(context):
-    """当前演奏者后缀：公共下拉框选中优先，其次公共后缀输入框"""
-    scene = context.scene
-    active = getattr(scene, ui_utils.SCENE_ACTIVE_PERFORMER, "")
-    if active:
-        return active
-    return getattr(scene, "md_performer_suffix", "")
+    """当前角色名字（公共实现：后缀已与名字合并）"""
+    return ui_utils.get_active_suffix(context.scene)
 
 
 def _get_active_skeleton(context):
@@ -423,22 +419,164 @@ class KEYRIPPLE_OT_generate_animation(Operator):
             return {'CANCELLED'}
 
 
+class KEYRIPPLE_OT_duplicate_performer(Operator):
+    """复制当前角色，生成一个新角色（输入新名字）"""
+    bl_idname = "music_doll.key_ripple_duplicate_performer"
+    bl_label = "复制角色"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    new_name: StringProperty(default="", name="新名字")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "new_name")
+
+    def execute(self, context):
+        scene = context.scene
+        suffix = _get_active_suffix(context)
+        if not suffix:
+            self.report({'ERROR'}, "请先在下拉框选中要复制的角色")
+            return {'CANCELLED'}
+        src = performer_utils.get_performer(suffix)
+        if src is None:
+            self.report(
+                {'ERROR'}, f"找不到已登记的角色 {suffix}（请先初始化该角色）")
+            return {'CANCELLED'}
+        new_name = (self.new_name or "").strip()
+        if not new_name:
+            self.report({'ERROR'}, "请输入新名字")
+            return {'CANCELLED'}
+        if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
+            self.report(
+                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+            return {'CANCELLED'}
+        if performer_utils.has_performer(new_name):
+            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            return {'CANCELLED'}
+
+        try:
+            dup = performer_utils.duplicate_collection_tree(src.collection)
+        except Exception as e:
+            self.report({'ERROR'}, f"复制集合失败: {str(e)}")
+            return {'CANCELLED'}
+        if dup is None:
+            self.report({'ERROR'}, "复制集合失败（未能生成副本）")
+            return {'CANCELLED'}
+
+        # 补上源名字/乐器元信息，让 resuffix 知道要替换什么
+        from ..common import instrument_base
+        instrument_base.set_coll_attr(dup, "name", src.name)
+        instrument_base.set_coll_attr(dup, "instrument", src.instrument)
+
+        new_perf = performer_utils.resuffix_performer(
+            dup, new_name, new_name=new_name)
+
+        # KeyRipple 收尾：重建 ext driver + 整理演奏者根
+        try:
+            key_ripple = _get_key_ripple(
+                scene.keyripple_props, suffix=new_name,
+                skeleton=new_perf.target_skeleton)
+            key_ripple.add_ext_drivers()
+            key_ripple._organize_performer_root()
+        except Exception as e:
+            self.report(
+                {'WARNING'}, f"复制完成，但整理演奏者结构失败: {str(e)}")
+
+        self.report({'INFO'}, f"已复制角色为 {new_name}")
+        return {'FINISHED'}
+
+
+class KEYRIPPLE_OT_rename_performer(Operator):
+    """重命名当前角色：原地修改名字（名字即命名空间后缀），不生成新角色"""
+    bl_idname = "music_doll.key_ripple_rename_performer"
+    bl_label = "重命名当前角色"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    new_name: StringProperty(default="", name="新名字")
+
+    def invoke(self, context, event):
+        src = ui_utils.get_rename_target(context)
+        # 旧值非 ASCII（如被 Blender 中文编码问题弄乱）时不预填，让用户重新输入
+        if src is not None and src.name and src.name.isascii():
+            self.new_name = src.name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "new_name")
+
+    def execute(self, context):
+        scene = context.scene
+        src = ui_utils.get_rename_target(context)
+        if src is None:
+            self.report(
+                {'ERROR'}, "找不到当前角色（请先在下拉框选中，或指定其骨骼/乐器）")
+            return {'CANCELLED'}
+        new_name = (self.new_name or "").strip()
+        if not new_name:
+            self.report({'ERROR'}, "请输入新名字")
+            return {'CANCELLED'}
+        if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
+            self.report(
+                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+            return {'CANCELLED'}
+        if new_name == src.name:
+            self.report({'ERROR'}, f"新名字与当前相同（{new_name}），无需重命名")
+            return {'CANCELLED'}
+        if performer_utils.has_performer(new_name):
+            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            return {'CANCELLED'}
+
+        try:
+            new_perf = performer_utils.resuffix_performer(
+                src.collection, new_name, new_name=new_name)
+        except Exception as e:
+            self.report({'ERROR'}, f"重命名失败: {str(e)}")
+            return {'CANCELLED'}
+
+        # KeyRipple 收尾：重建 ext driver + 整理演奏者根
+        try:
+            key_ripple = _get_key_ripple(
+                scene.keyripple_props, suffix=new_name,
+                skeleton=new_perf.target_skeleton)
+            key_ripple.add_ext_drivers()
+            key_ripple._organize_performer_root()
+        except Exception as e:
+            self.report(
+                {'WARNING'}, f"重命名完成，但整理演奏者结构失败: {str(e)}")
+
+        # 更新场景状态：把当前角色切到新名字
+        try:
+            setattr(scene, ui_utils.SCENE_ACTIVE_PERFORMER, new_name)
+        except Exception:
+            pass
+
+        self.report({'INFO'}, f"已将角色重命名为 {new_name}")
+        return {'FINISHED'}
+
+
 # ── 面板 ──────────────────────────────────────────────────────
 
 class KEYRIPPLE_PT_main_panel(Panel):
+    """KeyRipple 乐器子面板（挂在 MusicDoll 统一主面板下，按乐器类型显示）"""
     bl_label = "KeyRipple"
     bl_idname = "KEYRIPPLE_PT_main_panel"
+    bl_parent_id = "MUSICDOLL_PT_main_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "MusicDoll"
+
+    @classmethod
+    def poll(cls, context):
+        return ui_utils.active_instrument(context) == "key_ripple"
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         props = scene.keyripple_props
-
-        # 公共演奏者选择区
-        ui_utils.draw_performer_selector(layout, scene)
 
         # 初始化区
         box = layout.box()
@@ -516,18 +654,31 @@ def register():
     bpy.utils.register_class(KEYRIPPLE_OT_export_avatar)
     bpy.utils.register_class(KEYRIPPLE_OT_import_avatar)
     bpy.utils.register_class(KEYRIPPLE_OT_generate_animation)
+    bpy.utils.register_class(KEYRIPPLE_OT_duplicate_performer)
+    bpy.utils.register_class(KEYRIPPLE_OT_rename_performer)
     bpy.utils.register_class(KEYRIPPLE_PT_main_panel)
 
     # 注册本乐器工具模块（执行算子）
     from .tools import register as register_tools
     register_tools()
 
+    # 登记本乐器 UI（角色生成器下拉 + 角色操作器接入）
+    ui_utils.register_instrument(
+        "key_ripple", "KeyRipple 钢琴", KEYRIPPLE_PT_main_panel,
+        rename_operator="music_doll.key_ripple_rename_performer",
+        duplicate_operator="music_doll.key_ripple_duplicate_performer")
+
 
 def unregister():
     from .tools import unregister as unregister_tools
     unregister_tools()
 
+    # 注销本乐器 UI 登记
+    ui_utils.unregister_instrument("key_ripple")
+
     bpy.utils.unregister_class(KEYRIPPLE_PT_main_panel)
+    bpy.utils.unregister_class(KEYRIPPLE_OT_rename_performer)
+    bpy.utils.unregister_class(KEYRIPPLE_OT_duplicate_performer)
     bpy.utils.unregister_class(KEYRIPPLE_OT_generate_animation)
     bpy.utils.unregister_class(KEYRIPPLE_OT_import_avatar)
     bpy.utils.unregister_class(KEYRIPPLE_OT_export_avatar)

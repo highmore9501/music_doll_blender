@@ -661,9 +661,8 @@ class BlenderObjectManager:
         skel["fret_dance_instrument"] = int(self.instruments)
         skel["fret_dance_use_vibrato_bar"] = bool(self.use_vibrato_bar)
         from ..common import instrument_base
-        instrument_base.set_coll_attr(performer.collection, "suffix", suffix)
         instrument_base.set_coll_attr(
-            performer.collection, "name", performer_name)
+            performer.collection, "name", performer_name or suffix)
         instrument_base.set_coll_attr(
             performer.collection, "instrument", self.instruments_name)
         instrument_base.set_coll_attr(

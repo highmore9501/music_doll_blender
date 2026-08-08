@@ -5,8 +5,9 @@
 乐器类型 → 缩写前缀的映射（演奏者根空物体命名用）。
 
 约定：
-- 规范键：md_*（存演奏者 Collection 上）；
-- 旧键兼容：老文件（FretDance 已用 performer_suffix 等）读取时回退；
+- 身份只存两个键：md_name（名字，英文 ASCII，兼作命名空间后缀）与 md_instrument（乐器）；
+- 逻辑键 "suffix" 是 "name" 的别名（都读写 md_name），不再有独立的 md_suffix 键；
+- 旧键兼容：迁移前的老文件（performer_* / instrument）读取时回退；
 - 演奏者根空物体命名：<乐器缩写>_<演奏者名>（如 FD_Jeht / KR_Aki）。
 """
 
@@ -16,17 +17,16 @@
 INSTRUMENT_KEYS = {
     "instrument": "md_instrument",
     "name": "md_name",
-    "suffix": "md_suffix",
+    "suffix": "md_name",   # 名字即后缀：只存一份 md_name
     "skeleton": "md_skeleton",
     "instrument_obj": "md_instrument_obj",
     "info_path": "md_info_path",
     "animation_path": "md_animation_path",
 }
 
-# 规范键（md_*）→ 旧键（兼容回退读取）
+# 规范键（md_*）→ 旧键（兼容回退读取；迁移后旧键被清理）
 LEGACY_KEYS = {
     "md_instrument": "instrument",
-    "md_suffix": "performer_suffix",
     "md_name": "performer_name",
     "md_skeleton": "target_skeleton",
     "md_instrument_obj": "target_instrument",

@@ -263,32 +263,33 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 
 ```
 h:\music_doll_blender\
-├── __init__.py                  # 插件入口：注册公共 + 已合并乐器模块
-├── common\                      # 公共模块（相当于 MusicDollCommon）
-│   ├── performer_utils.py       # 演奏者命名空间（从 FretDance 提炼）
-│   ├── object_utils.py          # 集合/物体幂等创建
-│   ├── state_io.py              # 状态存取（对象 ↔ 字典 / 骨骼属性）
-│   ├── animation_utils.py       # 动画通用（fcurve/shape key/driver/clear）
-│   ├── io_utils.py              # JSON 通用读写
-│   ├── instrument_base.py       # 乐器基类（统一属性定义/兼容读取）
-│   └── ui_utils.py              # 通用 UI 组件（演奏者选择器、乐器过滤）
-├── fret_dance\                  # FretDance 乐器模块（迁移自 fret_dance_blender）
-│   ├── __init__.py
-│   ├── config.py                # 控制器/记录器命名配置
-│   ├── object_manager.py        # setup / check / 弦工具
-│   ├── state.py                 # 状态存取（乐器特有）
-│   ├── io.py                    # 导入导出（JSON；文件名不带 _unreal，内容结构与 Unreal 侧一致）
-│   ├── animation.py             # 左手/右手/弦动画
-│   └── ui.py                    # FretDance 面板与算子
-├── key_ripple\                  # KeyRipple 乐器模块（迁移自 key_ripple_blender）
-│   ├── __init__.py
-│   ├── config.py                # KeyRipple 配置
-│   ├── object_manager.py        # setup / check
-│   ├── state.py                 # 状态存取（键盘状态）
-│   ├── io.py                    # .avatar 导入导出
-│   ├── animation.py             # 钢琴动画
-│   └── ui.py                    # KeyRipple 面板与算子
-├── docs\                        # 施工文档
+├── src\                          # 全部源代码（压缩此目录即可安装）
+│   ├── __init__.py               # 插件入口：注册公共 + 已合并乐器模块
+│   ├── common\                   # 公共模块（相当于 MusicDollCommon）
+│   │   ├── performer_utils.py    # 演奏者命名空间（从 FretDance 提炼）
+│   │   ├── object_utils.py       # 集合/物体幂等创建
+│   │   ├── state_io.py           # 状态存取（对象 ↔ 字典 / 骨骼属性）
+│   │   ├── animation_utils.py    # 动画通用（fcurve/shape key/driver/clear）
+│   │   ├── io_utils.py           # JSON 通用读写
+│   │   ├── instrument_base.py    # 乐器基类（统一属性定义/兼容读取）
+│   │   └── ui_utils.py           # 通用 UI 组件（演奏者选择器、乐器过滤）
+│   ├── fret_dance\               # FretDance 乐器模块（迁移自 fret_dance_blender）
+│   │   ├── __init__.py
+│   │   ├── config.py             # 控制器/记录器命名配置
+│   │   ├── object_manager.py     # setup / check / 弦工具
+│   │   ├── state.py              # 状态存取（乐器特有）
+│   │   ├── io.py                 # 导入导出（JSON；文件名不带 _unreal，内容结构与 Unreal 侧一致）
+│   │   ├── animation.py          # 左手/右手/弦动画
+│   │   └── ui.py                 # FretDance 面板与算子
+│   └── key_ripple\               # KeyRipple 乐器模块（迁移自 key_ripple_blender）
+│       ├── __init__.py
+│       ├── config.py             # KeyRipple 配置
+│       ├── object_manager.py     # setup / check
+│       ├── state.py              # 状态存取（键盘状态）
+│       ├── io.py                 # .avatar 导入导出
+│       ├── animation.py          # 钢琴动画
+│       └── ui.py                 # KeyRipple 面板与算子
+├── docs\                         # 施工文档
 │   └── music_doll_blender_施工文档.md
 └── README.md
 ```

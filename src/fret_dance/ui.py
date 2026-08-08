@@ -6,7 +6,6 @@
 """
 
 import os
-import re
 import json
 
 import bpy  # type: ignore
@@ -53,12 +52,8 @@ LEFT_HAND_POSITIONS_MAP = {
 # ── 演奏者/后缀/骨骼辅助（多演奏者、插件无状态化） ──────────────
 
 def _get_active_suffix(context):
-    """当前演奏者后缀：公共下拉框选中优先，其次公共后缀输入框"""
-    scene = context.scene
-    active = getattr(scene, ui_utils.SCENE_ACTIVE_PERFORMER, "")
-    if active:
-        return active
-    return getattr(scene, "md_performer_suffix", "")
+    """当前角色名字（公共实现：后缀已与名字合并）"""
+    return ui_utils.get_active_suffix(context.scene)
 
 
 def _get_active_skeleton(context):
@@ -85,6 +80,11 @@ def _get_active_instrument(context):
         if p is not None and p.target_instrument is not None:
             return p.target_instrument
     return None
+
+
+def _get_rename_target(context):
+    """定位要重命名/复制的演奏者（公共实现）"""
+    return ui_utils.get_rename_target(context)
 
 
 def _build_base_state(context, use_skeleton=True):
@@ -257,66 +257,89 @@ class FRET_DANCE_OT_load_state(Operator):
         return {'FINISHED'}
 
 
-class FRET_DANCE_OT_export_info(Operator, ExportHelper):
-    """Export controller information to JSON file（文件名由用户选择，不带 _unreal）"""
+class FRET_DANCE_OT_export_info(Operator):
+    """Export controller information to JSON file
+
+    不再弹文件浏览器，直接使用角色信息里的「人物信息路径」；
+    执行前先弹窗确认（会覆盖该路径指向的文件内容）。
+    """
     bl_idname = "music_doll.fret_dance_export_info"
-    bl_label = "Export Controller Info"
+    bl_label = "导出人物信息"
     bl_options = {'REGISTER', 'UNDO'}
 
-    filename_ext = ".json"
+    def invoke(self, context, event):
+        # 导出会覆盖文件里已有的信息 → 先弹窗确认
+        return context.window_manager.invoke_props_dialog(self)
 
-    __annotations__ = {
-        "filter_glob": StringProperty(
-            default="*.json",
-            options={'HIDDEN'},
-            maxlen=255,
-        )
-    }
+    def draw(self, context):
+        layout = self.layout
+        layout.label(
+            text="导出将覆盖「人物信息路径」指向的文件内容，确定继续？",
+            icon="ERROR")
 
     def execute(self, context):
-        base_state = _build_base_state(context)
-
-        target_skeleton = _get_active_skeleton(context)
-        if target_skeleton is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+        scene = context.scene
+        filepath = getattr(scene, ui_utils.SCENE_INFO_PATH, "")
+        if not filepath:
+            self.report({'ERROR'}, "请先在「角色操作」面板中设置人物信息路径")
             return {'CANCELLED'}
 
-        base_state.export_controller_info(self.filepath, target_skeleton)
-        self.report({'INFO'}, f"Controller info exported to {self.filepath}")
-        return {'FINISHED'}
-
-
-class FRET_DANCE_OT_import_info(Operator, ImportHelper):
-    """Import controller information from JSON file"""
-    bl_idname = "music_doll.fret_dance_import_info"
-    bl_label = "Import Controller Info"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    filename_ext = ".json"
-
-    __annotations__ = {
-        "filter_glob": StringProperty(
-            default="*.json",
-            options={'HIDDEN'},
-            maxlen=255,
-        )
-    }
-
-    def execute(self, context):
         base_state = _build_base_state(context)
-
         target_skeleton = _get_active_skeleton(context)
         if target_skeleton is None:
             self.report({'ERROR'}, "请先选择目标骨骼")
             return {'CANCELLED'}
 
         try:
-            base_state.import_controller_info(self.filepath, target_skeleton)
+            base_state.export_controller_info(filepath, target_skeleton)
+        except Exception as e:
+            self.report({'ERROR'}, f"Export Controller Info Error: {str(e)}")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Controller info exported to {filepath}")
+        return {'FINISHED'}
+
+
+class FRET_DANCE_OT_import_info(Operator):
+    """Import controller information from JSON file
+
+    不再弹文件浏览器，直接使用角色信息里的「人物信息路径」；
+    执行前先弹窗确认（会覆盖场景中的演奏者信息）。
+    """
+    bl_idname = "music_doll.fret_dance_import_info"
+    bl_label = "导入人物信息"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def invoke(self, context, event):
+        # 导入会覆盖场景中的演奏者信息 → 先弹窗确认
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(
+            text="导入将覆盖场景中的演奏者信息，确定继续？",
+            icon="ERROR")
+
+    def execute(self, context):
+        scene = context.scene
+        filepath = getattr(scene, ui_utils.SCENE_INFO_PATH, "")
+        if not filepath:
+            self.report({'ERROR'}, "请先在「角色操作」面板中设置人物信息路径")
+            return {'CANCELLED'}
+
+        base_state = _build_base_state(context)
+        target_skeleton = _get_active_skeleton(context)
+        if target_skeleton is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+
+        try:
+            base_state.import_controller_info(filepath, target_skeleton)
         except Exception as e:
             self.report({'ERROR'}, f"Import Controller Info Error: {str(e)}")
             return {'CANCELLED'}
 
-        self.report({'INFO'}, f"Controller info imported from {self.filepath}")
+        self.report({'INFO'}, f"Controller info imported from {filepath}")
         return {'FINISHED'}
 
 
@@ -561,59 +584,41 @@ class FRET_DANCE_OT_generate_all_animation(Operator):
             return {'CANCELLED'}
 
 
-class FRET_DANCE_OT_suggest_suffix(Operator):
-    """从当前骨骼名生成建议后缀"""
-    bl_idname = "music_doll.fret_dance_suggest_suffix"
-    bl_label = "从骨骼名生成后缀"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        skel = _get_active_skeleton(context)
-        if skel is None:
-            self.report({'ERROR'}, "请先选中/指定目标骨骼")
-            return {'CANCELLED'}
-        base = performer_utils.strip_duplicate_suffix(skel.name)
-        base = re.sub(r"^(Armature[\s_]?|AR_|arm_|Skeleton[\s_]?)", "", base)
-        base = "".join(ch for ch in base if ch.isalnum()) or "P"
-        context.scene.md_performer_suffix = base[:6]
-        self.report(
-            {'INFO'}, f"建议后缀: {context.scene.md_performer_suffix}")
-        return {'FINISHED'}
-
-
 class FRET_DANCE_OT_duplicate_performer(Operator):
-    """复制当前演奏者，生成一个新演奏者（自动重新后缀）"""
+    """复制当前角色，生成一个新角色（输入新名字）"""
     bl_idname = "music_doll.fret_dance_duplicate_performer"
-    bl_label = "复制演奏者"
+    bl_label = "复制角色"
     bl_options = {'REGISTER', 'UNDO'}
 
-    new_suffix: StringProperty(default="", name="新后缀")
-    new_name: StringProperty(default="", name="新显示名(可留空=用后缀)")
+    new_name: StringProperty(default="", name="新名字")
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "new_suffix")
         layout.prop(self, "new_name")
 
     def execute(self, context):
         scene = context.scene
         suffix = _get_active_suffix(context)
         if not suffix:
-            self.report({'ERROR'}, "请先在下拉框/后缀输入框指定要复制的演奏者")
+            self.report({'ERROR'}, "请先在下拉框选中要复制的角色")
             return {'CANCELLED'}
         src = performer_utils.get_performer(suffix)
         if src is None:
-            self.report({'ERROR'}, f"找不到已登记的演奏者 {suffix}（请先初始化该演奏者）")
+            self.report({'ERROR'}, f"找不到已登记的角色 {suffix}（请先初始化该角色）")
             return {'CANCELLED'}
-        new_suffix = (self.new_suffix or "").strip()
-        if not new_suffix:
-            self.report({'ERROR'}, "请输入新后缀")
+        new_name = (self.new_name or "").strip()
+        if not new_name:
+            self.report({'ERROR'}, "请输入新名字")
             return {'CANCELLED'}
-        if performer_utils.has_performer(new_suffix):
-            self.report({'ERROR'}, f"已存在后缀 {new_suffix}，请换一个")
+        if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
+            self.report(
+                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+            return {'CANCELLED'}
+        if performer_utils.has_performer(new_name):
+            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
             return {'CANCELLED'}
 
         try:
@@ -625,32 +630,101 @@ class FRET_DANCE_OT_duplicate_performer(Operator):
             self.report({'ERROR'}, "复制集合失败（未能生成副本）")
             return {'CANCELLED'}
 
-        # 补上旧后缀/旧名元信息，让 resuffix 知道要替换什么
+        # 补上源名字/乐器元信息，让 resuffix 知道要替换什么；
+        # instrument 决定根空物体前缀（FD/KR...），漏掉会导致回退成 MD_
         from ..common import instrument_base
-        instrument_base.set_coll_attr(dup, "suffix", src.suffix)
         instrument_base.set_coll_attr(dup, "name", src.name)
+        instrument_base.set_coll_attr(dup, "instrument", src.instrument)
 
-        new_name = (self.new_name or "").strip() or new_suffix
         new_perf = performer_utils.resuffix_performer(
-            dup, new_suffix, new_name=new_name)
+            dup, new_name, new_name=new_name)
 
-        # 重建 ext driver（新后缀）
+        # 重建 ext driver（新名字）
         state = BaseState(Instruments(int(scene.fret_dance_instruments)),
                           use_vibrato_bar=scene.fret_dance_use_vibrato_bar,
-                          performer_suffix=new_suffix,
+                          performer_suffix=new_name,
                           target_skeleton=new_perf.target_skeleton)
         state.add_ext_drivers()
 
-        # 确保新演奏者的根 <缩写>_<新名> 存在并挂接好
+        # 确保新角色的根 <缩写>_<新名> 存在并挂接好
         state._organize_performer_root()
 
-        # 继承源演奏者的设置（无状态化：从源骨骼读到新骨骼）
+        # 继承源角色的设置（无状态化：从源骨骼读到新骨骼）
         if src.target_skeleton is not None and new_perf.target_skeleton is not None:
             settings = state.load_settings(src.target_skeleton)
             state.save_settings(new_perf.target_skeleton,
                                 settings["instrument"], settings["use_vibrato_bar"])
 
-        self.report({'INFO'}, f"已复制演奏者为 {new_name} ({new_suffix})")
+        self.report({'INFO'}, f"已复制角色为 {new_name}")
+        return {'FINISHED'}
+
+
+class FRET_DANCE_OT_rename_performer(Operator):
+    """重命名当前角色：原地修改名字（名字即命名空间后缀），不生成新角色"""
+    bl_idname = "music_doll.fret_dance_rename_performer"
+    bl_label = "重命名当前角色"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    new_name: StringProperty(default="", name="新名字")
+
+    def invoke(self, context, event):
+        src = _get_rename_target(context)
+        # 旧值非 ASCII（如被 Blender 中文编码问题弄乱）时不预填，让用户重新输入
+        if src is not None and src.name and src.name.isascii():
+            self.new_name = src.name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "new_name")
+
+    def execute(self, context):
+        scene = context.scene
+        src = _get_rename_target(context)
+        if src is None:
+            self.report(
+                {'ERROR'}, "找不到当前角色（请先在下拉框选中，或指定其骨骼/乐器）")
+            return {'CANCELLED'}
+        new_name = (self.new_name or "").strip()
+        if not new_name:
+            self.report({'ERROR'}, "请输入新名字")
+            return {'CANCELLED'}
+        if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
+            self.report(
+                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+            return {'CANCELLED'}
+        if new_name == src.name:
+            self.report({'ERROR'}, f"新名字与当前相同（{new_name}），无需重命名")
+            return {'CANCELLED'}
+        if performer_utils.has_performer(new_name):
+            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            return {'CANCELLED'}
+
+        try:
+            new_perf = performer_utils.resuffix_performer(
+                src.collection, new_name, new_name=new_name)
+        except Exception as e:
+            self.report({'ERROR'}, f"重命名失败: {str(e)}")
+            return {'CANCELLED'}
+
+        # 重建 ext driver（新名字）+ 整理角色根（改名已由 resuffix 完成）
+        try:
+            state = BaseState(Instruments(int(scene.fret_dance_instruments)),
+                              use_vibrato_bar=scene.fret_dance_use_vibrato_bar,
+                              performer_suffix=new_name,
+                              target_skeleton=new_perf.target_skeleton)
+            state.add_ext_drivers()
+            state._organize_performer_root()
+        except Exception as e:
+            self.report({'WARNING'}, f"重命名完成，但重建驱动失败: {str(e)}")
+
+        # 更新场景状态：把当前角色切到新名字
+        try:
+            setattr(scene, ui_utils.SCENE_ACTIVE_PERFORMER, new_name)
+        except Exception:
+            pass
+
+        self.report({'INFO'}, f"已将角色重命名为 {new_name}")
         return {'FINISHED'}
 
 
@@ -684,19 +758,21 @@ class FRET_DANCE_OT_migrate_legacy(Operator):
 
 
 class FRET_DANCE_PT_main_panel(Panel):
-    """Creates a Panel in the 3D View sidebar"""
+    """FretDance 乐器子面板（挂在 MusicDoll 统一主面板下，按乐器类型显示）"""
     bl_label = "FretDance"
     bl_idname = "FRET_DANCE_PT_main_panel"
+    bl_parent_id = "MUSICDOLL_PT_main_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "MusicDoll"
 
+    @classmethod
+    def poll(cls, context):
+        return ui_utils.active_instrument(context) == "fret_dance"
+
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-
-        # 公共演奏者选择区（演奏者/后缀/骨骼/乐器/路径）
-        ui_utils.draw_performer_selector(layout, scene)
 
         # 第一大块：初始化
         box = layout.box()
@@ -712,10 +788,6 @@ class FRET_DANCE_PT_main_panel(Panel):
         row = box.row(align=True)
         row.operator("music_doll.fret_dance_check_status")
         row.operator("music_doll.fret_dance_setup_objects")
-
-        row = box.row()
-        row.operator("music_doll.fret_dance_duplicate_performer",
-                     text="复制当前演奏者")
 
         row = box.row()
         row.operator("music_doll.fret_dance_migrate_legacy",
@@ -899,19 +971,28 @@ def register():
     bpy.utils.register_class(FRET_DANCE_OT_generate_right_hand_animation)
     bpy.utils.register_class(FRET_DANCE_OT_generate_string_animation)
     bpy.utils.register_class(FRET_DANCE_OT_generate_all_animation)
-    bpy.utils.register_class(FRET_DANCE_OT_suggest_suffix)
     bpy.utils.register_class(FRET_DANCE_OT_duplicate_performer)
+    bpy.utils.register_class(FRET_DANCE_OT_rename_performer)
     bpy.utils.register_class(FRET_DANCE_OT_migrate_legacy)
 
     # 注册本乐器工具模块（执行算子）
     from .tools import register as register_tools
     register_tools()
 
+    # 登记本乐器 UI（角色生成器下拉 + 角色操作器接入）
+    ui_utils.register_instrument(
+        "fret_dance", "FretDance 吉他", FRET_DANCE_PT_main_panel,
+        rename_operator="music_doll.fret_dance_rename_performer",
+        duplicate_operator="music_doll.fret_dance_duplicate_performer")
+
 
 def unregister():
     # 注销本乐器工具模块
     from .tools import unregister as unregister_tools
     unregister_tools()
+
+    # 注销本乐器 UI 登记
+    ui_utils.unregister_instrument("fret_dance")
 
     bpy.utils.unregister_class(FRET_DANCE_PT_main_panel)
     bpy.utils.unregister_class(FRET_DANCE_OT_export_info)
@@ -925,8 +1006,8 @@ def unregister():
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_string_animation)
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_right_hand_animation)
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_left_hand_animation)
-    bpy.utils.unregister_class(FRET_DANCE_OT_suggest_suffix)
     bpy.utils.unregister_class(FRET_DANCE_OT_duplicate_performer)
+    bpy.utils.unregister_class(FRET_DANCE_OT_rename_performer)
     bpy.utils.unregister_class(FRET_DANCE_OT_migrate_legacy)
 
     del bpy.types.Object.fret_dance_controller_data

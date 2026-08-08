@@ -40,7 +40,7 @@
 
 ## 怎么用
 
-1. 把整个文件夹放到 Blender 的插件目录（比如 `Blender\5.0\scripts\addons\`）下；
+1. 安装：把 `src\` 目录改名成 `music_doll_blender` 后放进 Blender 的插件目录（比如 `Blender\5.0\scripts\addons\`）；也可以直接把 `src\` 目录压缩成 zip 拖进 Blender 的“偏好设置 → 插件”窗口自动安装；
 2. 在 Blender 的"偏好设置 → 插件"里找到并启用 **MusicDoll Blender**；
 3. 在 3D 视图右侧的侧边栏找到 **MusicDoll** 面板；
 4. 选一个演奏者（或在"演奏者"里新建），指定他的骨骼和乐器；
@@ -52,11 +52,12 @@
 
 ```
 music_doll_blender/
-├── __init__.py      # 插件入口，负责把公共部分和各乐器模块都装好
-├── common/          # 公共部分：所有乐器共用的规则和工具
-│   └── tools/       # 公共工具（比如修正手指骨骼）
-├── fret_dance/      # 吉他模块
-├── key_ripple/      # 钢琴模块
+├── src/             # 全部源代码（把此目录压缩成 zip 拖入 Blender 即可安装）
+│   ├── __init__.py  # 插件入口，负责把公共部分和各乐器模块都装好
+│   ├── common/      # 公共部分：所有乐器共用的规则和工具
+│   │   └── tools/   # 公共工具（比如修正手指骨骼）
+│   ├── fret_dance/  # 吉他模块
+│   └── key_ripple/  # 钢琴模块
 └── docs/            # 施工文档（记录设计思路和计划）
 ```
 

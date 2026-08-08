@@ -27,7 +27,8 @@ bl_info = {
 
 
 def register():
-    # 公共模块场景属性（演奏者/骨骼/乐器/路径）—— 所有乐器共用
+    # 公共场景属性 + 统一主面板(MUSICDOLL_PT_main_panel) + 新建角色算子。
+    # 父面板必须先于乐器子面板注册（bl_parent_id 校验），故放最前。
     ui_utils.register_scene_props()
 
     # 公共工具（所有乐器共用）
