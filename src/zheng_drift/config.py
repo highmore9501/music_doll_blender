@@ -127,10 +127,10 @@ class ZhengConfig:
         full_name = self.obj_name(name)
         return object_utils.get_or_create_collection(full_name, parent_collection)
 
-    def create_or_update_object(self, obj_name, obj_type=ObjectType.CUBE,
+    def create_or_update_object(self, obj_name, obj_type=ObjectType.SPHERE_EMPTY,
                                 collection=None, rotation_mode='QUATERNION',
                                 scale=1.0):
-        """创建或更新物体（obj_type 为 ObjectType 枚举或 object_utils 字符串）"""
+        """创建或更新物体（obj_type 为 ObjectType 枚举或 object_utils 字符串；控件统一为球形空物体）"""
         if isinstance(obj_type, ObjectType):
             obj_type = obj_type.value
         if hasattr(self, 'pre_obj_names') and obj_name in self.pre_obj_names:
@@ -163,7 +163,7 @@ class ZhengConfig:
 
         # 控制器根节点（固定乐器，无 controller_root_offset）
         controller_root = self.create_or_update_object(
-            self.obj_name("controller_root"), "sphere", controllers_collection)
+            self.obj_name("controller_root"), ObjectType.SPHERE_EMPTY, controllers_collection)
 
         foot_collection = self.get_or_create_collection(
             "Foot_Controllers", controllers_collection)
@@ -178,23 +178,29 @@ class ZhengConfig:
         bilinear_collection = self.get_or_create_collection(
             "Bilinear_Helpers", controllers_collection)
 
-        # 双脚控制器
+        # 双脚控制器（球形空物体；极向量 pole 用空环）
         for controller_name, obj_name in self.foot_controllers.items():
+            obj_type = (ObjectType.CIRCLE_EMPTY if obj_name.endswith("_pole")
+                        else ObjectType.SPHERE_EMPTY)
             self.create_or_update_object(
-                self.obj_name(obj_name), ObjectType.CUBE, foot_collection)
+                self.obj_name(obj_name), obj_type, foot_collection)
 
-        # 左右手控制器
+        # 左右手控制器（含手指极向量；极向量 pole 用空环，其余球形空物体）
         for controller_name, obj_name in self.left_hand_controllers.items():
+            obj_type = (ObjectType.CIRCLE_EMPTY if obj_name.endswith("_pole")
+                        else ObjectType.SPHERE_EMPTY)
             self.create_or_update_object(
-                self.obj_name(obj_name), ObjectType.CUBE, left_hand_collection)
+                self.obj_name(obj_name), obj_type, left_hand_collection)
         for controller_name, obj_name in self.right_hand_controllers.items():
+            obj_type = (ObjectType.CIRCLE_EMPTY if obj_name.endswith("_pole")
+                        else ObjectType.SPHERE_EMPTY)
             self.create_or_update_object(
-                self.obj_name(obj_name), ObjectType.CUBE, right_hand_collection)
+                self.obj_name(obj_name), obj_type, right_hand_collection)
 
-        # 特殊朝向控制器
+        # 特殊朝向控制器（球形空物体）
         for controller_name, obj_name in self.special_target_controllers.items():
             self.create_or_update_object(
-                self.obj_name(obj_name), ObjectType.CUBE, target_collection)
+                self.obj_name(obj_name), ObjectType.SPHERE_EMPTY, target_collection)
 
         # 双线性映射辅助控制器（球形空物体）
         print("\n创建双线性映射辅助控制器...")
@@ -221,7 +227,7 @@ class ZhengConfig:
                     print(f"  ✓ 设置父子关系：{finger_obj.name} → {palm_obj.name}")
                 ext_obj = self.create_or_update_object(
                     self.obj_name(
-                        f"ext_{finger_name}"), ObjectType.CUBE, collection,
+                        f"ext_{finger_name}"), ObjectType.SPHERE_EMPTY, collection,
                     scale=0.7)
                 if ext_obj.parent != palm_obj:
                     ext_obj.parent = palm_obj

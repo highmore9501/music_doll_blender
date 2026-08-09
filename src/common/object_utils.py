@@ -80,6 +80,9 @@ def create_or_update_object(obj_name: str, obj_type: str = "cube",
             location=(0, 0, 0), scale=(0.01, 0.01, 0.01))
     elif obj_type == "sphere":
         bpy.ops.object.empty_add(type="SPHERE", radius=0.01 * scale)
+    elif obj_type == "circle":
+        # 空环（IK 极向量/pole 用，半径放大以便拾取）
+        bpy.ops.object.empty_add(type="CIRCLE", radius=0.1 * scale)
     elif obj_type == "cone_empty":
         bpy.ops.object.empty_add(type="CONE", radius=0.01 * scale)
     elif obj_type == "single_arrow":

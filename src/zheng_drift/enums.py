@@ -29,6 +29,7 @@ class ObjectType(Enum):
     CUBE = "cube"
     CONE = "cone"
     SPHERE_EMPTY = "sphere"       # 注意：object_utils 用 "sphere" 而非 "sphere_empty"
+    CIRCLE_EMPTY = "circle"       # 空环（IK 极向量 / pole 用）
     CONE_EMPTY = "cone_empty"
     SINGLE_ARROW = "single_arrow"
 

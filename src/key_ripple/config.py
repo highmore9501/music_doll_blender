@@ -111,10 +111,10 @@ class KeyRipple:
         full_name = self.obj_name(name)
         return object_utils.get_or_create_collection(full_name, parent_collection)
 
-    def create_or_update_object(self, obj_name, obj_type="cube",
+    def create_or_update_object(self, obj_name, obj_type="sphere",
                                 collection=None, rotation_mode='QUATERNION',
                                 scale=1.0):
-        """创建或更新物体的通用方法"""
+        """创建或更新物体的通用方法（控件统一为球形空物体）"""
         if hasattr(self, 'pre_obj_names') and obj_name in self.pre_obj_names:
             self.pre_obj_names.remove(obj_name)
         return object_utils.create_or_update_object(
@@ -149,33 +149,33 @@ class KeyRipple:
         right_hand_controller_collection = self.get_or_create_collection(
             "Right_Hand_Controllers", controllers_collection)
 
-        # 创建手指控制器
+        # 创建手指控制器（球形空物体）
         for finger_number, controller_name in self.finger_controllers.items():
             if finger_number < self.one_hand_finger_number:
                 self.create_or_update_object(
-                    self.obj_name(controller_name), "cube", left_hand_controller_collection)
+                    self.obj_name(controller_name), "sphere", left_hand_controller_collection)
             else:
                 self.create_or_update_object(
-                    self.obj_name(controller_name), "cube", right_hand_controller_collection)
+                    self.obj_name(controller_name), "sphere", right_hand_controller_collection)
 
-        # 创建手指辅助控件（ext_ 前缀）
+        # 创建手指辅助控件（ext_ 前缀，球形空物体）
         for finger_number, controller_name in self.finger_controllers.items():
             ext_name = self.obj_name(f"ext_{controller_name}")
             if finger_number < self.one_hand_finger_number:
                 self.create_or_update_object(
-                    ext_name, "cube", left_hand_controller_collection, scale=0.7)
+                    ext_name, "sphere", left_hand_controller_collection, scale=0.7)
             else:
                 self.create_or_update_object(
-                    ext_name, "cube", right_hand_controller_collection, scale=0.7)
+                    ext_name, "sphere", right_hand_controller_collection, scale=0.7)
 
-        # 创建手掌控制器
+        # 创建手掌控制器（球形空物体）
         for hand_controller_name, controller_name in self.hand_controllers.items():
             if controller_name.endswith("_L"):
                 collection = left_hand_controller_collection
             else:
                 collection = right_hand_controller_collection
             self.create_or_update_object(
-                self.obj_name(controller_name), "cube", collection)
+                self.obj_name(controller_name), "sphere", collection)
 
         # 将手指控制器和 ext 控件设置为对应手掌控制器的子级
         for finger_number, controller_name in self.finger_controllers.items():
@@ -219,9 +219,11 @@ class KeyRipple:
         #    都丢了这段，导致三个控件从未被创建、Head_Control 状态无法保存。
         target_collection = self.get_or_create_collection(
             "Target_Controllers", controllers_collection)
+        # 目标/朝向控制器（Mid_Hand / Look_At / Head_Control）用球形空物体，
+        # 轻量且便于拾取，不占真实 mesh
         for target_key, target_name in self.target_points.items():
             self.create_or_update_object(
-                self.obj_name(target_name), "cube", target_collection)
+                self.obj_name(target_name), "sphere", target_collection)
 
         # Mid_Hand 加 XYZ 驱动（居中于 H_L/H_R）；Look_At 挂到 Mid_Hand 下
         mid_hand = self.obj("Mid_Hand")

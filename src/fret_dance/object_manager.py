@@ -24,9 +24,9 @@ class BlenderObjectManager:
         """将对象移动到指定集合"""
         object_utils.move_object_to_collection(obj, collection)
 
-    def create_or_update_object(self, obj_name, obj_type="cube", collection=None,
+    def create_or_update_object(self, obj_name, obj_type="sphere", collection=None,
                                 rotation_mode='QUATERNION', scale=1.0):
-        """创建或更新物体的通用方法"""
+        """创建或更新物体的通用方法（控件统一为球形空物体）"""
         # 从pre_obj_names中移除同名物体
         if hasattr(self, 'pre_obj_names') and obj_name in self.pre_obj_names:
             self.pre_obj_names.remove(obj_name)
@@ -142,29 +142,25 @@ class BlenderObjectManager:
         right_hand_controller_collection = self.get_or_create_collection(
             "Right_Hand_Controllers", controllers_collection)
 
-        # 添加左手控制器
+        # 添加左手控制器（球形空物体）
         for controller_name, obj_name in self.left_hand_controllers.items():
-            obj_type = "cone" if 'rotation' in controller_name else "cube"
             self.create_or_update_object(
-                self.obj_name(obj_name), obj_type, left_hand_controller_collection)
+                self.obj_name(obj_name), "sphere", left_hand_controller_collection)
 
-        # 添加右手控制器
+        # 添加右手控制器（球形空物体）
         for controller_name, obj_name in self.right_hand_controllers.items():
-            obj_type = "cone" if 'rotation' in controller_name else "cube"
             self.create_or_update_object(
-                self.obj_name(obj_name), obj_type, right_hand_controller_collection)
+                self.obj_name(obj_name), "sphere", right_hand_controller_collection)
 
-        # 添加左手手指控制器
+        # 添加左手手指控制器（球形空物体）
         for controller_name, obj_name in self.left_finger_controllers.items():
-            obj_type = "cone" if 'rotation' in controller_name else "cube"
             self.create_or_update_object(
-                self.obj_name(obj_name), obj_type, left_hand_controller_collection)
+                self.obj_name(obj_name), "sphere", left_hand_controller_collection)
 
-        # 添加右手手指控制器
+        # 添加右手手指控制器（球形空物体）
         for controller_name, obj_name in self.right_finger_controllers.items():
-            obj_type = "cone" if 'rotation' in controller_name else "cube"
             self.create_or_update_object(
-                self.obj_name(obj_name), obj_type, right_hand_controller_collection)
+                self.obj_name(obj_name), "sphere", right_hand_controller_collection)
 
         # 设置控制器父子层级（按乐器规则）
         self.set_controller_hierarchy()
@@ -241,7 +237,7 @@ class BlenderObjectManager:
             for finger_name in [f"T_{hand}", f"I_{hand}", f"M_{hand}", f"R_{hand}", f"P_{hand}"]:
                 ext_name = self.obj_name(f"ext_{finger_name}")
                 ext_obj = self.create_or_update_object(
-                    ext_name, "cube", collection, scale=0.7)
+                    ext_name, "sphere", collection, scale=0.7)
                 finger_obj = self.obj(finger_name)
                 if finger_obj and finger_obj.parent and ext_obj.parent != finger_obj.parent:
                     ext_obj.parent = finger_obj.parent
@@ -249,8 +245,9 @@ class BlenderObjectManager:
                     pole_name = self.obj_name(f"TP_{hand}")
                 else:
                     pole_name = self.obj_name(f"{finger_name}_pole")
+                # pole 用空环（与 key_ripple / zheng_drift 保持一致）
                 pole_obj = self.create_or_update_object(
-                    pole_name, "sphere", collection)
+                    pole_name, "circle", collection)
                 if pole_obj:
                     if pole_obj.parent != ext_obj:
                         pole_obj.parent = ext_obj
