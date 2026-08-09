@@ -23,7 +23,7 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
         id="key_ripple_make_shape_keys",
         label="为钢琴键创建 Shape Keys",
         operator="music_doll.tool_key_ripple_make_shape_keys",
-        icon="SHAPE_KEY",
+        icon="SHAPEKEY_DATA",
         draw=_draw_make_shape_keys,
     ),
 ]

@@ -51,22 +51,20 @@ def export_avatar(
 
     def get_recorder_section(ctrl_name):
         """返回 (top_key, sub_key) 如 ('finger_recorders', 'left_finger_recorders')"""
-        # 手指控制器（完整名带后缀）
+        # 手指控制器（骨骼/avatar 数据键 = 短名，无演奏者后缀）
         for fn, name in key_ripple.finger_controllers.items():
-            full = key_ripple.obj_name(name)
-            if ctrl_name == full:
+            if ctrl_name == name:
                 side = "left_finger_recorders" if ctrl_name.endswith(
                     "_L") else "right_finger_recorders"
                 return ("finger_recorders", side)
         # 手掌控制器
         for role, name in key_ripple.hand_controllers.items():
-            full = key_ripple.obj_name(name)
-            if ctrl_name == full:
+            if ctrl_name == name:
                 side = "left_hand_recorders" if ctrl_name.endswith(
                     "_L") else "right_hand_recorders"
                 return ("hand_recorders", side)
         # Head_Control
-        if ctrl_name == key_ripple.obj_name("Head_Control"):
+        if ctrl_name == "Head_Control":
             return ("target_points_recorders", "head_position_recorders")
         return None
 
@@ -98,7 +96,7 @@ def export_avatar(
         if full in bpy.data.objects:
             obj = bpy.data.objects[full]
             result["key_board_positions"][position_key] = {
-                "name": full,
+                "name": obj_name,
                 "location": list(obj.location),
             }
 

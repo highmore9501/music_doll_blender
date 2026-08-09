@@ -269,8 +269,20 @@ class KeyRipple:
             f"已将 {look_at_obj.name} 设为 {mid_hand_obj.name} 的子级，初始位置: [0, 0, 0]")
 
     def add_finger_pole_targets(self):
-        """为所有手指控制器创建/更新 pole target（绑定在对应 ext 控件下）"""
+        """为所有手指控制器创建/更新 pole target（绑定在对应 ext 控件下）
+
+        pole 按左右手分别归入 addons 下的 Left/Right_Hand_Controllers 目录。
+        """
         print("\n添加手指Pole Targets...")
+
+        # 获取左右手控制器集合（pole 按左右手归入对应目录）
+        main_collection = self._get_addons_collection()
+        controllers_collection = self.get_or_create_collection(
+            "Controllers", main_collection)
+        left_hand_collection = self.get_or_create_collection(
+            "Left_Hand_Controllers", controllers_collection)
+        right_hand_collection = self.get_or_create_collection(
+            "Right_Hand_Controllers", controllers_collection)
 
         for controller_key, controller_name in self.finger_controllers.items():
             full_ctrl = self.obj_name(controller_name)
@@ -283,6 +295,11 @@ class KeyRipple:
                 print(f"  • ext 控件 {ext_name} 不存在，跳过")
                 continue
 
+            # 按左右手确定 pole 应归属的集合
+            pole_collection = (left_hand_collection
+                               if controller_key < self.one_hand_finger_number
+                               else right_hand_collection)
+
             pole_target_name = self.obj_name(f"{controller_name}_pole")
             ext_obj = bpy.data.objects[ext_name]
 
@@ -292,10 +309,16 @@ class KeyRipple:
                 pole_target.name = pole_target_name
                 pole_target.parent = ext_obj
                 pole_target.location = (0, 0, 1.0)
+                self.move_object_to_collection(pole_target, pole_collection)
                 print(
-                    f"  • 已为 {full_ctrl} 创建 pole target: {pole_target_name} -> {ext_name}")
+                    f"  • 已为 {full_ctrl} 创建 pole target: {pole_target_name} -> {ext_name}（{pole_collection.name}）")
             else:
                 pole_target = bpy.data.objects[pole_target_name]
+                # 确保归入正确的左右手目录（幂等）
+                if pole_target.name not in pole_collection.objects:
+                    self.move_object_to_collection(
+                        pole_target, pole_collection)
+                    print(f"  • {pole_target_name} 已归入 {pole_collection.name}")
                 if pole_target.parent != ext_obj:
                     pole_target.parent = ext_obj
                     print(f"  • {pole_target_name} 已重新绑定到 {ext_name} 下方")

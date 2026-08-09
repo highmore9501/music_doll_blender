@@ -132,14 +132,14 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
         id="zheng_string_shape_key",
         label="生成弦 Shape Key",
         operator="music_doll.tool_zheng_create_string_shape_key",
-        icon="SHAPE_KEY",
+        icon="SHAPEKEY_DATA",
         draw=_draw_string_shape_key,
     ),
     ToolDef(
         id="zheng_all_strings_shape_keys",
         label="生成所有弦 Shape Key",
         operator="music_doll.tool_zheng_create_all_strings_shape_keys",
-        icon="SHAPE_KEY",
+        icon="SHAPEKEY_DATA",
         draw=_draw_string_shape_key,
     ),
     ToolDef(

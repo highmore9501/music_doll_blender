@@ -59,21 +59,26 @@ def _unlock_object_rotation(obj):
 
 
 def copy_transfer_between_object_and_dict(obj, data_dict: dict,
-                                          direction: str = "set") -> None:
+                                          direction: str = "set",
+                                          key: str | None = None) -> None:
     """obj ↔ JSON dict 之间的数据搬运。
 
-    direction="set": 从 obj 读取 loc/rot → 写入 data_dict[obj.name]
-    direction="load": 从 data_dict[obj.name] 读取 loc/rot → 应用到 obj
+    direction="set": 从 obj 读取 loc/rot → 写入 data_dict[key or obj.name]
+    direction="load": 从 data_dict[key or obj.name] 读取 loc/rot → 应用到 obj
+
+    key 可选，用于把数据键与场景对象名解耦：场景控件名带演奏者后缀（obj.name），
+    但骨骼/avatar 数据键用不带后缀的短名（key=短名），保证不同演奏者数据结构一致。
     """
+    data_key = key if key is not None else obj.name
     if direction == "set":
         true_loc = get_true_transform_value(obj, "location")
         true_rot = get_true_transform_value(obj, "rotation")
-        data_dict[obj.name] = {
+        data_dict[data_key] = {
             "location": [true_loc.x, true_loc.y, true_loc.z],
             "rotation": [true_rot.w, true_rot.x, true_rot.y, true_rot.z],
         }
     elif direction == "load":
-        entry = data_dict.get(obj.name)
+        entry = data_dict.get(data_key)
         if entry is None:
             return
         loc = entry.get("location")

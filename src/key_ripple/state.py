@@ -51,27 +51,37 @@ def set_state_data(skeleton, key_type: KeyType, position_type: PositionType, dat
 # ── 控制器 ↔ 字典数据搬运 ──────────────────────────────────────────
 
 
-def copy_transfer_between_object_and_dict(obj, data_dict: dict, direction: str = "set"):
-    """obj ↔ JSON dict 之间的数据搬运（复用 common.state_io）"""
-    return _sio.copy_transfer_between_object_and_dict(obj, data_dict, direction)
+def copy_transfer_between_object_and_dict(obj, data_dict: dict, direction: str = "set",
+                                          key: str | None = None):
+    """obj ↔ JSON dict 之间的数据搬运（复用 common.state_io）
+
+    key 指定数据键（默认 obj.name）；key_ripple 场景控件带演奏者后缀，
+    但骨骼/avatar 数据键用短名（key=短名），保证不同演奏者数据结构一致。
+    """
+    return _sio.copy_transfer_between_object_and_dict(
+        obj, data_dict, direction, key=key)
 
 
 # ── 控制器名称收集 ──────────────────────────────────────────────────
 
 
 def _get_controllers_for_hand(key_ripple: KeyRipple, hand_type: HandType) -> list:
-    """返回指定手部的全部控制器完整名称列表（手指+手掌+Head_Control）"""
+    """返回指定手部的全部控制器【短名】（数据键，无演奏者后缀）
+
+    场景控件用完整名（key_ripple.obj_name(短名)）查找；
+    骨骼/avatar 数据键用短名，保证不同演奏者同一乐器的数据结构完全一致。
+    """
     names = []
     for fn, ctrl_name in key_ripple.finger_controllers.items():
         if (hand_type == HandType.LEFT and ctrl_name.endswith("_L")) or \
            (hand_type == HandType.RIGHT and ctrl_name.endswith("_R")):
-            names.append(key_ripple.obj_name(ctrl_name))
+            names.append(ctrl_name)
     for role, ctrl_name in key_ripple.hand_controllers.items():
         if (hand_type == HandType.LEFT and ctrl_name.endswith("_L")) or \
            (hand_type == HandType.RIGHT and ctrl_name.endswith("_R")):
-            names.append(key_ripple.obj_name(ctrl_name))
+            names.append(ctrl_name)
     if hand_type == HandType.LEFT:
-        names.append(key_ripple.obj_name("Head_Control"))
+        names.append("Head_Control")
     return names
 
 
@@ -92,11 +102,12 @@ def save_state(
         "position_type": position_type.value,
         "controllers": {},
     }
-    for ctrl_name in controller_names:
-        ctrl = bpy.data.objects.get(ctrl_name)
+    for short_name in controller_names:
+        ctrl = bpy.data.objects.get(key_ripple.obj_name(short_name))
         if ctrl is None:
             continue
-        copy_transfer_between_object_and_dict(ctrl, data["controllers"], "set")
+        copy_transfer_between_object_and_dict(
+            ctrl, data["controllers"], "set", key=short_name)
 
     set_state_data(skeleton, key_type, position_type, data)
     print(f"已保存 {hand_type.value} 手 {key_type.value}/{position_type.value} "
@@ -118,14 +129,14 @@ def load_state(
 
     controller_names = _get_controllers_for_hand(key_ripple, hand_type)
     loaded = 0
-    for ctrl_name in controller_names:
-        ctrl = bpy.data.objects.get(ctrl_name)
+    for short_name in controller_names:
+        ctrl = bpy.data.objects.get(key_ripple.obj_name(short_name))
         if ctrl is None:
             continue
-        if ctrl_name not in data.get("controllers", {}):
+        if short_name not in data.get("controllers", {}):
             continue
         copy_transfer_between_object_and_dict(
-            ctrl, data["controllers"], "load")
+            ctrl, data["controllers"], "load", key=short_name)
         loaded += 1
 
     print(f"已加载 {hand_type.value} 手 {key_type.value}/{position_type.value} "

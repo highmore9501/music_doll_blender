@@ -17,7 +17,6 @@ from collections import defaultdict
 
 import bpy  # type: ignore
 
-from ..common import performer_utils
 from ..common import state_io as _sio
 
 from .state import STATE_KEY
@@ -195,14 +194,13 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
                 short, action_str, pos_str = m.group(1), m.group(2), m.group(3)
                 if short not in valid_shorts:
                     continue
-                full = performer_utils.resolve(short, config.suffix)
                 entry = {
                     "location": pose_data.get("location", [0, 0, 0]),
                     "rotation": pose_data.get("rotation", [1, 0, 0, 0]),
                 }
                 (state.setdefault(hand_key, {})
                  .setdefault(action_str, {})
-                 .setdefault(pos_str, {})[full]) = entry
+                 .setdefault(pos_str, {})[short]) = entry
                 if hand_key == "left_hand":
                     left_hand_loaded += 1
                 else:

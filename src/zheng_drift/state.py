@@ -5,9 +5,10 @@
 与 key_ripple / fret_dance 一致；不再在场景里生成大量记录器物体。
 复用 common.state_io 的对象↔字典搬运工具（含约束器影响的真实变换）。
 
-骨骼自定义属性结构（JSON）：
+骨骼自定义属性结构（JSON）：数据键一律用**短名**（无演奏者后缀），
+场景控件才用带后缀的完整名查找，保证不同演奏者的骨骼数据结构一致。
 {
-  "left_hand":  { "<action>": { "<position>": { "<完整控制器名>": {"location": [...], "rotation": [...]} } } },
+  "left_hand":  { "<action>": { "<position>": { "<短控制器名>": {"location": [...], "rotation": [...]} } } },
   "right_hand": { "<action>": { "<position>": { ... } } }
 }
 action：左手 Normal/Press；右手 Normal/Tremolo；position：far/middle/near
@@ -33,15 +34,15 @@ def _hand_key(hand: str) -> str:
     return "left_hand" if hand == "left" else "right_hand"
 
 
-def _hand_controller_full_names(config, hand: str) -> list[str]:
-    """返回指定手的控制器完整名列表（排除手指极向量，极向量由 ext driver 推导）"""
+def _hand_controller_shorts(config, hand: str) -> list[str]:
+    """返回指定手的控制器短名列表（数据键，无演奏者后缀；排除手指极向量）"""
     controllers = (config.left_hand_controllers if hand == "left"
                    else config.right_hand_controllers)
     names = []
     for key, short in controllers.items():
         if key.endswith("_pole") and "_ik_pivot" not in key:
             continue
-        names.append(config.obj_name(short))
+        names.append(short)
     return names
 
 
@@ -50,17 +51,18 @@ def _hand_controller_full_names(config, hand: str) -> list[str]:
 
 def save_hand_state(config, skeleton, hand: str, hand_position,
                     hand_action) -> None:
-    """把指定手 + 状态的控制器 transform 写入骨骼"""
+    """把指定手 + 状态的控制器 transform 写入骨骼（数据键 = 短名，无后缀）"""
     state = _get_state(skeleton)
     action_str = hand_action.value
     pos_str = hand_position.value
 
     controllers = {}
-    for full in _hand_controller_full_names(config, hand):
-        ctrl = bpy.data.objects.get(full)
+    for short in _hand_controller_shorts(config, hand):
+        ctrl = bpy.data.objects.get(config.obj_name(short))
         if ctrl is None:
             continue
-        _sio.copy_transfer_between_object_and_dict(ctrl, controllers, "set")
+        _sio.copy_transfer_between_object_and_dict(
+            ctrl, controllers, "set", key=short)
 
     side = state.setdefault(_hand_key(hand), {})
     side.setdefault(action_str, {})[pos_str] = controllers
@@ -72,7 +74,7 @@ def save_hand_state(config, skeleton, hand: str, hand_position,
 
 def load_hand_state(config, skeleton, hand: str, hand_position,
                     hand_action) -> None:
-    """从骨骼读取状态并应用到控制器"""
+    """从骨骼读取状态并应用到控制器（数据键 = 短名，无后缀）"""
     state = _get_state(skeleton)
     action_str = hand_action.value
     pos_str = hand_position.value
@@ -84,11 +86,12 @@ def load_hand_state(config, skeleton, hand: str, hand_position,
             f"未找到 {hand} 手 {action_str}/{pos_str} 的已保存数据，请先保存")
 
     loaded = 0
-    for full in _hand_controller_full_names(config, hand):
-        ctrl = bpy.data.objects.get(full)
-        if ctrl is None or full not in controllers:
+    for short in _hand_controller_shorts(config, hand):
+        ctrl = bpy.data.objects.get(config.obj_name(short))
+        if ctrl is None or short not in controllers:
             continue
-        _sio.copy_transfer_between_object_and_dict(ctrl, controllers, "load")
+        _sio.copy_transfer_between_object_and_dict(
+            ctrl, controllers, "load", key=short)
         loaded += 1
 
     print(f"已加载 {hand} 手 {action_str}/{pos_str} ({loaded} 个控制器)")
