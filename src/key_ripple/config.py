@@ -212,6 +212,25 @@ class KeyRipple:
         for obj_name in self.key_board_positions.values():
             self._set_parent(obj_name, controller_root)
 
+        # 创建特殊的目标控制器（Mid_Hand / Look_At / Head_Control）
+        # —— 对应 Rust 侧头部朝向动画（resolve/mid_hand.rs 读 *_Head_Control 记录器）、
+        #    以及动画生成时需保留驱动/关键帧的 Mid_Hand（make_animation 专门跳过它）。
+        #    原版历史版本在 add_controllers 里创建这些控件；当前 Rust 原版与旧移植版
+        #    都丢了这段，导致三个控件从未被创建、Head_Control 状态无法保存。
+        target_collection = self.get_or_create_collection(
+            "Target_Controllers", controllers_collection)
+        for target_key, target_name in self.target_points.items():
+            self.create_or_update_object(
+                self.obj_name(target_name), "cube", target_collection)
+
+        # Mid_Hand 加 XYZ 驱动（居中于 H_L/H_R）；Look_At 挂到 Mid_Hand 下
+        mid_hand = self.obj("Mid_Hand")
+        look_at = self.obj("Look_At")
+        if mid_hand is not None:
+            self.add_mid_hand_driver(mid_hand)
+            if look_at is not None:
+                self.set_look_at_parent(look_at, mid_hand)
+
     def _set_parent(self, child_name, parent_obj):
         """将子控制器挂到指定父对象下（Blender 自动保持世界位置不变）"""
         full_child = self.obj_name(child_name)
