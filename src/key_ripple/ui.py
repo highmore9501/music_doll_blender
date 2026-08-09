@@ -198,20 +198,8 @@ class KeyRippleProperties(PropertyGroup):
                    ('MIDDLE', "Middle", "Middle position")],
             default='HIGH'),
 
-        # 键盘物体（钢琴键动画目标）
-        "keyboard_object": PointerProperty(
-            name="键盘物体",
-            description="场景中代表键盘的物体（用于钢琴键动画）",
-            type=bpy.types.Object,
-            poll=lambda self, obj: obj is not None and obj.type == "MESH"),
-
-        # 导入导出文件路径
-        "io_file_path": StringProperty(
-            name="File Path",
-            description="Path for import/export avatar data",
-            default="", subtype='FILE_PATH'),
-
-        # .keyripple文件路径
+        # .keyripple 动画文件路径
+        # （乐器物体/人物信息路径由角色模块「角色操作」面板统一设置，这里不再重复）
         "keyripple_file_path": StringProperty(
             name="KeyRipple File",
             description="Path to .keyripple file",
@@ -261,7 +249,10 @@ class KEYRIPPLE_OT_setup_objects(Operator):
         _save_config_to_skeleton(skel, config)
         key_ripple = _get_key_ripple(
             props, suffix=suffix, skeleton=skel)
-        key_ripple.setup_all_objects()
+        if not key_ripple.setup_all_objects():
+            self.report(
+                {'ERROR'}, "设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）")
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -339,8 +330,10 @@ class KEYRIPPLE_OT_export_avatar(Operator):
     def execute(self, context):
         props = context.scene.keyripple_props
         skel = _get_active_skeleton(context)
-        if not props.io_file_path:
-            self.report({'ERROR'}, "Please select file path")
+        # 人物信息路径由角色模块「角色操作」面板统一设置
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if not file_path:
+            self.report({'ERROR'}, "请先在「角色操作」面板中设置人物信息路径")
             return {'CANCELLED'}
         if skel is None:
             self.report({'ERROR'}, "请先选择目标骨骼")
@@ -348,7 +341,6 @@ class KEYRIPPLE_OT_export_avatar(Operator):
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
 
-        file_path = props.io_file_path
         export_avatar(file_path, key_ripple, skel)
         self.report(
             {'INFO'}, f"Avatar exported successfully to {file_path}")
@@ -363,8 +355,10 @@ class KEYRIPPLE_OT_import_avatar(Operator):
     def execute(self, context):
         props = context.scene.keyripple_props
         skel = _get_active_skeleton(context)
-        if not props.io_file_path:
-            self.report({'ERROR'}, "Please select file path")
+        # 人物信息路径由角色模块「角色操作」面板统一设置
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if not file_path:
+            self.report({'ERROR'}, "请先在「角色操作」面板中设置人物信息路径")
             return {'CANCELLED'}
         if skel is None:
             self.report({'ERROR'}, "请先选择目标骨骼")
@@ -372,7 +366,6 @@ class KEYRIPPLE_OT_import_avatar(Operator):
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
 
-        file_path = props.io_file_path
         success = import_avatar(file_path, key_ripple, skel)
         if success:
             self.report(
@@ -406,7 +399,9 @@ class KEYRIPPLE_OT_generate_animation(Operator):
             self.report({'ERROR'}, f"File not found: {file_path}")
             return {'CANCELLED'}
 
-        keyboard_obj_name = props.keyboard_object.name if props.keyboard_object else 'keyboard'
+        # 键盘（乐器）物体由角色模块「角色操作」面板的「目标乐器」统一设置
+        inst = _get_active_instrument(context)
+        keyboard_obj_name = inst.name if inst is not None else 'keyboard'
 
         try:
             make_animation_from_keyripple(
@@ -615,7 +610,6 @@ class KEYRIPPLE_PT_main_panel(Panel):
         # 信息记录/加载区
         box = layout.box()
         box.label(text="Hand State Transfer", icon='FILE_REFRESH')
-        box.prop(props, "keyboard_object", text="键盘")
         row = box.row(align=True)
         row.operator("music_doll.key_ripple_save_state",
                      text="Set", icon='IMPORT')
@@ -623,9 +617,9 @@ class KEYRIPPLE_PT_main_panel(Panel):
                      text="Load", icon='EXPORT')
 
         # 全部信息导入导出区
+        # （人物信息路径由角色模块「角色操作」面板统一设置，这里不再重复）
         box = layout.box()
         box.label(text="Avatar I/O", icon='FILE')
-        box.prop(props, "io_file_path", text="")
         row = box.row(align=True)
         row.operator("music_doll.key_ripple_export_avatar",
                      text="Export", icon='EXPORT')

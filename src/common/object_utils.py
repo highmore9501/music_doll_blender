@@ -114,6 +114,32 @@ def parent_to(parent_obj, child_obj) -> None:
         child_obj.parent = parent_obj
 
 
+def zero_local_transform(obj) -> None:
+    """把 obj 的本地 transform 归零（位置原点、无旋转、缩放 1）。"""
+    if obj is None:
+        return
+    obj.location = (0, 0, 0)
+    obj.scale = (1, 1, 1)
+    if obj.rotation_mode == "QUATERNION":
+        obj.rotation_quaternion = (1, 0, 0, 0)
+    elif obj.rotation_mode == "AXIS_ANGLE":
+        obj.rotation_axis_angle = (0, 0, 1, 0)
+    else:
+        obj.rotation_euler = (0, 0, 0)
+
+
+def parent_and_zero_local(parent_obj, child_obj) -> None:
+    """把 child 挂到 parent 下并归零本地 transform（从世界观察不变）。
+
+    前提：parent 与 child 的世界 transform 一致（如父为演奏者根、子为身体骨骼，
+    根在创建时复制了骨骼的 transform，故归零后世界坐标不变）。
+    """
+    if parent_obj is None or child_obj is None:
+        return
+    child_obj.parent = parent_obj
+    zero_local_transform(child_obj)
+
+
 def copy_transform_from(src_obj, dst_obj) -> None:
     """把 src 的位置/旋转/缩放复制给 dst（按 src 的旋转模式）。"""
     if src_obj is None or dst_obj is None:

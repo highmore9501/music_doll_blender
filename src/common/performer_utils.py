@@ -142,6 +142,16 @@ def get_or_create_collection(suffix: str, short_name: str,
     return object_utils.get_or_create_collection(full, parent)
 
 
+def find_addons_collection(suffix: str) -> bpy.types.Collection | None:
+    """按名字查找本演奏者的 addons 目录（**不创建**）。
+
+    - 有后缀：查 addons_<suffix>（角色初始化时创建）；
+    - 无后缀：查全局 addons（兼容旧场景）。
+    找不到返回 None。乐器模块 setup 阶段用它做「先初始化角色」的前置校验。
+    """
+    return bpy.data.collections.get(resolve("addons", suffix))
+
+
 def _find_skeleton_in_collection(coll: bpy.types.Collection) -> bpy.types.Object | None:
     for obj in coll.objects:
         if obj.type == "ARMATURE":
@@ -205,6 +215,48 @@ def has_performer(suffix: str) -> bool:
     return get_performer(suffix) is not None
 
 
+# ── 新建角色整理：改名加后缀 + 移入 Body_/Instruments_ ─────────
+
+def _apply_suffix_to_object(obj: bpy.types.Object, suffix: str) -> None:
+    """给对象名加后缀（幂等）：'Armature' -> 'Armature_Jd'；已带后缀则不动。"""
+    if obj is None or not suffix:
+        return
+    base = strip_duplicate_suffix(obj.name)
+    marker = "_" + suffix
+    if base.endswith(marker):
+        return
+    obj.name = f"{base}_{suffix}"
+
+
+def organize_performer_objects(collection: bpy.types.Collection, suffix: str,
+                               skeleton: bpy.types.Object | None = None,
+                               instrument: bpy.types.Object | None = None) -> None:
+    """把新建角色的骨架/Mesh/乐器改名加后缀并移入 Body_/Instruments_ 集合。
+
+    - 骨架（Armature）与其 Mesh 子级 → Body_<suffix>；
+    - 乐器物体 → Instruments_<suffix>；
+    - 统一按 <原名>_<suffix> 改名（幂等，已带后缀/已在目标集合的对象不重复处理）。
+    """
+    if not suffix:
+        return
+    body_coll = get_or_create_collection(suffix, "Body", parent=collection)
+    inst_coll = get_or_create_collection(
+        suffix, "Instruments", parent=collection)
+
+    if skeleton is not None:
+        _apply_suffix_to_object(skeleton, suffix)
+        object_utils.move_object_to_collection(skeleton, body_coll)
+        for child in list(skeleton.children):
+            if child.type == "MESH":
+                _apply_suffix_to_object(child, suffix)
+                object_utils.move_object_to_collection(child, body_coll)
+                if child.parent != skeleton:
+                    child.parent = skeleton
+    if instrument is not None:
+        _apply_suffix_to_object(instrument, suffix)
+        object_utils.move_object_to_collection(instrument, inst_coll)
+
+
 def get_or_create_performer(suffix: str, name: str, instrument: str,
                             target_skeleton: bpy.types.Object | None = None,
                             target_instrument: bpy.types.Object | None = None,
@@ -212,7 +264,8 @@ def get_or_create_performer(suffix: str, name: str, instrument: str,
                             animation_path: str = "") -> PerformerInfo:
     """创建/获取演奏者集合（含 Body_<suffix> / Instruments_<suffix> 骨架），并登记身份属性。
 
-    若同后缀演奏者已存在，直接返回（不重复创建）。
+    新建时会把骨架/Mesh/乐器改名加后缀并移入对应集合；
+    若同后缀演奏者已存在，直接返回（不重复创建、不重复改名）。
     """
     existing = get_performer(suffix)
     if existing is not None:
@@ -231,6 +284,18 @@ def get_or_create_performer(suffix: str, name: str, instrument: str,
 
     instrument_base.set_coll_attr(coll, "name", final_name)
     instrument_base.set_coll_attr(coll, "instrument", instrument)
+
+    # 建 Body / Instruments / addons 三个骨架（addons 在角色创建时一并建好，
+    # 各乐器的 setup 阶段只查找它、不再自行创建）
+    get_or_create_collection(final_name, "Body", parent=coll)
+    get_or_create_collection(final_name, "Instruments", parent=coll)
+    get_or_create_collection(final_name, "addons", parent=coll)
+
+    # 新建角色：把骨架/Mesh/乐器改名加后缀并移入对应集合（一步整理到位）
+    organize_performer_objects(
+        coll, final_name, target_skeleton, target_instrument)
+
+    # 登记身份属性（在改名之后，记录新的对象名）
     if target_skeleton is not None:
         instrument_base.set_coll_attr(coll, "skeleton", target_skeleton.name)
     if target_instrument is not None:
@@ -241,16 +306,15 @@ def get_or_create_performer(suffix: str, name: str, instrument: str,
     if animation_path:
         instrument_base.set_coll_attr(coll, "animation_path", animation_path)
 
-    # 建 Body / Instruments 骨架（addons 由各乐器的 add_controllers 懒创建）
-    get_or_create_collection(final_name, "Body", parent=coll)
-    get_or_create_collection(final_name, "Instruments", parent=coll)
-
-    return PerformerInfo(
+    perf = PerformerInfo(
         suffix=final_name, name=final_name, instrument=instrument,
         collection=coll, target_skeleton=target_skeleton,
         target_instrument=target_instrument,
         info_path=info_path, animation_path=animation_path,
     )
+    # 创建演奏者根空物体 <乐器缩写>_<名称> 并挂载骨骼/乐器（与复制角色一致）
+    organize_performer_root(perf)
+    return perf
 
 
 # ── 演奏者根空物体（命名 <乐器缩写>_<演奏者名>）──────────────
@@ -274,6 +338,25 @@ def get_or_create_performer_root(performer: PerformerInfo,
         if performer.target_skeleton is not None:
             object_utils.copy_transform_from(
                 performer.target_skeleton, root_obj)
+    return root_obj
+
+
+def organize_performer_root(performer: PerformerInfo) -> bpy.types.Object | None:
+    """创建/获取演奏者根空物体 <乐器缩写>_<名称>，并挂接身体（骨骼）为子级。
+
+    - 根在创建时复制骨骼的 transform；把骨骼挂到根下后本地 transform 归零
+      （从世界坐标观察身体不变），之后整体移动/缩放根即可带动身体。
+    - **乐器不挂根**：由用户手动把乐器绑定到 controller_root（吉他挂
+      controller_root_offset）。
+    - 控制器根等乐器独有挂载由各乐器 setup 阶段的 `_organize_performer_root` 补充。
+    幂等：重复调用无副作用。
+    """
+    if performer is None or not performer.name:
+        return None
+    root_obj = get_or_create_performer_root(performer, performer.collection)
+    skeleton = performer.target_skeleton
+    if skeleton is not None:
+        object_utils.parent_and_zero_local(root_obj, skeleton)
     return root_obj
 
 

@@ -165,7 +165,10 @@ class FRET_DANCE_OT_setup_objects(Operator):
             base_state.save_settings(
                 skeleton, int(scene.fret_dance_instruments),
                 scene.fret_dance_use_vibrato_bar)
-        base_state.setup_all_objects()
+        if not base_state.setup_all_objects():
+            self.report(
+                {'ERROR'}, "设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）")
+            return {'CANCELLED'}
         self.report({'INFO'}, "All objects have been setup")
         return {'FINISHED'}
 

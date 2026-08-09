@@ -304,12 +304,42 @@ def draw_performer_ops(layout, context):
 
 # ── 工具界面（工具下拉菜单）───────────────────────────────────
 
-def get_tool_items(self, context):
-    """工具下拉框项：空项（Blender 5.0 回调签名固定为 (self, context)）。
+# 当前正在绘制的工具列表（由 draw_tools 注入，菜单 draw 时读取）。
+# 工具列表按乐器不同（公共工具 + 该乐器独有工具），无法靠注册时的
+# EnumProperty items 回调静态绑定，故用「注入式上下文 + Menu」实现下拉。
+_CURRENT_TOOL_UI: dict = {"tools": [], "active": ""}
 
-    说明：工具列表目前由 draw_tools 直接绘制，不再通过 EnumProperty 回调传入。
-    """
-    return [("", "（无）", "未选择工具")]
+
+class MUSICDOLL_OT_set_active_tool(Operator):
+    """选择工具：菜单项点击后把工具 id 写入场景，并刷新面板展开参数区"""
+    bl_idname = "music_doll.set_active_tool"
+    bl_label = "选择工具"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    tool_id: StringProperty(default="")
+
+    def execute(self, context):
+        setattr(context.scene, SCENE_ACTIVE_TOOL, self.tool_id)
+        return {'FINISHED'}
+
+
+class MUSICDOLL_MT_tool_menu(bpy.types.Menu):
+    """工具下拉菜单：列出当前乐器的全部工具（公共工具 + 独有工具）"""
+    bl_idname = "MUSICDOLL_MT_tool_menu"
+    bl_label = "工具"
+
+    def draw(self, context):
+        layout = self.layout
+        tools = _CURRENT_TOOL_UI.get("tools", [])
+        active = _CURRENT_TOOL_UI.get("active", "")
+        if not tools:
+            layout.label(text="（无可用工具）", icon="INFO")
+            return
+        for t in tools:
+            label = f"✓ {t.label}" if t.id == active else t.label
+            op = layout.operator("music_doll.set_active_tool",
+                                 text=label, icon=t.icon or "TOOL_SETTINGS")
+            op.tool_id = t.id
 
 
 def draw_tools(layout, scene, tools=None):
@@ -331,13 +361,19 @@ def draw_tools(layout, scene, tools=None):
     if not getattr(scene, SCENE_SHOW_TOOLS, False):
         return
 
-    # 工具下拉
-    row = box.row()
-    row.prop(scene, SCENE_ACTIVE_TOOL, text="工具")
+    # 注入当前工具列表，供菜单 draw 读取（每个乐器面板传入自己的 TOOLS）
+    _CURRENT_TOOL_UI["tools"] = list(tools)
+    _CURRENT_TOOL_UI["active"] = getattr(scene, SCENE_ACTIVE_TOOL, "")
+
+    # 工具下拉菜单（列出公共工具 + 本乐器独有工具）
+    active_tool = find_tool(tools, _CURRENT_TOOL_UI["active"])
+    row = box.row(align=True)
+    row.menu("MUSICDOLL_MT_tool_menu",
+             text=active_tool.label if active_tool else "选择工具",
+             icon=active_tool.icon if active_tool else "TOOL_SETTINGS")
 
     # 按选中工具展开操作区
-    tool_id = getattr(scene, SCENE_ACTIVE_TOOL, "")
-    tool = find_tool(tools, tool_id)
+    tool = active_tool
     if tool is None:
         return
 
@@ -348,8 +384,9 @@ def draw_tools(layout, scene, tools=None):
     if tool.draw is not None:
         tool.draw(tool_box, scene)
 
-    # 执行按钮
-    tool_box.operator(tool.operator, text=tool.label)
+    # 执行按钮（无 operator 的工具由参数区自带按钮，如骨骼/控制器映射）
+    if tool.operator:
+        tool_box.operator(tool.operator, text=tool.label)
 
 
 # ── 场景属性注册 ──────────────────────────────────────────────
@@ -421,11 +458,20 @@ def register_scene_props():
             default=False,
         ))
 
-    # 统一主面板与新建角色算子（父面板必须先于乐器子面板注册）
-    if not hasattr(bpy.types, "MUSICDOLL_OT_create_performer"):
+    # 统一主面板与新建角色算子（父面板必须先于乐器子面板注册）。
+    # 注意：bpy.types 上的属性名是 Blender 从 bl_idname 派生的 RNA 名
+    # （"music_doll.create_performer" -> MUSIC_DOLL_OT_create_performer，MUSIC_DOLL
+    # 带下划线），与 Python 类名 MUSICDOLL_OT_create_performer 不同，hasattr 判断
+    # 必须用 RNA 名，否则重载时重复 register_class 会抛 "already registered"。
+    if not hasattr(bpy.types, "MUSIC_DOLL_OT_create_performer"):
         bpy.utils.register_class(MUSICDOLL_OT_create_performer)
     if not hasattr(bpy.types, "MUSICDOLL_PT_main_panel"):
         bpy.utils.register_class(MUSICDOLL_PT_main_panel)
+    # 工具下拉菜单相关类（RNA 名判断同上：set_active_tool 的 RNA 名带下划线）
+    if not hasattr(bpy.types, "MUSIC_DOLL_OT_set_active_tool"):
+        bpy.utils.register_class(MUSICDOLL_OT_set_active_tool)
+    if not hasattr(bpy.types, "MUSICDOLL_MT_tool_menu"):
+        bpy.utils.register_class(MUSICDOLL_MT_tool_menu)
 
 
 def unregister_scene_props():
@@ -433,8 +479,13 @@ def unregister_scene_props():
     # 先注销类，再删属性
     if hasattr(bpy.types, "MUSICDOLL_PT_main_panel"):
         bpy.utils.unregister_class(MUSICDOLL_PT_main_panel)
-    if hasattr(bpy.types, "MUSICDOLL_OT_create_performer"):
+    if hasattr(bpy.types, "MUSIC_DOLL_OT_create_performer"):
         bpy.utils.unregister_class(MUSICDOLL_OT_create_performer)
+    # 工具下拉菜单相关类（逆序注销）
+    if hasattr(bpy.types, "MUSICDOLL_MT_tool_menu"):
+        bpy.utils.unregister_class(MUSICDOLL_MT_tool_menu)
+    if hasattr(bpy.types, "MUSIC_DOLL_OT_set_active_tool"):
+        bpy.utils.unregister_class(MUSICDOLL_OT_set_active_tool)
     for name in (SCENE_ACTIVE_PERFORMER,
                  SCENE_TARGET_SKELETON, SCENE_TARGET_INSTRUMENT,
                  SCENE_INFO_PATH, SCENE_SHOW_TOOLS, SCENE_ACTIVE_TOOL,
@@ -476,25 +527,53 @@ class MUSICDOLL_PT_main_panel(Panel):
 # ── 新建角色（角色生成器执行体）──────────────────────────────
 
 class MUSICDOLL_OT_create_performer(Operator):
-    """新建角色：登记演奏者身份（md_*）+ 建 Body/Instruments 骨架。"""
+    """新建角色：登记演奏者身份（md_*）+ 建 Body/Instruments 骨架。
+
+    弹窗内提供：名字 / 乐器类型 / 演奏者骨骼 / 乐器物体。
+    Blender 5.0 的 Operator 不支持 PointerProperty（data-block 属性），
+    因此骨骼/乐器物体复用场景级指针属性 SCENE_TARGET_SKELETON /
+    SCENE_TARGET_INSTRUMENT，在弹窗里直接编辑，创建后自动登记进角色。
+    """
     bl_idname = "music_doll.create_performer"
     bl_label = "新建角色"
     bl_options = {'REGISTER', 'UNDO'}
 
     name: StringProperty(
         name="名字", description="角色名字（仅英文字母和数字，如 Ayaka / Player01）", default="")
+    # Blender 5.0：items 为回调函数时 default 必须是整数索引（0 = 「（选择乐器）」占位项）
     instrument: EnumProperty(
         name="乐器", description="角色所属乐器（只列已注册乐器）",
-        items=get_instrument_items, default="",
+        items=get_instrument_items, default=0,
     )
 
     def invoke(self, context, event):
+        # 打开弹窗时，若场景目标骨骼/乐器物体为空，则预填场景中选中的对象
+        scene = context.scene
+        if getattr(scene, SCENE_TARGET_SKELETON, None) is None:
+            for obj in context.selected_objects:
+                if obj is not None and obj.type == "ARMATURE":
+                    try:
+                        setattr(scene, SCENE_TARGET_SKELETON, obj)
+                    except Exception:
+                        pass
+                    break
+        if getattr(scene, SCENE_TARGET_INSTRUMENT, None) is None:
+            for obj in context.selected_objects:
+                if obj is not None and obj.type in ("MESH", "EMPTY"):
+                    try:
+                        setattr(scene, SCENE_TARGET_INSTRUMENT, obj)
+                    except Exception:
+                        pass
+                    break
         return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
+        scene = context.scene
         layout = self.layout
         layout.prop(self, "name")
         layout.prop(self, "instrument")
+        layout.prop(scene, SCENE_TARGET_SKELETON, text="演奏者骨骼")
+        layout.prop(scene, SCENE_TARGET_INSTRUMENT, text="乐器物体")
 
     def execute(self, context):
         scene = context.scene
@@ -513,9 +592,16 @@ class MUSICDOLL_OT_create_performer(Operator):
             self.report({'ERROR'}, "请选择乐器")
             return {'CANCELLED'}
 
-        performer_utils.get_or_create_performer(name, name, self.instrument)
+        target_skeleton = getattr(scene, SCENE_TARGET_SKELETON, None)
+        target_instrument = getattr(scene, SCENE_TARGET_INSTRUMENT, None)
 
-        # 自动选中新角色
+        performer_utils.get_or_create_performer(
+            name, name, self.instrument,
+            target_skeleton=target_skeleton,
+            target_instrument=target_instrument,
+        )
+
+        # 自动选中新角色（目标骨骼/乐器物体已是场景属性，创建后即生效）
         try:
             setattr(scene, SCENE_ACTIVE_PERFORMER, name)
         except Exception:

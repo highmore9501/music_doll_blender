@@ -35,32 +35,27 @@ class BlenderObjectManager:
 
     # ── 演奏者结构与 Body 组织 ─────────────────────────────
 
-    def _get_or_create_performer_collection(self):
-        """获取/创建演奏者集合（仅后缀模式使用；无后缀返回 None）"""
+    def _get_performer_collection(self):
+        """获取当前演奏者集合（仅后缀模式；角色未初始化返回 None）"""
         if not self.suffix:
             return None
-        return performer_utils.get_or_create_performer(
-            self.suffix, self.performer_name, self.instruments_name,
-            target_skeleton=self.target_skeleton,
-            target_instrument=self.target_instrument)
+        return performer_utils.get_performer(self.suffix)
 
     def _get_addons_collection(self):
-        """获取/创建本演奏者的 addons 目录。
+        """获取本演奏者的 addons 目录。
 
-        - 有后缀：挂到演奏者集合下（Performers/<名>/addons_<后缀>）
-        - 无后缀（兼容旧场景）：全局根下的 addons
+        - 有后缀：只查找角色初始化时创建的 addons_<后缀>；找不到返回 None
+        - 无后缀（兼容旧场景）：全局根下的 addons（找不到时按需创建）
         """
         if self.suffix:
-            performer = self._get_or_create_performer_collection()
-            return performer_utils.get_or_create_collection(
-                self.suffix, "addons", parent=performer.collection)
+            return performer_utils.find_addons_collection(self.suffix)
         return self.get_or_create_collection("addons")
 
     def _organize_body(self):
         """把目标骨骼和它的 Mesh 归位到 Body_<后缀>（仅后缀模式）"""
         if not self.suffix:
             return
-        performer = self._get_or_create_performer_collection()
+        performer = self._get_performer_collection()
         if performer is None:
             return
         body_coll = performer_utils.get_or_create_collection(
@@ -86,7 +81,7 @@ class BlenderObjectManager:
         inst = self.target_instrument
         if inst is None:
             return
-        performer = self._get_or_create_performer_collection()
+        performer = self._get_performer_collection()
         if performer is None:
             return
         inst_coll = performer_utils.get_or_create_collection(
@@ -95,25 +90,25 @@ class BlenderObjectManager:
         print(f"  ✓ 乐器 {inst.name} 已归位到 {inst_coll.name}")
 
     def _organize_performer_root(self):
-        """创建演奏者根空物体 <乐器缩写>_<名称>，作为骨骼 / 控制器根 / 乐器的父级（仅后缀模式）。
+        """创建演奏者根空物体 <乐器缩写>_<名称>，作为骨骼 / controller_root 的父级（仅后缀模式）。
 
         创建时直接复制骨骼的位置/旋转/缩放；之后可整体移动/缩放整个演奏者体系。
+        乐器不挂根：由用户手动把吉他绑定到 controller_root_offset。
         """
         if not self.suffix:
             return
-        performer = self._get_or_create_performer_collection()
+        performer = self._get_performer_collection()
         if performer is None:
             return
         root_obj = performer_utils.get_or_create_performer_root(
             performer, performer.collection)
 
-        # 三个子根以它为父级：骨骼 / 控制器根 / 乐器
+        # 子级：骨骼（body）与控制器根；乐器由用户手动绑定到 controller_root
         skeleton = self.target_skeleton or performer.target_skeleton
         self._parent_to(root_obj, skeleton)
         self._parent_to(root_obj, self.obj("controller_root"))
-        inst = self.target_instrument or performer.target_instrument
-        self._parent_to(root_obj, inst)
-        print(f"  ✓ 演奏者根 {root_obj.name} 就绪（骨骼/控制器根/乐器已挂到其下）")
+        print(
+            f"  ✓ 演奏者根 {root_obj.name} 就绪（骨骼/controller_root 已挂到其下；乐器请手动绑定到 controller_root）")
 
     def _parent_to(self, parent_obj, child_obj):
         """把 child 挂到 parent 下（Blender 保持世界位置不变）"""
@@ -125,8 +120,11 @@ class BlenderObjectManager:
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        # 创建或获取主集合（addons 目录）
+        # 获取主集合（addons 目录；角色未初始化时为空）
         main_collection = self._get_addons_collection()
+        if main_collection is None:
+            print("[ERROR] 未找到 addons 目录，请先新建角色（初始化角色）。")
+            return
 
         # 创建控制器集合
         controllers_collection = self.get_or_create_collection(
@@ -364,14 +362,26 @@ class BlenderObjectManager:
             self._set_parent(obj_name, controller_root_offset)
 
     def setup_all_objects(self):
-        """一次性设置所有控制器和指板位置标记（幂等）"""
-        # 有后缀时，先组织演奏者集合与 Body（骨骼/Mesh 归位）、乐器目录
+        """一次性设置所有控制器和指板位置标记（幂等）。
+
+        有后缀时要求角色已初始化（addons_<后缀> 存在）；否则提示先新建角色并中止。
+        返回 True 表示成功，False 表示因角色未初始化而中止。
+        """
+        # 有后缀：先确认角色已初始化（addons 目录必须存在），否则提示先新建角色
+        if self.suffix and performer_utils.find_addons_collection(self.suffix) is None:
+            print("[ERROR] 未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）后重试。")
+            return False
+
+        # 整理演奏者集合与 Body（骨骼/Mesh 归位）、乐器目录（幂等；角色初始化已做，这里兜底）
         self._organize_body()
         self._organize_instrument()
 
         # 记录添加控件前 addons 目录及其子集合中的所有物体名称（仅本演奏者）
         self.pre_obj_names = []
         addons_collection = self._get_addons_collection()
+        if addons_collection is None:
+            print("[ERROR] 未找到角色 addons 目录，请先新建角色（初始化角色）。")
+            return False
         collections_to_check = [addons_collection]
         for coll in addons_collection.children_recursive:
             collections_to_check.append(coll)
@@ -387,7 +397,7 @@ class BlenderObjectManager:
         self.add_finger_ext_and_poles()
         self.add_ext_drivers()
 
-        # 创建演奏者根 <缩写>_<名称>，挂接骨骼/控制器根/乐器
+        # 创建演奏者根 <缩写>_<名称>，挂接骨骼 / controller_root（乐器不挂根）
         self._organize_performer_root()
 
         # 打印未使用的控件名称
@@ -397,6 +407,7 @@ class BlenderObjectManager:
                 print(f"  • {obj_name}")
         else:
             print("\n没有发现未使用的控件")
+        return True
 
     def check_objects_status(self):
         """检查Blender中控制器和记录器的创建状态（仅当前演奏者命名空间）"""

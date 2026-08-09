@@ -6,6 +6,7 @@
            状态存取、动画通用、JSON 读写、统一属性、通用 UI。
 - fret_dance/  FretDance 乐器模块（Phase 1 迁入）。
 - key_ripple/  KeyRipple 乐器模块（Phase 2 迁入）。
+- zheng_drift/ ZhengDrift 乐器模块（Phase 3 迁入，古筝 21 弦）。
 
 演奏者模型：
 - 演奏者实例 = Performers 根集合下的一个子 Collection（身份属性 md_* 存其上）；
@@ -34,22 +35,30 @@ def register():
     # 公共工具（所有乐器共用）
     from .common.tools import fix_finger_ik as common_fix_finger_ik
     common_fix_finger_ik.register()
+    from .common.tools import bone_controller_mapping as common_bcm
+    common_bcm.register()
 
     # 乐器模块注册
     from .fret_dance import ui as fret_dance_ui
     fret_dance_ui.register()
     from .key_ripple import ui as key_ripple_ui
     key_ripple_ui.register()
+    from .zheng_drift import ui as zheng_drift_ui
+    zheng_drift_ui.register()
 
 
 def unregister():
     # 乐器模块注销（与注册顺序相反）
+    from .zheng_drift import ui as zheng_drift_ui
+    zheng_drift_ui.unregister()
     from .key_ripple import ui as key_ripple_ui
     key_ripple_ui.unregister()
     from .fret_dance import ui as fret_dance_ui
     fret_dance_ui.unregister()
 
-    # 公共工具
+    # 公共工具（逆序注销）
+    from .common.tools import bone_controller_mapping as common_bcm
+    common_bcm.unregister()
     from .common.tools import fix_finger_ik as common_fix_finger_ik
     common_fix_finger_ik.unregister()
 

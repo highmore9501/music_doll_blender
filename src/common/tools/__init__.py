@@ -9,6 +9,8 @@
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import bone_controller_mapping as _bcm_tool
+
 
 @dataclass
 class ToolDef:
@@ -38,11 +40,35 @@ def find_tool(tools: list[ToolDef], tool_id: str) -> ToolDef | None:
 # ── 公共工具注册表（所有乐器共用）─────────────────────────────
 # 每个公共工具需提供自己的执行算子（bl_idname = "music_doll.tool_<id>"）。
 
+
+def _draw_fix_finger_bones(layout, scene):
+    """修正手指骨骼工具的参数区：操作提示
+
+    与 modify_finger_bones() 的使用说明保持一致：
+    先选参照物体 + 骨架（活动对象），再在编辑模式选中骨骼链根骨骼。
+    """
+    col = layout.column(align=True)
+    col.label(text="提示：请先选择一个参照物体，再选中一段手指骨骼链",
+              icon="INFO")
+    col.label(text="① 物体模式：先选「参照物」，再选「骨架」为活动对象")
+    col.label(text="② 进入编辑模式，选中手指骨骼链的「根骨骼」")
+    col.label(text="③ 点击下方按钮执行")
+
+
 COMMON_TOOLS: list[ToolDef] = [
     ToolDef(
         id="fix_finger_bones",
         label="修正手指骨骼",
         operator="music_doll.tool_fix_finger_bones",
         icon="BONE_DATA",
+        draw=_draw_fix_finger_bones,
+    ),
+    ToolDef(
+        id="bone_controller_mapping",
+        label="骨骼/控制器映射",
+        # 无单一执行按钮：参数区自带完整映射面板（添加/同步/导入/导出）
+        operator="",
+        icon="BONE_DATA",
+        draw=_bcm_tool.draw,
     ),
 ]
