@@ -4,7 +4,7 @@
 所有乐器共用的工具：修正选中骨骼链的手指骨骼形状，形成拱形分布。
 提供纯函数 modify_finger_bones() 与执行算子 music_doll.tool_fix_finger_bones。
 """
-from mathutils import Vector  # type: ignore
+from mathutils import Matrix, Vector  # type: ignore
 import bpy  # type: ignore
 import math
 
@@ -84,6 +84,59 @@ def get_bone_chain(start_bone):
     return chain
 
 
+def align_bone_z_to_plane(bone, plane_normal, ref_pos):
+    """将单根骨骼的 Z 轴对齐到修正平面内，并指向参照物体。
+
+    原理（Blender 骨骼局部坐标系）：
+    - Y 轴是骨骼自身方向（head -> tail），由端点位置决定，无法改变；
+    - 要同时满足「Z 轴在修正平面内」和「Z 轴垂直于 Y 轴」，
+      唯一的候选方向是 平面法线 × Y轴：
+      它既垂直于平面法线（落在平面内），又垂直于 Y 轴；
+    - 用 Z · (参照物 - 骨骼头) 的符号决定朝向，使其指向参照物体一侧；
+    - 右手系补全 X 轴：X = Y × Z（Blender 骨骼为右手系，X × Y = Z）。
+
+    应用方式：
+    - 直接写 EditBone.matrix（4x4 可写矩阵）：
+      第 0/1/2 列分别为 X/Y/Z 轴，第 3 列（translation）为骨骼头位置；
+      Blender 写入时会保持骨骼长度不变、以第 3 列为 head、
+      由第 1 列重算方向并反算 roll，因此位置不变、旋转精确生效。
+    """
+    head = Vector(bone.head)
+    tail = Vector(bone.tail)
+
+    y_axis = tail - head
+    length = y_axis.length
+    if length < 1e-6:
+        return  # 零长度骨骼，跳过
+    y_axis /= length
+
+    # 平面内且垂直于骨骼方向的方向（修正平面法线 × Y轴）
+    z_axis = plane_normal.cross(y_axis)
+    if z_axis.length < 1e-6:
+        # 理论上骨骼落在平面内时方向 ⊥ 法线不会为零，此处为防御处理
+        return
+    z_axis.normalize()
+
+    # 让 Z 轴指向参照物体一侧
+    to_ref = Vector(ref_pos) - head
+    if z_axis.dot(to_ref) < 0.0:
+        z_axis = -z_axis
+
+    # 右手系补全 X 轴
+    x_axis = y_axis.cross(z_axis)
+    x_axis.normalize()
+
+    # 构建 4x4 矩阵：列 0/1/2 为 X/Y/Z 轴，translation 为骨骼头位置
+    mat = Matrix.Identity(4)
+    for i in range(3):
+        mat.col[0][i] = x_axis[i]
+        mat.col[1][i] = y_axis[i]
+        mat.col[2][i] = z_axis[i]
+    mat.translation = head
+
+    bone.matrix = mat
+
+
 def modify_finger_bones():
     """Blender版手指骨骼修正函数
 
@@ -143,7 +196,9 @@ def modify_finger_bones():
 
     start_pos = start_bone.head[:]
     end_pos = bone_chain[-1].tail[:]
-    ref_pos = ref_obj.location[:]
+
+    # 参照物体位置换算到骨架（armature）空间，与骨骼端点的坐标系保持一致
+    ref_pos = armature_obj.matrix_world.inverted() @ ref_obj.matrix_world.translation
 
     if is_point_on_line(ref_pos, start_pos, end_pos):
         print("警告: 参照物体在直线上，请将参照物体放置在直线外")
@@ -232,9 +287,19 @@ def modify_finger_bones():
         print(f"  投影位置: {projection}")
         print(f"  新位置: {new_pos}")
 
+    # ── 旋转优化：让每根骨骼的 Z 轴落在修正平面内，并指向参照物体 ──
+    print("\n开始对齐骨骼 Z 轴...")
+    for bone in bone_chain:
+        align_bone_z_to_plane(bone, plane_normal, ref_pos)
+        z_axis = bone.matrix.col[2][:3]
+        print(
+            f"骨骼 {bone.name}: Z轴 = ({z_axis[0]:.4f}, {z_axis[1]:.4f}, {z_axis[2]:.4f})")
+    print("骨骼 Z 轴对齐完成！")
+
     print("\n" + "=" * 50)
     print("骨骼修正完成！")
     print("所有骨骼端点已移动到平面上，并形成拱形分布")
+    print("每根骨骼的 Z 轴已对齐到修正平面内，并指向参照物体")
     print("=" * 50)
 
 
