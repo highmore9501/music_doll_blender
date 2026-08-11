@@ -18,6 +18,7 @@ from collections import defaultdict
 import bpy  # type: ignore
 
 from ..common import state_io as _sio
+from ..common import io_utils
 
 from .state import STATE_KEY
 
@@ -47,13 +48,15 @@ def _valid_controller_shorts(config, hand: str) -> set[str]:
     return shorts
 
 
-def export_recorder_info(file_path: str, config, skeleton) -> None:
+def export_recorder_info(file_path: str, config, skeleton,
+                         for_unreal: bool = False) -> None:
     """导出所有记录器的位置和旋转信息到 .zheng_master JSON 文件。
 
-    - 弦位置标记从对象读；
-    - 左右手状态从骨骼自定义属性读（见 state.py）；
-    - 脚部/双线性辅助控制器从对象读。
+    for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
     """
+    _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
+    _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
+
     print("\n开始导出记录器信息...")
     print(f"目标文件：{file_path}")
 
@@ -66,8 +69,8 @@ def export_recorder_info(file_path: str, config, skeleton) -> None:
         if full in bpy.data.objects:
             obj = bpy.data.objects[full]
             result['STRING_RECORDERS'][recorder_name] = {
-                'location': list(obj.location),
-                'rotation': list(obj.rotation_quaternion),
+                'location': _pos(list(obj.location)),
+                'rotation': _rot(list(obj.rotation_quaternion)),
             }
             string_count += 1
 
@@ -86,8 +89,8 @@ def export_recorder_info(file_path: str, config, skeleton) -> None:
                         continue
                     recorder_name = f"{short}_{action_str}_{pos_str}"
                     result[section][recorder_name] = {
-                        "location": ctrl_data.get("location", [0, 0, 0]),
-                        "rotation": ctrl_data.get("rotation", [1, 0, 0, 0]),
+                        "location": _pos(ctrl_data.get("location", [0, 0, 0])),
+                        "rotation": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
                     }
                     if hand_key == "left_hand":
                         left_hand_count += 1
@@ -100,10 +103,10 @@ def export_recorder_info(file_path: str, config, skeleton) -> None:
         full = config.obj_name(controller_name)
         if full in bpy.data.objects:
             obj = bpy.data.objects[full]
-            result['FOOT_CONTROLLERS'][controller_name]['location'] = list(
-                obj.location)
-            result['FOOT_CONTROLLERS'][controller_name]['rotation'] = list(
-                obj.rotation_quaternion)
+            result['FOOT_CONTROLLERS'][controller_name]['location'] = _pos(
+                list(obj.location))
+            result['FOOT_CONTROLLERS'][controller_name]['rotation'] = _rot(
+                list(obj.rotation_quaternion))
             foot_count += 1
 
     # 双线性映射辅助控制器（只导出位置）
@@ -113,12 +116,12 @@ def export_recorder_info(file_path: str, config, skeleton) -> None:
         if full in bpy.data.objects:
             obj = bpy.data.objects[full]
             result['BILINEAR_HELPERS'][helper_name] = {
-                'location': list(obj.location)
+                'location': _pos(list(obj.location))
             }
             bilinear_count += 1
 
-    # 标记数据来源为 Blender
-    result['is_blender'] = True
+    # 标记数据来源（Rust 端按 is_blender 判断坐标系：true=Blender，false=Unreal）
+    result['is_blender'] = not for_unreal
 
     # 写入文件
     data = json.dumps(result, indent=4)

@@ -9,14 +9,22 @@
 
 import json
 
+from ..common import io_utils
 from .state import _get_state, _set_state, _ctrl_shorts_for_component
 from .enums import HAND_LIMBS
 
 
 # ── 导出 ──────────────────────────────────────────────────────
 
-def export_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
-    """从骨骼 JSON 导出 .drummer 文件（兼容原扁平格式）"""
+def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
+                   for_unreal: bool = False) -> None:
+    """从骨骼 JSON 导出 .drummer 文件（兼容原扁平格式）
+
+    for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
+    """
+    _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
+    _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
+
     state_data = _get_state(skeleton)
 
     recorder_info = {}
@@ -34,12 +42,12 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
                 if short == "Head_Control":
                     key = f"{comp_name}_{state_name}_Head_Control"
                     recorder_info[key] = {
-                        "location": ctrl_data.get("location", [0, 0, 0])}
+                        "location": _pos(ctrl_data.get("location", [0, 0, 0]))}
                 else:
                     key = f"{comp_name}_{state_name}_{short}"
                     recorder_info[key] = {
-                        "location": ctrl_data.get("location", [0, 0, 0]),
-                        "rotation_quaternion": ctrl_data.get("rotation", [1, 0, 0, 0]),
+                        "location": _pos(ctrl_data.get("location", [0, 0, 0])),
+                        "rotation_quaternion": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
                         "rotation_mode": "QUATERNION",
                     }
 
@@ -56,13 +64,13 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
     for short, flat_key in _REST_KEY_MAP.items():
         if short in rest_map:
             recorder_info[flat_key] = {
-                "location": rest_map[short].get("location", [0, 0, 0]),
-                "rotation_quaternion": rest_map[short].get("rotation", [1, 0, 0, 0]),
+                "location": _pos(rest_map[short].get("location", [0, 0, 0])),
+                "rotation_quaternion": _rot(rest_map[short].get("rotation", [1, 0, 0, 0])),
                 "rotation_mode": "QUATERNION",
             }
     if "Head_Control" in rest_map:
         recorder_info["Head_Control_Rest"] = {
-            "location": rest_map["Head_Control"].get("location", [0, 0, 0])
+            "location": _pos(rest_map["Head_Control"].get("location", [0, 0, 0]))
         }
 
     # mapping_helpers
@@ -71,22 +79,23 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
         entry = helpers.get(key, {})
         if "Middle_Hand" in entry:
             mapping_helpers_out[f"Middle_Hand_{key}"] = {
-                "location": entry["Middle_Hand"]}
+                "location": _pos(entry["Middle_Hand"])}
         if "Head_Control" in entry:
             mapping_helpers_out[f"Head_Control_{key}"] = {
-                "location": entry["Head_Control"]}
+                "location": _pos(entry["Head_Control"])}
         if "H_L" in entry:
             mapping_helpers_out[f"Left_Hand_{key}"] = {
-                "location": entry["H_L"].get("location", [0, 0, 0]),
-                "rotation_quaternion": entry["H_L"].get("rotation", [1, 0, 0, 0]),
+                "location": _pos(entry["H_L"].get("location", [0, 0, 0])),
+                "rotation_quaternion": _rot(entry["H_L"].get("rotation", [1, 0, 0, 0])),
             }
         if "H_R" in entry:
             mapping_helpers_out[f"Right_Hand_{key}"] = {
-                "location": entry["H_R"].get("location", [0, 0, 0]),
-                "rotation_quaternion": entry["H_R"].get("rotation", [1, 0, 0, 0]),
+                "location": _pos(entry["H_R"].get("location", [0, 0, 0])),
+                "rotation_quaternion": _rot(entry["H_R"].get("rotation", [1, 0, 0, 0])),
             }
 
     export_data = {
+        "is_unreal": for_unreal,
         "RECORDER_INFO": recorder_info,
         "MAPPING_HELPERS": mapping_helpers_out,
     }

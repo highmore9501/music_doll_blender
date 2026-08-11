@@ -625,6 +625,8 @@ class KEYRIPPLE_PT_main_panel(Panel):
                      text="Export", icon='EXPORT')
         row.operator("music_doll.key_ripple_import_avatar",
                      text="Import", icon='IMPORT')
+        box.operator("music_doll.key_ripple_export_to_unreal",
+                     text="导出到 Unreal", icon='EXPORT')
 
         # 动画生成区
         box = layout.box()

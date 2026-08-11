@@ -1,12 +1,15 @@
 # harp_glide/tools/__init__.py
 """HarpGlide 乐器专属工具列表"""
 
+import bpy  # type: ignore
+
 from ..tools.string_tools import (
     draw_create_string_shape_key,
     draw_create_all_strings_shape_keys,
     draw_linear_distribute,
 )
 from ...common.tools import ToolDef
+from . import export_to_unreal
 
 INSTRUMENT_TOOLS: list[ToolDef] = [
     ToolDef(
@@ -31,3 +34,11 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
         draw=draw_linear_distribute,
     ),
 ]
+
+
+def register():
+    export_to_unreal.register()
+
+
+def unregister():
+    export_to_unreal.unregister()

@@ -529,6 +529,8 @@ class WR_PT_main_panel(Panel):
                      text="导出 .wind", icon="EXPORT")
         row.operator("music_doll.wind_rise_import_wind",
                      text="导入 .wind", icon="IMPORT")
+        box.operator("music_doll.wind_rise_export_to_unreal",
+                     text="导出到 Unreal", icon="EXPORT")
 
         # 8. 动画生成
         box = layout.box()

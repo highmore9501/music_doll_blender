@@ -13,6 +13,7 @@ from ...common import ui_utils
 from ...common.tools import ToolDef
 
 from . import string_tools
+from . import export_to_unreal
 
 
 # ── 工具参数区场景属性（幂等注册） ─────────────────────────
@@ -156,6 +157,7 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
 
 def register():
     register_tool_scene_props()
+    export_to_unreal.register()
     bpy.utils.register_class(ZHENG_OT_tool_create_string_shape_key)
     bpy.utils.register_class(ZHENG_OT_tool_create_all_strings_shape_keys)
     bpy.utils.register_class(ZHENG_OT_tool_linear_distribute_recorders)
@@ -165,4 +167,5 @@ def unregister():
     bpy.utils.unregister_class(ZHENG_OT_tool_linear_distribute_recorders)
     bpy.utils.unregister_class(ZHENG_OT_tool_create_all_strings_shape_keys)
     bpy.utils.unregister_class(ZHENG_OT_tool_create_string_shape_key)
+    export_to_unreal.unregister()
     unregister_tool_scene_props()

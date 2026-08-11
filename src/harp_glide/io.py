@@ -51,17 +51,38 @@ def _write_obj_transform(full_name: str, entry: dict) -> None:
 
 # ── 导出 ─────────────────────────────────────────────────────
 
-def export_harpist(file_path: str, suffix: str, skeleton, props) -> None:
-    """骨骼 JSON + 物理对象 → .harpist 文件"""
+def _te(entry: dict, _pos, _rot) -> dict:
+    """对单条 {location, rotation} 条目应用坐标转换（原地返回新 dict）。"""
+    out = {}
+    if "location" in entry:
+        out["location"] = _pos(entry["location"])
+    if "rotation" in entry:
+        out["rotation"] = _rot(entry["rotation"])
+    for k, v in entry.items():
+        if k not in ("location", "rotation"):
+            out[k] = v
+    return out
+
+
+def export_harpist(file_path: str, suffix: str, skeleton, props,
+                   for_unreal: bool = False) -> None:
+    """骨骼 JSON + 物理对象 → .harpist 文件
+
+    for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
+    """
+    _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
+    _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
+
     file_path = io_utils.ensure_extension(file_path, ".harpist")
     data = state_io.get_state_data(skeleton, STATE_KEY, {})
 
-    cfg = data.get("config", {
+    cfg = dict(data.get("config", {
         "string_count": 47,
         "left_far": 0, "left_near": 0,
         "left_mid_far": 0, "left_mid_near": 0,
         "right_far": 0, "right_near": 0,
-    })
+    }))
+    cfg["is_unreal"] = for_unreal  # Rust 端从 config 子对象读取
     string_count = int(cfg.get("string_count", 47))
 
     result = {"config": cfg}
@@ -71,36 +92,43 @@ def export_harpist(file_path: str, suffix: str, skeleton, props) -> None:
     for n in range(string_count):
         for part in ("head", "end"):
             short = f"s{n}{part}"
-            string_rec[short] = _read_obj_transform(_pu.resolve(short, suffix))
+            string_rec[short] = _te(_read_obj_transform(
+                _pu.resolve(short, suffix)), _pos, _rot)
     result["STRING_RECORDERS"] = string_rec
 
     # PEDAL_POSITION_RECORDERS：骨骼 JSON → 直接映射
     pedal_src = data.get("pedal_positions", {})
-    result["PEDAL_POSITION_RECORDERS"] = dict(pedal_src)
+    result["PEDAL_POSITION_RECORDERS"] = {
+        k: _te(v, _pos, _rot) for k, v in pedal_src.items()
+    }
 
     # HARP_PIVOT_RECORDERS：near/mid/far → harp_pivot_{state} 键
     pivot_src = data.get("harp_pivot_states", {})
     result["HARP_PIVOT_RECORDERS"] = {
-        f"harp_pivot_{k}": v for k, v in pivot_src.items()
+        f"harp_pivot_{k}": _te(v, _pos, _rot) for k, v in pivot_src.items()
     }
 
     # LEFT/RIGHT_HAND_RECORDERS：{ctrl}_{pose} 展平
-    result["LEFT_HAND_RECORDERS"] = _flatten_hand_poses(data, "left")
-    result["RIGHT_HAND_RECORDERS"] = _flatten_hand_poses(data, "right")
+    result["LEFT_HAND_RECORDERS"] = {
+        k: _te(v, _pos, _rot) for k, v in _flatten_hand_poses(data, "left").items()
+    }
+    result["RIGHT_HAND_RECORDERS"] = {
+        k: _te(v, _pos, _rot) for k, v in _flatten_hand_poses(data, "right").items()
+    }
 
     # HEAD_RECORDERS：Head_{pose}
     head_poses = data.get("head_poses", {})
     head_rec = {}
     for pose, ctrls in head_poses.items():
         for ctrl, entry in ctrls.items():
-            head_rec[f"{ctrl}_{pose}"] = entry
+            head_rec[f"{ctrl}_{pose}"] = _te(entry, _pos, _rot)
     result["HEAD_RECORDERS"] = head_rec
 
     # FOOT_REST_RECORDERS：F_rest_L / F_rest_R
     foot = data.get("foot_rest", {})
     result["FOOT_REST_RECORDERS"] = {
-        "F_rest_L": foot.get("F_L", {"location": [0]*3, "rotation": [1, 0, 0, 0]}),
-        "F_rest_R": foot.get("F_R", {"location": [0]*3, "rotation": [1, 0, 0, 0]}),
+        "F_rest_L": _te(foot.get("F_L", {"location": [0]*3, "rotation": [1, 0, 0, 0]}), _pos, _rot),
+        "F_rest_R": _te(foot.get("F_R", {"location": [0]*3, "rotation": [1, 0, 0, 0]}), _pos, _rot),
     }
 
     io_utils.save_json(file_path, result)

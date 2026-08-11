@@ -10,6 +10,7 @@ import bpy  # type: ignore
 from ...common.tools import ToolDef
 
 from . import strings
+from . import export_to_unreal
 
 
 def _draw_create_string(layout, scene):
@@ -43,7 +44,9 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
 
 def register():
     strings.register()
+    export_to_unreal.register()
 
 
 def unregister():
+    export_to_unreal.unregister()
     strings.unregister()

@@ -550,6 +550,8 @@ class BB_PT_main_panel(Panel):
         row = box.row(align=True)
         row.operator("music_doll.beat_bloom_export", text="Export .drummer")
         row.operator("music_doll.beat_bloom_import", text="Import .drummer")
+        box.operator("music_doll.beat_bloom_export_to_unreal",
+                     text="导出到 Unreal", icon='EXPORT')
 
         # 7. 动画
         box = layout.box()
@@ -583,6 +585,8 @@ _CLASSES = (
 
 
 def register():
+    from .tools import register as tools_register
+    tools_register()
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Scene.md_bb_props = PointerProperty(type=BeatBloomProperties)
@@ -604,3 +608,6 @@ def unregister():
 
     if hasattr(bpy.types.Scene, "md_bb_props"):
         del bpy.types.Scene.md_bb_props
+
+    from .tools import unregister as tools_unregister
+    tools_unregister()

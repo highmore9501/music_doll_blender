@@ -4,6 +4,7 @@
 import json
 import os
 
+from ..common import io_utils
 from ..common import state_io
 from .enums import midi_to_name
 from .state import (
@@ -26,8 +27,15 @@ def _normalize_wind_path(path: str) -> str:
     return path
 
 
-def export_wind(file_path: str, skeleton, min_note: int, max_note: int) -> str:
-    """从骨骼 JSON 全量读出，写入 .wind 文件。"""
+def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
+                for_unreal: bool = False) -> str:
+    """从骨骼 JSON 全量读出，写入 .wind 文件。
+
+    for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
+    """
+    _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
+    _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
+
     if skeleton is None:
         raise ValueError("请先选择目标骨骼")
 
@@ -46,6 +54,15 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int) -> str:
                 "character_shape_keys") or []
             entry["instrument_shape_keys"] = entry.get(
                 "instrument_shape_keys") or []
+            if for_unreal:
+                raw_ctrls = entry.get("controllers", {})
+                entry["controllers"] = {
+                    k: {
+                        "location": _pos(v.get("location", [0, 0, 0])),
+                        "rotation": _rot(v.get("rotation", [1, 0, 0, 0])),
+                    }
+                    for k, v in raw_ctrls.items()
+                }
             note_info.append(entry)
         else:
             note_info.append({
@@ -56,7 +73,8 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int) -> str:
                 "instrument_shape_keys": [],
             })
 
-    export_data = {"config": config, "note_info": note_info}
+    export_data = {"config": config,
+                   "is_unreal": for_unreal, "note_info": note_info}
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(export_data, f, ensure_ascii=False, indent=2)
 

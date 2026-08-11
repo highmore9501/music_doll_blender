@@ -55,3 +55,20 @@ def load_dict_from_json_str(raw: str | None) -> dict:
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+# ── Unreal 引擎坐标转换 ─────────────────────────────────────────
+
+def to_unreal_position(pos: list) -> list:
+    """Blender 位置 → Unreal 位置：Y 轴取反。"""
+    return [pos[0], pos[1] * -1.0, pos[2]]
+
+
+def to_unreal_rotation(rot: list) -> list:
+    """Blender 四元数 [w,x,y,z] → Unreal：Y 轴取反（反射），保留 w、y，对 x、z 取反。
+
+    位置经反射 M=diag(1,-1,1) 变换时，旋转应为 R_u = M·R_b·M。
+    反射共轭会同时翻转转轴并反号转角，故四元数变为 (w, -x, y, -z)，
+    而不是共轭 (w, -x, -y, -z)。
+    """
+    return [rot[0], -rot[1], rot[2], -rot[3]]

@@ -3,6 +3,7 @@
 
 from ...common.tools import ToolDef
 from . import axis_rotation_tool
+from . import export_to_unreal
 
 
 def _draw_axis_rot(layout, scene):
@@ -33,7 +34,9 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
 
 def register():
     axis_rotation_tool.register()
+    export_to_unreal.register()
 
 
 def unregister():
+    export_to_unreal.unregister()
     axis_rotation_tool.unregister()

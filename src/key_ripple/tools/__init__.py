@@ -10,6 +10,7 @@ import bpy  # type: ignore
 from ...common.tools import ToolDef
 
 from . import make_shape_keys
+from . import export_to_unreal
 
 
 def _draw_make_shape_keys(layout, scene):
@@ -31,7 +32,9 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
 
 def register():
     make_shape_keys.register()
+    export_to_unreal.register()
 
 
 def unregister():
+    export_to_unreal.unregister()
     make_shape_keys.unregister()

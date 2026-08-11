@@ -68,11 +68,16 @@ class IOManager:
 
     # ── 导出 ──────────────────────────────────────────────────
 
-    def export_controller_info(self, file_name: str, target_skeleton) -> None:
+    def export_controller_info(self, file_name: str, target_skeleton,
+                               for_unreal: bool = False) -> None:
         """将控制器状态从骨骼自定义属性导出为 JSON 文件
 
-        内容结构 → 与 `婕德_unreal.json` 一致（文件名不带 `_unreal`）。
+        for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
         """
+        # 坐标转换函数：for_unreal 时使用 common 公共转换，否则原样返回
+        _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
+        _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
+
         # 1) 从骨骼读取内部数据
         data = self.get_all_controller_data(target_skeleton)
         result = io_utils.nested_dict()
@@ -94,8 +99,8 @@ class IOManager:
                     continue
                 for ctrl_name, ctrl_data in state_data.items():
                     result[section][pos_name][ctrl_name] = {
-                        "position": ctrl_data.get("location", [0, 0, 0]),
-                        "rotation": ctrl_data.get("rotation", [1, 0, 0, 0]),
+                        "position": _pos(ctrl_data.get("location", [0, 0, 0])),
+                        "rotation": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
                     }
 
         # 3) 指板位置（从物理物体读，与旧逻辑一致）
@@ -103,8 +108,8 @@ class IOManager:
         for position_enum, marker_name in self.guitar_fret_positions.items():
             obj = bpy.data.objects.get(self.obj_name(marker_name))
             if obj:
-                result["LEFT_FINGER_POSITIONS"][position_enum] = list(
-                    obj.location)
+                result["LEFT_FINGER_POSITIONS"][position_enum] = _pos(
+                    list(obj.location))
 
         # 4) 右手 → RIGHT_HAND_POSITIONS
         print("导出右手控制器信息...")
@@ -114,14 +119,14 @@ class IOManager:
                 rname = _compute_right_recorder_name(
                     state_value, ctrl_name, self.use_vibrato_bar)
                 result["RIGHT_HAND_POSITIONS"][rname] = {
-                    "position": ctrl_data.get("location", [0, 0, 0]),
-                    "rotation": ctrl_data.get("rotation", [1, 0, 0, 0]),
+                    "position": _pos(ctrl_data.get("location", [0, 0, 0])),
+                    "rotation": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
                 }
 
         # 5) 其他设置（从骨骼读演奏者设置，保持无状态）
         settings = self.load_settings(target_skeleton)
         result["OTHER_SETTING"] = {
-            "is_unreal": False,
+            "is_unreal": for_unreal,
             "use_vibrato_bar": settings["use_vibrato_bar"],
         }
 

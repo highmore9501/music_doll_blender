@@ -11,6 +11,7 @@ from collections import defaultdict
 
 import bpy  # type: ignore
 
+from ..common import io_utils
 from .config import KeyRipple, KeyType, PositionType
 from .state import set_state_data
 
@@ -19,13 +20,17 @@ def export_avatar(
     file_path: str,
     key_ripple: KeyRipple,
     skeleton,
+    for_unreal: bool = False,
 ) -> None:
     """导出 .avatar 文件（与旧版格式完全兼容）。
 
-    状态数据从演奏者骨骼自定义属性读取，键盘基准点从 Empty 物体读取。
+    for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
     """
     if not file_path.endswith(".avatar"):
         file_path = os.path.splitext(file_path)[0] + ".avatar"
+
+    _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
+    _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
 
     def nested_dict():
         return defaultdict(nested_dict)
@@ -43,7 +48,7 @@ def export_avatar(
     result["config"]["min_key"] = key_ripple.min_key
     result["config"]["max_key"] = key_ripple.max_key
     result["config"]["hand_range"] = key_ripple.hand_range
-    result["config"]["is_unreal"] = False
+    result["config"]["is_unreal"] = for_unreal
 
     # ── 从骨骼读取全部 state_data，转换为旧版 recorder 格式 ──
     raw = skeleton.get("key_ripple_state_data")
@@ -80,9 +85,9 @@ def export_avatar(
             top_key, sub_key = section
             recorder_name = f"{pos_type_str}_{key_type_str}_{ctrl_name}"
             entry = {
-                "location": ctrl_data.get("location", [0, 0, 0]),
+                "location": _pos(ctrl_data.get("location", [0, 0, 0])),
                 "rotation_mode": "QUATERNION",
-                "rotation_quaternion": ctrl_data.get("rotation", [1, 0, 0, 0]),
+                "rotation_quaternion": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
             }
             # 特殊处理旧版 Head_Control 嵌套结构
             if top_key == "target_points_recorders":
@@ -97,7 +102,7 @@ def export_avatar(
             obj = bpy.data.objects[full]
             result["key_board_positions"][position_key] = {
                 "name": obj_name,
-                "location": list(obj.location),
+                "location": _pos(list(obj.location)),
             }
 
     # ── 写入文件 ────────────────────────────────────────────

@@ -707,6 +707,8 @@ class ZHENG_PT_main_panel(Panel):
         row = box.row(align=True)
         row.operator("music_doll.zheng_drift_import_info", text="导入")
         row.operator("music_doll.zheng_drift_export_info", text="导出")
+        box.operator("music_doll.zheng_drift_export_to_unreal",
+                     text="导出到 Unreal", icon='EXPORT')
 
         # 7. 动画生成模块
         box = layout.box()

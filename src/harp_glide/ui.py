@@ -677,6 +677,8 @@ class HG_PT_main_panel(Panel):
                      text="Export .harpist", icon="EXPORT")
         row.operator("harp_glide.import",
                      text="Import .harpist", icon="IMPORT")
+        box.operator("harp_glide.export_to_unreal",
+                     text="导出到 Unreal", icon="EXPORT")
 
         # 6. 生成动画
         box = layout.box()
@@ -718,6 +720,8 @@ _CLASSES = (
 
 
 def register():
+    from .tools import register as tools_register
+    tools_register()
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Scene.md_hg_props = PointerProperty(type=HarpGlideProperties)
@@ -735,3 +739,5 @@ def unregister():
         bpy.utils.unregister_class(cls)
     if hasattr(bpy.types.Scene, "md_hg_props"):
         del bpy.types.Scene.md_hg_props
+    from .tools import unregister as tools_unregister
+    tools_unregister()

@@ -880,6 +880,8 @@ class FRET_DANCE_PT_main_panel(Panel):
         row = box.row(align=True)
         row.operator("music_doll.fret_dance_import_info", text="导入")
         row.operator("music_doll.fret_dance_export_info", text="导出")
+        box.operator("music_doll.fret_dance_export_to_unreal",
+                     text="导出到 Unreal", icon='EXPORT')
 
         # 第七大块：动画生成部分
         box = layout.box()
