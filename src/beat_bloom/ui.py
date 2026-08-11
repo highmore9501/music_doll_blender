@@ -1,0 +1,606 @@
+# beat_bloom/ui.py
+"""BeatBloom 乐器模块 —— 面板与算子
+
+- 状态存骨骼自定义属性，无全局单例；
+- DrumKit 枚举 items 动态读骨骼 beat_bloom_drumkit_config；
+- 面板挂在 MUSICDOLL_PT_main_panel 下，只在 beat_bloom 演奏者激活时显示；
+- 场景属性键前缀 md_bb_，避免与独立安装的旧版插件冲突。
+"""
+
+import json
+import os
+
+import bpy  # type: ignore
+from bpy.types import Panel, Operator, PropertyGroup  # type: ignore
+from bpy.props import (  # type: ignore
+    StringProperty, EnumProperty, PointerProperty,
+)
+from bpy_extras.io_utils import ImportHelper, ExportHelper  # type: ignore
+
+from ..common import ui_utils
+from ..common import performer_utils
+from ..common.tools import COMMON_TOOLS
+from .config import BeatBloomConfig, DRUMKIT_KEY
+from .enums import STATE_ITEMS
+from .state import (
+    save_state, load_state,
+    save_rest_state, load_rest_state,
+    save_mapping, load_mapping,
+)
+from .io import export_drummer, import_drummer
+from .animation import (
+    clear_all_keyframe,
+    make_animation_by_path,
+    make_shape_key_animation,
+)
+from .tools import INSTRUMENT_TOOLS
+
+TOOLS = COMMON_TOOLS + INSTRUMENT_TOOLS
+
+
+# ── 演奏者/骨骼辅助 ──────────────────────────────────────────
+
+def _get_active_suffix(context) -> str:
+    return ui_utils.get_active_suffix(context.scene)
+
+
+def _get_active_skeleton(context):
+    skel = ui_utils.get_target_skeleton(context)
+    if skel:
+        return skel
+    for obj in context.selected_objects:
+        if obj is not None and obj.type == "ARMATURE":
+            return obj
+    return None
+
+
+def _get_drumkit(context) -> dict | None:
+    """读取当前演奏者骨骼的 drumkit 配置；无则返回 None"""
+    skel = _get_active_skeleton(context)
+    if skel is None:
+        return None
+    raw = skel.get(DRUMKIT_KEY)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _get_bb_config(context) -> BeatBloomConfig:
+    return BeatBloomConfig(
+        performer_suffix=_get_active_suffix(context),
+        target_skeleton=_get_active_skeleton(context),
+    )
+
+
+# ── 动态 EnumProperty 回调 ──────────────────────────────────
+# Blender 5.0 要求 items 回调必须是 2 参数 (self, context)
+
+def _get_component_items(self, context):
+    """所有 drum component（含 special_actions）的 enum items"""
+    dk = _get_drumkit(context)
+    if not dk:
+        return [("__none__", "（未加载 Drumkit）", "")]
+    items = []
+    for comp in dk.get("components", []):
+        n = comp["name"]
+        items.append((n, n, ""))
+    for sa in dk.get("special_actions", []):
+        n = sa["name"]
+        items.append((n, n, ""))
+    items.append(("__rest__", "Rest（休息态）", ""))
+    return items or [("__none__", "（无组件）", "")]
+
+
+# ── 属性组 ────────────────────────────────────────────────────
+
+class BeatBloomProperties(PropertyGroup):
+    """BeatBloom 面板场景属性"""
+    __annotations__ = {
+        # 当前选中的 drum component（动态，来自 drumkit 配置）
+        "component": EnumProperty(
+            name="Component",
+            description="Drum component",
+            items=_get_component_items,
+            default=0,
+        ),
+        # 当前选中的击打状态
+        "state": EnumProperty(
+            name="State",
+            description="Hit state",
+            items=STATE_ITEMS,
+            default="beat",
+        ),
+        # Mapping A/B/C/D
+        "mapping_key": EnumProperty(
+            name="Mapping State",
+            description="Mapping helper slot (A/B/C/D)",
+            items=[('A', 'A', ''), ('B', 'B', ''),
+                   ('C', 'C', ''), ('D', 'D', '')],
+            default='A',
+        ),
+        # .beatbloom 配置文件路径（用于生成动画）
+        "beatbloom_file_path": StringProperty(
+            name="BeatBloom File",
+            description=".beatbloom 配置文件路径",
+            default="", subtype='FILE_PATH',
+        ),
+    }
+
+
+# ── 算子 ──────────────────────────────────────────────────────
+
+class BB_OT_load_drumkit(Operator, ImportHelper):
+    """加载 .drumkit 文件并写入骨骼自定义属性"""
+    bl_idname = "music_doll.beat_bloom_load_drumkit"
+    bl_label = "Load DrumKit Config"
+    bl_options = {'REGISTER', 'UNDO'}
+    filename_ext = ".drumkit"
+    __annotations__ = {
+        "filter_glob": StringProperty(default="*.drumkit", options={'HIDDEN'})
+    }
+
+    def execute(self, context):
+        if not self.filepath.endswith(".drumkit"):
+            self.report({'ERROR'}, "请选择 .drumkit 文件")
+            return {'CANCELLED'}
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        try:
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                dk = json.load(f)
+            skel[DRUMKIT_KEY] = json.dumps(dk, ensure_ascii=False)
+            self.report({'INFO'}, f"已加载 drumkit：{dk.get('name', '')}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"加载失败：{e}")
+            return {'CANCELLED'}
+
+
+class BB_OT_setup_objects(Operator):
+    """创建 BeatBloom 12 个控件"""
+    bl_idname = "music_doll.beat_bloom_setup_objects"
+    bl_label = "Setup Objects"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        cfg = _get_bb_config(context)
+        cfg.setup_all_objects()
+        self.report({'INFO'}, "BeatBloom 控件已就绪")
+        return {'FINISHED'}
+
+
+class BB_OT_save_state(Operator):
+    """将当前控件位置保存到骨骼（Set）"""
+    bl_idname = "music_doll.beat_bloom_save_state"
+    bl_label = "Set"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.md_bb_props
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        comp = props.component
+        if comp == "__none__":
+            self.report({'ERROR'}, "请先加载 Drumkit 配置")
+            return {'CANCELLED'}
+        if comp == "__rest__":
+            save_rest_state(_get_active_suffix(context), skel)
+            self.report({'INFO'}, "已保存 rest 状态")
+            return {'FINISHED'}
+        dk = _get_drumkit(context)
+        save_state(_get_active_suffix(context), comp, props.state, skel, dk)
+        self.report({'INFO'}, f"已保存 {comp}/{props.state}")
+        return {'FINISHED'}
+
+
+class BB_OT_load_state(Operator):
+    """从骨骼加载状态到控件（Load）"""
+    bl_idname = "music_doll.beat_bloom_load_state"
+    bl_label = "Load"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.md_bb_props
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        comp = props.component
+        if comp == "__none__":
+            self.report({'ERROR'}, "请先加载 Drumkit 配置")
+            return {'CANCELLED'}
+        suffix = _get_active_suffix(context)
+        if comp == "__rest__":
+            ok = load_rest_state(suffix, skel)
+        else:
+            ok = load_state(suffix, comp, props.state, skel)
+        if ok:
+            self.report({'INFO'}, f"已加载 {comp}")
+        else:
+            self.report({'WARNING'}, f"骨骼中不存在 {comp} 状态数据，请先 Set")
+        return {'FINISHED'}
+
+
+class BB_OT_save_mapping(Operator):
+    """将 Middle_Hand / Head_Control / H_L / H_R 保存到骨骼 mapping_helpers"""
+    bl_idname = "music_doll.beat_bloom_save_mapping"
+    bl_label = "Save Mapping"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.md_bb_props
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        save_mapping(_get_active_suffix(context), skel, props.mapping_key)
+        self.report({'INFO'}, f"已保存 Mapping {props.mapping_key}")
+        return {'FINISHED'}
+
+
+class BB_OT_load_mapping(Operator):
+    """从骨骼 mapping_helpers 加载到 Middle_Hand / Head_Control / H_L / H_R"""
+    bl_idname = "music_doll.beat_bloom_load_mapping"
+    bl_label = "Load Mapping"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.md_bb_props
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        ok = load_mapping(_get_active_suffix(context), skel, props.mapping_key)
+        if ok:
+            self.report({'INFO'}, f"已加载 Mapping {props.mapping_key}")
+        else:
+            self.report(
+                {'WARNING'}, f"骨骼中不存在 Mapping {props.mapping_key}，请先 Save")
+        return {'FINISHED'}
+
+
+class BB_OT_export(Operator, ExportHelper):
+    """导出 .drummer 文件（从骨骼 JSON 重组扁平格式）"""
+    bl_idname = "music_doll.beat_bloom_export"
+    bl_label = "Export Recorder Info"
+    bl_options = {'REGISTER', 'UNDO'}
+    filename_ext = ".drummer"
+    __annotations__ = {
+        "filter_glob": StringProperty(default="*.drummer", options={'HIDDEN'})
+    }
+
+    def execute(self, context):
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        dk = _get_drumkit(context)
+        if not dk:
+            self.report({'ERROR'}, "请先加载 Drumkit 配置")
+            return {'CANCELLED'}
+        path = self.filepath
+        if not path.endswith(".drummer"):
+            path += ".drummer"
+        try:
+            export_drummer(path, skel, dk)
+            self.report({'INFO'}, f"已导出 → {path}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"导出失败：{e}")
+            return {'CANCELLED'}
+
+
+class BB_OT_import(Operator, ImportHelper):
+    """从 .drummer 文件导入到骨骼 JSON"""
+    bl_idname = "music_doll.beat_bloom_import"
+    bl_label = "Import Recorder Info"
+    bl_options = {'REGISTER', 'UNDO'}
+    filename_ext = ".drummer"
+    __annotations__ = {
+        "filter_glob": StringProperty(default="*.drummer", options={'HIDDEN'})
+    }
+
+    def execute(self, context):
+        if not self.filepath.endswith(".drummer"):
+            self.report({'ERROR'}, "请选择 .drummer 文件")
+            return {'CANCELLED'}
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, "请先选择目标骨骼")
+            return {'CANCELLED'}
+        dk = _get_drumkit(context)
+        if not dk:
+            self.report({'ERROR'}, "请先加载 Drumkit 配置")
+            return {'CANCELLED'}
+        try:
+            import_drummer(self.filepath, skel, dk)
+            self.report({'INFO'}, f"已导入 ← {self.filepath}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"导入失败：{e}")
+            return {'CANCELLED'}
+
+
+class BB_OT_load_beatbloom(Operator, ImportHelper):
+    """选择 .beatbloom 配置文件（仅记录路径，不执行）"""
+    bl_idname = "music_doll.beat_bloom_load_beatbloom"
+    bl_label = "Load BeatBloom File"
+    bl_options = {'REGISTER', 'UNDO'}
+    filename_ext = ".beatbloom"
+    __annotations__ = {
+        "filter_glob": StringProperty(default="*.beatbloom", options={'HIDDEN'})
+    }
+
+    def execute(self, context):
+        if not self.filepath.endswith(".beatbloom"):
+            self.report({'ERROR'}, "请选择 .beatbloom 文件")
+            return {'CANCELLED'}
+        context.scene.md_bb_props.beatbloom_file_path = self.filepath
+        self.report({'INFO'}, f"已选择：{os.path.basename(self.filepath)}")
+        return {'FINISHED'}
+
+
+class BB_OT_execute_beatbloom(Operator):
+    """执行 BeatBloom 动画（读取 .beatbloom 配置后生成 transform + shape key 关键帧）"""
+    bl_idname = "music_doll.beat_bloom_execute_beatbloom"
+    bl_label = "Execute BeatBloom Animation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.md_bb_props
+        filepath = props.beatbloom_file_path
+        suffix = _get_active_suffix(context)
+
+        if not filepath or not os.path.exists(filepath):
+            self.report({'ERROR'}, "请先选择有效的 .beatbloom 文件")
+            return {'CANCELLED'}
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+
+            from pathlib import Path
+            project_root = Path(filepath).parent.parent.parent.absolute()
+
+            anim_path = config.get("animation_path", "")
+            sk_path = config.get("shape_key_animation_path", "")
+
+            if not os.path.isabs(anim_path):
+                anim_path = os.path.join(project_root, anim_path)
+            if not os.path.isabs(sk_path):
+                sk_path = os.path.join(project_root, sk_path)
+
+            if not os.path.exists(anim_path):
+                self.report({'ERROR'}, f"找不到动画文件：{anim_path}")
+                return {'CANCELLED'}
+            if not os.path.exists(sk_path):
+                self.report({'ERROR'}, f"找不到 shape key 动画文件：{sk_path}")
+                return {'CANCELLED'}
+
+            clear_all_keyframe(["drum", "addons"], suffix=suffix)
+            make_animation_by_path(anim_path, suffix=suffix)
+            make_shape_key_animation(sk_path)
+
+            self.report({'INFO'}, f"动画已生成：{os.path.basename(filepath)}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"执行动画时出错：{e}")
+            return {'CANCELLED'}
+
+
+class BB_OT_duplicate_performer(Operator):
+    """复制当前 BeatBloom 角色"""
+    bl_idname = "music_doll.beat_bloom_duplicate_performer"
+    bl_label = "复制角色"
+    bl_options = {'REGISTER', 'UNDO'}
+    new_name: StringProperty(default="", name="新名字")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop(self, "new_name")
+
+    def execute(self, context):
+        suffix = _get_active_suffix(context)
+        if not suffix:
+            self.report({'ERROR'}, "请先在下拉框选中要复制的角色")
+            return {'CANCELLED'}
+        src = performer_utils.get_performer(suffix)
+        if src is None:
+            self.report({'ERROR'}, f"找不到角色 {suffix}，请先初始化")
+            return {'CANCELLED'}
+        new_name = (self.new_name or "").strip()
+        if not new_name:
+            self.report({'ERROR'}, "请输入新名字")
+            return {'CANCELLED'}
+        if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
+            self.report({'ERROR'}, "名字只能用英文字母和数字")
+            return {'CANCELLED'}
+        if performer_utils.has_performer(new_name):
+            self.report({'ERROR'}, f"已存在名字 {new_name}")
+            return {'CANCELLED'}
+        try:
+            dup = performer_utils.duplicate_collection_tree(src.collection)
+        except Exception as e:
+            self.report({'ERROR'}, f"复制失败：{e}")
+            return {'CANCELLED'}
+        if dup is None:
+            self.report({'ERROR'}, "复制集合失败")
+            return {'CANCELLED'}
+        from ..common import instrument_base
+        instrument_base.set_coll_attr(dup, "name", src.name)
+        instrument_base.set_coll_attr(dup, "instrument", src.instrument)
+        performer_utils.resuffix_performer(dup, new_name, new_name=new_name)
+        self.report({'INFO'}, f"已复制角色为 {new_name}")
+        return {'FINISHED'}
+
+
+class BB_OT_rename_performer(Operator):
+    """重命名当前 BeatBloom 角色"""
+    bl_idname = "music_doll.beat_bloom_rename_performer"
+    bl_label = "重命名当前角色"
+    bl_options = {'REGISTER', 'UNDO'}
+    new_name: StringProperty(default="", name="新名字")
+
+    def invoke(self, context, event):
+        src = ui_utils.get_rename_target(context)
+        if src is not None and src.name and src.name.isascii():
+            self.new_name = src.name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop(self, "new_name")
+
+    def execute(self, context):
+        src = ui_utils.get_rename_target(context)
+        if src is None:
+            self.report({'ERROR'}, "找不到当前角色")
+            return {'CANCELLED'}
+        new_name = (self.new_name or "").strip()
+        if not new_name:
+            self.report({'ERROR'}, "请输入新名字")
+            return {'CANCELLED'}
+        if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
+            self.report({'ERROR'}, "名字只能用英文字母和数字")
+            return {'CANCELLED'}
+        if new_name == src.name:
+            self.report({'ERROR'}, "新名字与当前相同")
+            return {'CANCELLED'}
+        if performer_utils.has_performer(new_name):
+            self.report({'ERROR'}, f"已存在名字 {new_name}")
+            return {'CANCELLED'}
+        try:
+            performer_utils.resuffix_performer(
+                src.collection, new_name, new_name=new_name)
+        except Exception as e:
+            self.report({'ERROR'}, f"重命名失败：{e}")
+            return {'CANCELLED'}
+        try:
+            setattr(context.scene, ui_utils.SCENE_ACTIVE_PERFORMER, new_name)
+        except Exception:
+            pass
+        self.report({'INFO'}, f"已重命名为 {new_name}")
+        return {'FINISHED'}
+
+
+# ── 面板 ──────────────────────────────────────────────────────
+
+class BB_PT_main_panel(Panel):
+    """BeatBloom 乐器子面板"""
+    bl_label = "BeatBloom"
+    bl_idname = "BEATBLOOM_PT_main_panel"
+    bl_parent_id = "MUSICDOLL_PT_main_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "MusicDoll"
+
+    @classmethod
+    def poll(cls, context):
+        return ui_utils.active_instrument(context) == "beat_bloom"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        props = scene.md_bb_props
+
+        # 1. DrumKit 配置
+        box = layout.box()
+        box.label(text="DrumKit Config", icon='ARMATURE_DATA')
+        box.operator("music_doll.beat_bloom_load_drumkit",
+                     text="Load DrumKit Config", icon='FILE_FOLDER')
+
+        # 2. 初始化
+        box = layout.box()
+        box.label(text="Initialization", icon='TOOL_SETTINGS')
+        box.operator("music_doll.beat_bloom_setup_objects",
+                     text="Setup Objects", icon='OBJECT_DATA')
+
+        # 3. 工具
+        ui_utils.draw_tools(layout, scene, tools=TOOLS)
+
+        # 4. 状态设置/加载
+        box = layout.box()
+        box.label(text="Set / Load State", icon='FILE_REFRESH')
+        col = box.column(align=True)
+        col.prop(props, "component", text="Component")
+        col.prop(props, "state", text="State")
+        row = box.row(align=True)
+        row.operator("music_doll.beat_bloom_save_state", text="Set")
+        row.operator("music_doll.beat_bloom_load_state", text="Load")
+
+        # 5. Mapping Helpers
+        box = layout.box()
+        box.label(text="Mapping Helpers", icon='ORIENTATION_VIEW')
+        col = box.column(align=True)
+        col.prop(props, "mapping_key", text="Slot")
+        row = box.row(align=True)
+        row.operator("music_doll.beat_bloom_save_mapping", text="Save Mapping")
+        row.operator("music_doll.beat_bloom_load_mapping", text="Load Mapping")
+
+        # 6. 导出 / 导入 .drummer
+        box = layout.box()
+        box.label(text="Export / Import", icon='EXPORT')
+        row = box.row(align=True)
+        row.operator("music_doll.beat_bloom_export", text="Export .drummer")
+        row.operator("music_doll.beat_bloom_import", text="Import .drummer")
+
+        # 7. 动画
+        box = layout.box()
+        box.label(text="Animation", icon='PLAY')
+        box.prop(props, "beatbloom_file_path", text="")
+        row = box.row(align=True)
+        row.operator("music_doll.beat_bloom_load_beatbloom",
+                     text="Select File", icon='FILE_FOLDER')
+        box.operator("music_doll.beat_bloom_execute_beatbloom",
+                     text="Execute Animation", icon='PLAY')
+
+
+# ── 注册 / 注销 ───────────────────────────────────────────────
+
+_CLASSES = (
+    BeatBloomProperties,
+    BB_OT_load_drumkit,
+    BB_OT_setup_objects,
+    BB_OT_save_state,
+    BB_OT_load_state,
+    BB_OT_save_mapping,
+    BB_OT_load_mapping,
+    BB_OT_export,
+    BB_OT_import,
+    BB_OT_load_beatbloom,
+    BB_OT_execute_beatbloom,
+    BB_OT_duplicate_performer,
+    BB_OT_rename_performer,
+    BB_PT_main_panel,
+)
+
+
+def register():
+    for cls in _CLASSES:
+        bpy.utils.register_class(cls)
+    bpy.types.Scene.md_bb_props = PointerProperty(type=BeatBloomProperties)
+
+    from .tools import INSTRUMENT_TOOLS as _it  # noqa: F401
+
+    ui_utils.register_instrument(
+        "beat_bloom", "BeatBloom 打击乐", BB_PT_main_panel,
+        rename_operator="music_doll.beat_bloom_rename_performer",
+        duplicate_operator="music_doll.beat_bloom_duplicate_performer",
+    )
+
+
+def unregister():
+    ui_utils.unregister_instrument("beat_bloom")
+
+    for cls in reversed(_CLASSES):
+        bpy.utils.unregister_class(cls)
+
+    if hasattr(bpy.types.Scene, "md_bb_props"):
+        del bpy.types.Scene.md_bb_props

@@ -97,6 +97,93 @@ def animate_hand(animation_file: str, suffix: str = ""):
     print(f"手部动画已成功从 {animation_file} 生成")
 
 
+def clear_controller_root_animation(suffix: str = ""):
+    """清除吉他偏移动画：清空 controller_root_offset 的偏移关键帧并复位为中性值。
+
+    对齐 Unreal 的 MakeControllerRootAnimation：controller_root_offset 是
+    controller_root 下的偏移节点，吉他所挂其上，偏移量归零即回到初始姿态。
+    """
+    obj_name = performer_utils.resolve("controller_root_offset", suffix)
+    obj = bpy.data.objects.get(obj_name)
+    if obj is None:
+        print(f"警告: 控制器 {obj_name} 不存在于场景中")
+        return
+    obj.location = (0.0, 0.0, 0.0)
+    obj.rotation_mode = 'QUATERNION'
+    obj.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+    if obj.animation_data:
+        obj.animation_data_clear()
+
+
+def animate_controller_root(animation_file: str, suffix: str = ""):
+    """根据吉他偏移数据批量写入 controller_root_offset 的位置 + 四元数旋转关键帧。
+
+    对齐 Unreal 的 MakeControllerRootAnimation：JSON 数组每帧解析
+    fingerInfos.controller_root 的 position（3 值）与 rotation（四元数 4 值），
+    写入对象是 controller_root_offset_<后缀>（吉他所挂的偏移节点）。
+    """
+    obj_name = performer_utils.resolve("controller_root_offset", suffix)
+    obj = bpy.data.objects.get(obj_name)
+    if obj is None:
+        print(f"警告: 控制器 {obj_name} 不存在于场景中")
+        return
+
+    with open(animation_file, "r") as f:
+        rootDicts = json.load(f)
+
+    # 第一步：按帧收集 controller_root 数据（保持帧序），并做四元数符号一致性处理
+    frames = []
+    locations = []
+    quats = []
+    previous_quaternion = None
+
+    for item in rootDicts:
+        frame = int(item["frame"])
+        fingerInfos = item.get("fingerInfos") or {}
+        root_data = fingerInfos.get("controller_root")
+        if not root_data:
+            continue
+
+        frames.append(frame)
+        locations.append(list(root_data.get("position", [0.0, 0.0, 0.0])))
+
+        quat = list(root_data.get("rotation", [1.0, 0.0, 0.0, 0.0]))
+        if previous_quaternion is not None:
+            dot = sum(a * b for a, b in zip(previous_quaternion, quat))
+            if dot < 0:
+                quat = [-x for x in quat]
+        previous_quaternion = quat
+        quats.append(quat)
+
+    if not frames:
+        print(f"警告: {animation_file} 中没有 controller_root 数据")
+        return
+
+    # 第二步：准备 fcurve（位置 + 四元数旋转）
+    if not obj.animation_data:
+        obj.animation_data_create()
+    if not obj.animation_data.action:
+        obj.animation_data.action = bpy.data.actions.new(f"{obj_name}_anim")
+
+    obj.rotation_mode = 'QUATERNION'
+    location_fcurves = [
+        get_or_create_fcurve(obj, "location", index=i) for i in range(3)]
+    quat_fcurves = [
+        get_or_create_fcurve(obj, "rotation_quaternion", index=i)
+        for i in range(4)]
+
+    # 第三步：批量写入所有关键帧
+    for i, fcurve in enumerate(location_fcurves):
+        values = [loc[i] for loc in locations]
+        write_fcurve_points(fcurve, zip(frames, values))
+
+    for i, fcurve in enumerate(quat_fcurves):
+        values = [quat[i] for quat in quats]
+        write_fcurve_points(fcurve, zip(frames, values))
+
+    print(f"吉他偏移动画已成功从 {animation_file} 生成")
+
+
 def _collect_string_objects(instrument=None, suffix=""):
     """收集带弦 shape key 的物体（弦动画作用域）。
 

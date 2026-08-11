@@ -23,7 +23,14 @@ from ..common import ui_utils
 from ..common import performer_utils
 from ..common.tools import COMMON_TOOLS
 from .base import BaseState, Instruments, BasePositions, LeftHandStates, RightHandStates
-from .animation import clear_all_keyframe, clear_string_animation, animate_hand, animate_string
+from .animation import (
+    clear_all_keyframe,
+    clear_string_animation,
+    clear_controller_root_animation,
+    animate_hand,
+    animate_string,
+    animate_controller_root,
+)
 from .tools import INSTRUMENT_TOOLS
 
 
@@ -525,6 +532,45 @@ class FRET_DANCE_OT_generate_string_animation(Operator):
             return {'CANCELLED'}
 
 
+class FRET_DANCE_OT_generate_controller_root_animation(Operator):
+    """Generate guitar offset (controller_root) animation from selected config file"""
+    bl_idname = "music_doll.fret_dance_generate_controller_root_animation"
+    bl_label = "Generate Controller Root Animation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        scene = context.scene
+        config_path = scene.fret_dance_animation_file
+        suffix = _get_active_suffix(context)
+
+        if not config_path or not os.path.exists(config_path):
+            self.report(
+                {'ERROR'}, "Please select a valid animation configuration file")
+            return {'CANCELLED'}
+
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+
+            if 'controller_root_animation_file' in config and os.path.exists(config['controller_root_animation_file']):
+                clear_controller_root_animation(suffix=suffix)
+                animate_controller_root(
+                    config['controller_root_animation_file'], suffix=suffix)
+                self.report(
+                    {'INFO'}, "Controller root animation generation completed")
+            else:
+                self.report(
+                    {'WARNING'}, "Controller root animation file not found or specified")
+                return {'CANCELLED'}
+
+            return {'FINISHED'}
+
+        except Exception as e:
+            self.report(
+                {'ERROR'}, f"Failed to generate controller root animation: {str(e)}")
+            return {'CANCELLED'}
+
+
 class FRET_DANCE_OT_generate_all_animation(Operator):
     """Generate all animations from selected config file"""
     bl_idname = "music_doll.fret_dance_generate_all_animation"
@@ -574,6 +620,14 @@ class FRET_DANCE_OT_generate_all_animation(Operator):
             else:
                 self.report(
                     {'WARNING'}, "String animation file not found or specified")
+
+            if 'controller_root_animation_file' in config and os.path.exists(config['controller_root_animation_file']):
+                animate_controller_root(
+                    config['controller_root_animation_file'], suffix=suffix)
+                success_count += 1
+            else:
+                self.report(
+                    {'WARNING'}, "Controller root animation file not found or specified")
 
             if success_count > 0:
                 self.report({'INFO'}, "All animations generation completed")
@@ -842,6 +896,9 @@ class FRET_DANCE_PT_main_panel(Panel):
         row = box.row(align=True)
         row.operator(
             "music_doll.fret_dance_generate_string_animation", text="弦动画")
+        row.operator(
+            "music_doll.fret_dance_generate_controller_root_animation",
+            text="吉他偏移")
         row = box.row()
         row.operator(
             "music_doll.fret_dance_generate_all_animation", text="一键生成全部动画")
@@ -973,6 +1030,7 @@ def register():
     bpy.utils.register_class(FRET_DANCE_OT_generate_left_hand_animation)
     bpy.utils.register_class(FRET_DANCE_OT_generate_right_hand_animation)
     bpy.utils.register_class(FRET_DANCE_OT_generate_string_animation)
+    bpy.utils.register_class(FRET_DANCE_OT_generate_controller_root_animation)
     bpy.utils.register_class(FRET_DANCE_OT_generate_all_animation)
     bpy.utils.register_class(FRET_DANCE_OT_duplicate_performer)
     bpy.utils.register_class(FRET_DANCE_OT_rename_performer)
@@ -1006,6 +1064,8 @@ def unregister():
     bpy.utils.unregister_class(FRET_DANCE_OT_setup_objects)
     bpy.utils.unregister_class(FRET_DANCE_OT_select_animation_file)
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_all_animation)
+    bpy.utils.unregister_class(
+        FRET_DANCE_OT_generate_controller_root_animation)
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_string_animation)
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_right_hand_animation)
     bpy.utils.unregister_class(FRET_DANCE_OT_generate_left_hand_animation)
