@@ -2,7 +2,8 @@
 """ZhengDrift 乐器模块 —— 状态传输
 
 左右手状态统一存**演奏者骨骼自定义属性**（zheng_drift_state_data），
-与 key_ripple / fret_dance 一致；不再在场景里生成大量记录器物体。
+双线性 Middle_Hand/Head_Control 极端位姿存 **zheng_drift_bilinear_data**，
+与 key_ripple / fret_dance 一致；不再在场景里生成大量记录器/辅助球体物体。
 复用 common.state_io 的对象↔字典搬运工具（含约束器影响的真实变换）。
 
 骨骼自定义属性结构（JSON）：数据键一律用**短名**（无演奏者后缀），
@@ -20,6 +21,8 @@ from ..common import state_io as _sio
 
 # 骨骼自定义属性键
 STATE_KEY = "zheng_drift_state_data"
+# 双线性 Middle_Hand/Head_Control 极端位姿的骨骼自定义属性键
+BILINEAR_KEY = "zheng_drift_bilinear_data"
 
 
 def _get_state(skeleton) -> dict:
@@ -28,6 +31,43 @@ def _get_state(skeleton) -> dict:
 
 def _set_state(skeleton, data: dict) -> None:
     _sio.set_state_data(skeleton, STATE_KEY, data)
+
+
+# ── 双线性辅助数据（存骨骼，键 = 完整短名，如 "Middle_Hand_A"） ──
+
+
+def get_bilinear_data(skeleton) -> dict:
+    """读取双线性辅助数据（键 = 完整短名，如 "Middle_Hand_A"）"""
+    return _sio.get_state_data(skeleton, BILINEAR_KEY, {}) or {}
+
+
+def set_bilinear_data(skeleton, data: dict) -> None:
+    """写回双线性辅助数据到骨骼自定义属性"""
+    _sio.set_state_data(skeleton, BILINEAR_KEY, data)
+
+
+def migrate_legacy_bilinear_objects(config, skeleton) -> int:
+    """把旧版双线性辅助空物体的位置迁移进骨骼自定义属性（幂等）。
+
+    只在骨骼属性里还没有对应键的数据时写入；返回迁移条目数。
+    """
+    if skeleton is None:
+        return 0
+    data = get_bilinear_data(skeleton)
+    migrated = 0
+    changed = False
+    for helper_name in config.bilinear_helpers.values():
+        if helper_name in data:
+            continue
+        obj = bpy.data.objects.get(config.obj_name(helper_name))
+        if obj is None or obj.type != 'EMPTY':
+            continue
+        data[helper_name] = {"location": list(obj.location)}
+        migrated += 1
+        changed = True
+    if changed:
+        set_bilinear_data(skeleton, data)
+    return migrated
 
 
 def _hand_key(hand: str) -> str:
@@ -97,7 +137,7 @@ def load_hand_state(config, skeleton, hand: str, hand_position,
     print(f"已加载 {hand} 手 {action_str}/{pos_str} ({loaded} 个控制器)")
 
 
-# ── 四态 bilinear 保存/恢复（对象：Middle_Hand / Head_Control / 辅助球体） ──
+# ── 四态 bilinear 保存/恢复（存演奏者骨骼自定义属性，不再用辅助球体） ──
 
 # 四态定义（A/B/C/D）：
 #   A: 左手 Normal + 右手 Tremolo + Far/Far
@@ -124,49 +164,65 @@ def _detect_state_key(left_position, left_action,
     return None
 
 
-def save_bilinear_helpers(config, left_position, left_action,
+def save_bilinear_helpers(config, skeleton, left_position, left_action,
                           right_position, right_action) -> bool:
-    """满足四态时，把 Middle_Hand / Head_Control 位置保存到对应辅助球体"""
+    """满足四态时，把 Middle_Hand / Head_Control 位置存进骨骼自定义属性"""
     state_key = _detect_state_key(
         left_position, left_action, right_position, right_action)
     if not state_key:
         return False
-
-    middle_hand_obj = config.obj("Middle_Hand")
-    head_control_obj = config.obj("Head_Control")
-    mh_helper = config.obj(f"Middle_Hand_{state_key.upper()}")
-    hc_helper = config.obj(f"Head_Control_{state_key.upper()}")
-
-    if middle_hand_obj and head_control_obj and mh_helper and hc_helper:
-        mh_helper.location = middle_hand_obj.location.copy()
-        hc_helper.location = head_control_obj.location.copy()
-        print(
-            f"\n✓ 检测到 {state_key.upper()} 态，已保存 Middle_Hand 和 Head_Control 的位置")
-        print(f"  {mh_helper.name}: {list(mh_helper.location)}")
-        print(f"  {hc_helper.name}: {list(hc_helper.location)}")
-        return True
-    return False
-
-
-def load_bilinear_helpers(config, left_position, left_action,
-                          right_position, right_action) -> bool:
-    """满足四态时，从辅助球体加载位置到 Middle_Hand / Head_Control"""
-    state_key = _detect_state_key(
-        left_position, left_action, right_position, right_action)
-    if not state_key:
+    if skeleton is None:
+        print("  ⚠ 未指定目标骨骼，无法保存双线性辅助数据")
         return False
 
     middle_hand_obj = config.obj("Middle_Hand")
     head_control_obj = config.obj("Head_Control")
-    mh_helper = config.obj(f"Middle_Hand_{state_key.upper()}")
-    hc_helper = config.obj(f"Head_Control_{state_key.upper()}")
+    if not (middle_hand_obj and head_control_obj):
+        print("  ⚠ 缺少 Middle_Hand / Head_Control 物体，无法保存双线性辅助数据")
+        return False
 
-    if middle_hand_obj and head_control_obj and mh_helper and hc_helper:
-        middle_hand_obj.location = mh_helper.location.copy()
-        head_control_obj.location = hc_helper.location.copy()
-        print(
-            f"\n✓ 检测到 {state_key.upper()} 态，已从辅助球体加载位置到 Middle_Hand 和 Head_Control")
-        print(f"  {middle_hand_obj.name}: {list(middle_hand_obj.location)}")
-        print(f"  {head_control_obj.name}: {list(head_control_obj.location)}")
-        return True
-    return False
+    data = get_bilinear_data(skeleton)
+    mh_name = f"Middle_Hand_{state_key.upper()}"
+    hc_name = f"Head_Control_{state_key.upper()}"
+    data[mh_name] = {"location": list(middle_hand_obj.location)}
+    data[hc_name] = {"location": list(head_control_obj.location)}
+    set_bilinear_data(skeleton, data)
+
+    print(
+        f"\n✓ 检测到 {state_key.upper()} 态，已保存 Middle_Hand 和 Head_Control 的位置到骨骼")
+    print(f"  {mh_name}: {data[mh_name]['location']}")
+    print(f"  {hc_name}: {data[hc_name]['location']}")
+    return True
+
+
+def load_bilinear_helpers(config, skeleton, left_position, left_action,
+                          right_position, right_action) -> bool:
+    """满足四态时，从骨骼自定义属性加载位置到 Middle_Hand / Head_Control"""
+    state_key = _detect_state_key(
+        left_position, left_action, right_position, right_action)
+    if not state_key:
+        return False
+    if skeleton is None:
+        print("  ⚠ 未指定目标骨骼，无法加载双线性辅助数据")
+        return False
+
+    middle_hand_obj = config.obj("Middle_Hand")
+    head_control_obj = config.obj("Head_Control")
+    if not (middle_hand_obj and head_control_obj):
+        print("  ⚠ 缺少 Middle_Hand / Head_Control 物体，无法加载双线性辅助数据")
+        return False
+
+    data = get_bilinear_data(skeleton)
+    mh_entry = data.get(f"Middle_Hand_{state_key.upper()}")
+    hc_entry = data.get(f"Head_Control_{state_key.upper()}")
+    if not (mh_entry and hc_entry):
+        print(f"  ⚠ 骨骼中未找到 {state_key.upper()} 态的双线性辅助数据，请先保存")
+        return False
+
+    middle_hand_obj.location = mh_entry["location"]
+    head_control_obj.location = hc_entry["location"]
+    print(
+        f"\n✓ 检测到 {state_key.upper()} 态，已从骨骼加载位置到 Middle_Hand 和 Head_Control")
+    print(f"  {middle_hand_obj.name}: {list(middle_hand_obj.location)}")
+    print(f"  {head_control_obj.name}: {list(head_control_obj.location)}")
+    return True

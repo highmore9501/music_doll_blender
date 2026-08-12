@@ -7,7 +7,7 @@
 
 - STRING_RECORDERS：弦位置标记（对象，物理参考点）；
 - LEFT/RIGHT_HAND_RECORDERS：左右手状态（存演奏者骨骼自定义属性，见 state.py）；
-- FOOT_CONTROLLERS / BILINEAR_HELPERS：脚部与双线性辅助控制器（对象）。
+- FOOT_CONTROLLERS：脚部控制器（对象）；BILINEAR_HELPERS：双线性辅助数据（存骨骼）。
 """
 
 import json
@@ -20,7 +20,7 @@ import bpy  # type: ignore
 from ..common import state_io as _sio
 from ..common import io_utils
 
-from .state import STATE_KEY
+from .state import STATE_KEY, BILINEAR_KEY
 
 
 def _nested_dict():
@@ -109,16 +109,19 @@ def export_recorder_info(file_path: str, config, skeleton,
                 list(obj.rotation_quaternion))
             foot_count += 1
 
-    # 双线性映射辅助控制器（只导出位置）
+    # 双线性映射辅助数据（存骨骼自定义属性，只导出位置）
     bilinear_count = 0
-    for helper_key, helper_name in config.bilinear_helpers.items():
-        full = config.obj_name(helper_name)
-        if full in bpy.data.objects:
-            obj = bpy.data.objects[full]
-            result['BILINEAR_HELPERS'][helper_name] = {
-                'location': _pos(list(obj.location))
-            }
-            bilinear_count += 1
+    bilinear_data = _sio.get_state_data(skeleton, BILINEAR_KEY, {}) or {}
+    for helper_name, helper_entry in bilinear_data.items():
+        if helper_name not in config.bilinear_helpers.values():
+            continue
+        location = helper_entry.get("location")
+        if location is None:
+            continue
+        result['BILINEAR_HELPERS'][helper_name] = {
+            'location': _pos(list(location))
+        }
+        bilinear_count += 1
 
     # 标记数据来源（Rust 端按 is_blender 判断坐标系：true=Blender，false=Unreal）
     result['is_blender'] = not for_unreal
@@ -138,7 +141,7 @@ def export_recorder_info(file_path: str, config, skeleton,
     print(f" • 左手状态记录器：{left_hand_count} 个")
     print(f" • 右手状态记录器：{right_hand_count} 个")
     print(f" • 脚部控制器：{foot_count} 个")
-    print(f" • 双线性映射辅助控制器：{bilinear_count} 个")
+    print(f" • 双线性映射辅助数据：{bilinear_count} 条")
     print(f" • 总计：{total_count} 个对象")
     print(f"  • 文件路径：{file_path}")
     print("=" * 60)
@@ -225,16 +228,21 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
                         foot_loaded += 1
         loaded_count += foot_loaded
 
-        # 双线性映射辅助控制器（只导入位置）
+        # 双线性映射辅助数据（写入骨骼自定义属性，只导入位置）
         bilinear_loaded = 0
         if 'BILINEAR_HELPERS' in data:
+            bilinear_data = _sio.get_state_data(
+                skeleton, BILINEAR_KEY, {}) or {}
             for helper_name, helper_data in data['BILINEAR_HELPERS'].items():
-                if helper_name in config.bilinear_helpers.values():
-                    full = config.obj_name(helper_name)
-                    if full in bpy.data.objects:
-                        obj = bpy.data.objects[full]
-                        obj.location = helper_data['location']
-                        bilinear_loaded += 1
+                if helper_name not in config.bilinear_helpers.values():
+                    continue
+                location = helper_data.get('location')
+                if location is None:
+                    continue
+                bilinear_data[helper_name] = {"location": list(location)}
+                bilinear_loaded += 1
+            if bilinear_loaded:
+                _sio.set_state_data(skeleton, BILINEAR_KEY, bilinear_data)
         loaded_count += bilinear_loaded
 
         print("\n" + "=" * 60)
@@ -244,7 +252,7 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
         print(f" • 左手状态记录器：{left_hand_loaded} 个")
         print(f" • 右手状态记录器：{right_hand_loaded} 个")
         print(f" • 脚部控制器：{foot_loaded} 个")
-        print(f" • 双线性映射辅助控制器：{bilinear_loaded} 个")
+        print(f" • 双线性映射辅助数据：{bilinear_loaded} 条")
         print(f" • 总计：{loaded_count} 个对象")
         print(f"  • 文件路径：{file_path}")
         print("=" * 60)

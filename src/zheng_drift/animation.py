@@ -66,15 +66,12 @@ def _generate_hand_animation_from_file(animation_file_path: str, side: str,
     else:
         keyframes = data
 
-    finger_map = {
-        'thumb': 'T',
-        'index': 'I',
-        'middle': 'M',
-        'ring': 'R',
-        'pinky': 'P',
-    }
-
-    # 第一步：按控制器收集每一帧的数据（保持帧序），并做四元数符号一致性处理
+    # 第一步：按控制器收集每一帧的数据（保持帧序），并做四元数符号一致性处理。
+    #
+    # Rust 端输出的 performance JSON 每帧结构：
+    #   {"frame": ..., "hand_infos": {"H_L": [x,y,z], "H_rotation_L": [w,i,j,k],
+    #    "HP_L": [x,y,z], "T_L": [x,y,z], "I_L": [x,y,z], ...}, "state": ...}
+    # hand_infos 的键就是控件短名（带左右手字母），值数组 3=位置、4=四元数旋转。
     object_data = {}
     previous_quaternions = {}
 
@@ -96,32 +93,24 @@ def _generate_hand_animation_from_file(animation_file_path: str, side: str,
             entry.setdefault("quat_frames", []).append(frame)
             entry.setdefault("quats", []).append(quat)
 
-    palm_name = performer_utils.resolve(f'H_{suffix_letter}', suffix)
     for kf in keyframes:
         frame = int(kf['frame'])
+        infos = kf.get('hand_infos')
+        if not infos:
+            continue
 
-        # 手部位置和旋转
-        if kf.get('hand_position'):
-            _collect(palm_name, kf['hand_position'], None)
-        if kf.get('hand_rotation'):
-            _collect(palm_name, None, kf['hand_rotation'])
-
-        # 手指位置
-        if kf.get('finger_positions'):
-            fingers = kf['finger_positions']
-            for finger_name, position in fingers.items():
-                controller_base = finger_map.get(finger_name)
-                if controller_base:
-                    _collect(
-                        performer_utils.resolve(
-                            f'{controller_base}_{suffix_letter}', suffix),
-                        position, None)
-
-        # 极向量目标
-        if kf.get('hand_pole_target'):
-            _collect(
-                performer_utils.resolve(f'HP_{suffix_letter}', suffix),
-                kf['hand_pole_target'], None)
+        # hand_infos 键即控件短名（H_L / HP_L / T_L / I_L ...），其中
+        # H_rotation_{L/R} 是手掌 H_{L/R} 的四元数旋转键（不是物体名）；
+        # 值数组 3=位置、4=旋转。
+        for short, values in infos.items():
+            if short.startswith("H_rotation_"):
+                # H_rotation_L → 手掌对象 H_L，写四元数旋转
+                full = performer_utils.resolve(
+                    short.replace("H_rotation_", "H_", 1), suffix)
+                _collect(full, None, values)
+            else:
+                _collect(performer_utils.resolve(short, suffix),
+                         values, None)
 
     # 第二步：为每个控制器准备 fcurve（位置 3 通道 / 四元数 4 通道）
     for obj_name, entry in object_data.items():

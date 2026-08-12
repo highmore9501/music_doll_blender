@@ -10,7 +10,8 @@ controller_root 作为固定乐器根（古筝固定不动，无 controller_root
 - 特殊朝向控制器（Middle_Hand / Look_At / Head_Control）保持世界对象：
   Middle_Hand 用世界空间 driver 取 H_L/H_R 中点，Head_Control 用 TrackTo 跟随，
   父级化反而会造成「本地 vs 世界」坐标错位，故不挂根；
-- 记录器（弦 s{i}head/end/mid 与左右手状态）保持世界对象（等价于 key_ripple 把
+- 记录器（弦 s{i}head/end/mid）为世界空物体；左右手状态与双线性
+  Middle_Hand/Head_Control 极端位姿存演奏者骨骼自定义属性（等价于 key_ripple 把
   状态存骨骼的做法：记录器即状态存储，Rust 端按世界坐标消费），不挂 controller_root。
 """
 
@@ -77,7 +78,9 @@ class ZhengConfig:
             "head_control": "Head_Control",
         }
 
-        # ── 双线性映射辅助控制器（8 个球形空物体，可导出/导入） ──
+        # ── 双线性映射辅助记录器命名表（8 个极端位姿） ──
+        # 不创建空物体，位置存演奏者骨骼自定义属性（见 state.py / io.py），
+        # 导出 BILINEAR_HELPERS 时按此键名。
         self.bilinear_helpers = {
             "middle_hand_a": "Middle_Hand_A",
             "middle_hand_b": "Middle_Hand_B",
@@ -175,8 +178,6 @@ class ZhengConfig:
             "Right_Hand", hand_collection)
         target_collection = self.get_or_create_collection(
             "Target_Controllers", controllers_collection)
-        bilinear_collection = self.get_or_create_collection(
-            "Bilinear_Helpers", controllers_collection)
 
         # 双脚控制器（球形空物体；极向量 pole 用空环）
         for controller_name, obj_name in self.foot_controllers.items():
@@ -201,12 +202,6 @@ class ZhengConfig:
         for controller_name, obj_name in self.special_target_controllers.items():
             self.create_or_update_object(
                 self.obj_name(obj_name), ObjectType.SPHERE_EMPTY, target_collection)
-
-        # 双线性映射辅助控制器（球形空物体）
-        print("\n创建双线性映射辅助控制器...")
-        for controller_name, obj_name in self.bilinear_helpers.items():
-            self.create_or_update_object(
-                self.obj_name(obj_name), ObjectType.SPHERE_EMPTY, bilinear_collection)
 
         # 手指控制器挂到手掌控制器下，并创建 ext 辅助控件
         print("\n设置手指层级与创建 ext 辅助控件...")
@@ -403,14 +398,50 @@ class ZhengConfig:
             "Recorders", main_collection)
         string_collection = self.get_or_create_collection(
             "String_Positions", recorders_collection)
-        # Direction_Lines 保留空集合（与源码一致）
-        self.get_or_create_collection("Direction_Lines", recorders_collection)
 
         for recorder_key, obj_name in self.string_recorders.items():
             self.create_or_update_object(
                 self.obj_name(obj_name), ObjectType.SPHERE_EMPTY, string_collection)
 
         print("  ✓ 弦位置记录器添加完成")
+
+    # ── 旧版双线性辅助清理（已改存骨骼自定义属性） ────────────
+
+    def _cleanup_legacy_bilinear_helpers(self) -> None:
+        """清理旧版遗留的 Bilinear_Helpers 空物体与集合（幂等）。
+
+        双线性 Middle_Hand/Head_Control 极端位姿已改存骨骼自定义属性，不再需要
+        空物体。这里：1) 把已有空物体位置迁移进骨骼属性（防止丢数据）；
+        2) 删除命名精确匹配的球形空物体；3) 集合变空则一并移除。
+        """
+        from . import state as _state
+
+        # 解析本演奏者骨骼（迁移用；无骨骼则只删物体不迁移）
+        skeleton = self.target_skeleton
+        if skeleton is None:
+            p = self._get_performer_collection()
+            if p is not None:
+                skeleton = p.target_skeleton
+        migrated = _state.migrate_legacy_bilinear_objects(self, skeleton)
+        if migrated:
+            print(f"  ✓ 已迁移 {migrated} 个旧版双线性辅助数据到骨骼自定义属性")
+
+        leftover = []
+        for short in self.bilinear_helpers.values():
+            obj = bpy.data.objects.get(self.obj_name(short))
+            if obj is not None and obj.type == 'EMPTY':
+                leftover.append(obj)
+        for obj in leftover:
+            full_name = obj.name
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if full_name in self.pre_obj_names:
+                self.pre_obj_names.remove(full_name)
+            print(f"  ✓ 已移除旧版双线性辅助空物体：{full_name}")
+
+        coll = bpy.data.collections.get(self.obj_name("Bilinear_Helpers"))
+        if coll is not None and not coll.objects and not coll.children:
+            bpy.data.collections.remove(coll)
+            print(f"  ✓ 已移除空的 Bilinear_Helpers 集合：{coll.name}")
 
     # ── 状态检查 ────────────────────────────────────────────
 
@@ -515,6 +546,9 @@ class ZhengConfig:
         self.add_controllers()
         self.add_ext_drivers()
         self.add_recorders()
+
+        # 清理旧版双线性辅助空物体（已改存骨骼自定义属性；顺带迁移已有数据）
+        self._cleanup_legacy_bilinear_helpers()
 
         # 演奏者根 <缩写>_<名称>（挂接骨骼 / controller_root；乐器不挂根）
         self._organize_performer_root()

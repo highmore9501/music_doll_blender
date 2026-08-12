@@ -211,8 +211,8 @@ class ZHENG_OT_save_left_hand_state(Operator):
         position = _position_from_props(props, "left")
         action = _action_from_props(props, "left")
         save_hand_state(config, skel, "left", position, action)
-        # 满足四态时保存 Middle_Hand / Head_Control 位置
-        save_bilinear_helpers(config, position, action,
+        # 满足四态时保存 Middle_Hand / Head_Control 位置到骨骼
+        save_bilinear_helpers(config, skel, position, action,
                               _position_from_props(props, "right"),
                               _action_from_props(props, "right"))
         self.report({'INFO'}, "Left hand state has been set")
@@ -235,7 +235,7 @@ class ZHENG_OT_save_right_hand_state(Operator):
         position = _position_from_props(props, "right")
         action = _action_from_props(props, "right")
         save_hand_state(config, skel, "right", position, action)
-        save_bilinear_helpers(config,
+        save_bilinear_helpers(config, skel,
                               _position_from_props(props, "left"),
                               _action_from_props(props, "left"),
                               position, action)
@@ -263,7 +263,7 @@ class ZHENG_OT_load_left_hand_state(Operator):
         except ValueError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        load_bilinear_helpers(config, position, action,
+        load_bilinear_helpers(config, skel, position, action,
                               _position_from_props(props, "right"),
                               _action_from_props(props, "right"))
         self.report({'INFO'}, "Left hand state has been loaded")
@@ -290,7 +290,7 @@ class ZHENG_OT_load_right_hand_state(Operator):
         except ValueError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        load_bilinear_helpers(config,
+        load_bilinear_helpers(config, skel,
                               _position_from_props(props, "left"),
                               _action_from_props(props, "left"),
                               position, action)
