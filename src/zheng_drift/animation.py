@@ -69,9 +69,10 @@ def _generate_hand_animation_from_file(animation_file_path: str, side: str,
     # 第一步：按控制器收集每一帧的数据（保持帧序），并做四元数符号一致性处理。
     #
     # Rust 端输出的 performance JSON 每帧结构：
-    #   {"frame": ..., "hand_infos": {"H_L": [x,y,z], "H_rotation_L": [w,i,j,k],
-    #    "HP_L": [x,y,z], "T_L": [x,y,z], "I_L": [x,y,z], ...}, "state": ...}
-    # hand_infos 的键就是控件短名（带左右手字母），值数组 3=位置、4=四元数旋转。
+    #   {"frame": ..., "hand_infos": {"H_L": [x,y,z, w,i,j,k], "HP_L": [x,y,z],
+    #    "T_L": [x,y,z], "I_L": [x,y,z], ...}, "state": ...}
+    # hand_infos 的键就是控件短名（带左右手字母）；H_{L/R} 为 7 元素 =
+    # 位置(前 3) + 旋转四元数(后 4)，其余控件为 3 元素位置。
     object_data = {}
     previous_quaternions = {}
 
@@ -99,18 +100,15 @@ def _generate_hand_animation_from_file(animation_file_path: str, side: str,
         if not infos:
             continue
 
-        # hand_infos 键即控件短名（H_L / HP_L / T_L / I_L ...），其中
-        # H_rotation_{L/R} 是手掌 H_{L/R} 的四元数旋转键（不是物体名）；
-        # 值数组 3=位置、4=旋转。
+        # hand_infos 键即控件短名（H_L / HP_L / T_L / I_L ...）；
+        # 值数组 3=位置；H_{L/R} 为 7 元素 [x,y,z, w,i,j,k] = 位置 + 旋转四元数。
         for short, values in infos.items():
-            if short.startswith("H_rotation_"):
-                # H_rotation_L → 手掌对象 H_L，写四元数旋转
-                full = performer_utils.resolve(
-                    short.replace("H_rotation_", "H_", 1), suffix)
-                _collect(full, None, values)
+            full = performer_utils.resolve(short, suffix)
+            if len(values) == 7:
+                # H_{L/R}：同时写位置（前 3）与旋转四元数（后 4）
+                _collect(full, values[:3], values[3:7])
             else:
-                _collect(performer_utils.resolve(short, suffix),
-                         values, None)
+                _collect(full, values, None)
 
     # 第二步：为每个控制器准备 fcurve（位置 3 通道 / 四元数 4 通道）
     for obj_name, entry in object_data.items():
