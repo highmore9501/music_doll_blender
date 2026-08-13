@@ -26,10 +26,10 @@ JSON 结构：
 }
 
 控制器键的保存范围由 drivable_limbs 决定：
-  right_hand → H_R / H_rotation_R / HP_R  + Head_Control
-  left_hand  → H_L / H_rotation_L / HP_L  + Head_Control
-  right_foot → F_R / F_rotation_R
-  left_foot  → F_L / F_rotation_L
+  right_hand → H_R / HP_R  + Head_Control
+  left_hand  → H_L / HP_L  + Head_Control
+  right_foot → F_R
+  left_foot  → F_L
 """
 
 import json
@@ -186,9 +186,8 @@ def load_state(suffix: str, component_name: str, state_name: str,
 
 
 def save_rest_state(suffix: str, skeleton) -> None:
-    """保存手部休息状态（H_L/HP_L/H_rotation_L + R 系列 + Head_Control）"""
-    rest_shorts = ["H_L", "H_rotation_L",
-                   "HP_L", "H_R", "H_rotation_R", "HP_R"]
+    """保存手部休息状态（H_L/HP_L + R 系列 + Head_Control）"""
+    rest_shorts = ["H_L", "HP_L", "H_R", "HP_R"]
 
     data = _get_state(skeleton)
     rest_data = data.setdefault("rest", {})

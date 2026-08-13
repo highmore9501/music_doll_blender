@@ -1,7 +1,7 @@
 # beat_bloom/config.py
 """BeatBloom 乐器模块 —— 配置与控件创建
 
-12 个控件：手掌 × 2、IK Pivot × 2、手腕旋转 × 2、脚部 × 2、脚部旋转 × 2、
+9 个控件：手掌 × 2、IK Pivot × 2、脚部 × 2、
 特殊朝向（Middle_Hand / Look_At / Head_Control）× 3。
 所有控件名带演奏者后缀（<短名>_<suffix>），通过 obj_name / obj 方法访问。
 """
@@ -34,15 +34,11 @@ class BeatBloomConfig:
             "right_hand_controller":         "H_R",
             "left_hand_ik_pivot":            "HP_L",
             "right_hand_ik_pivot":           "HP_R",
-            "left_hand_rotation":            "H_rotation_L",
-            "right_hand_rotation":           "H_rotation_R",
         }
 
         self.foot_controllers = {
             "left_foot_controller":          "F_L",
             "right_foot_controller":         "F_R",
-            "left_foot_rotation":            "F_rotation_L",
-            "right_foot_rotation":           "F_rotation_R",
         }
 
         # Middle_Hand 不挂根（用实时计算中点驱动位置），Look_At 挂 Middle_Hand，Head_Control 挂 TrackTo
@@ -110,14 +106,12 @@ class BeatBloomConfig:
             _pu.resolve("Special_Controllers", self.suffix), controllers_coll)
 
         for short in self.hand_controllers.values():
-            obj_type = "cone" if "rotation" in short else "cube"
             object_utils.create_or_update_object(
-                self.obj_name(short), obj_type, hand_coll)
+                self.obj_name(short), "cube", hand_coll)
 
         for short in self.foot_controllers.values():
-            obj_type = "cone" if "rotation" in short else "cube"
             object_utils.create_or_update_object(
-                self.obj_name(short), obj_type, foot_coll)
+                self.obj_name(short), "cube", foot_coll)
 
         for short in self.special_controllers.values():
             object_utils.create_or_update_object(

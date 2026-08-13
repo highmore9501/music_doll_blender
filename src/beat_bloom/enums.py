@@ -16,10 +16,10 @@ STATE_ITEMS = [(s.value, s.value.capitalize(), "") for s in States]
 
 # 各肢体对应的控制器短名
 LIMB_CONTROLLERS = {
-    "right_hand": ["H_R", "H_rotation_R", "HP_R"],
-    "left_hand":  ["H_L", "H_rotation_L", "HP_L"],
-    "right_foot": ["F_R", "F_rotation_R"],
-    "left_foot":  ["F_L", "F_rotation_L"],
+    "right_hand": ["H_R", "HP_R"],
+    "left_hand":  ["H_L", "HP_L"],
+    "right_foot": ["F_R"],
+    "left_foot":  ["F_L"],
 }
 
 # Head_Control 随手部动作一起记录

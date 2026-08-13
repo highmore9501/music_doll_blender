@@ -55,10 +55,8 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
     rest_map = state_data.get("rest", {})
     _REST_KEY_MAP = {
         "H_L":          "H_Rest_L",
-        "H_rotation_L": "H_rotation_Rest_L",
         "HP_L":         "HP_Rest_L",
         "H_R":          "H_Rest_R",
-        "H_rotation_R": "H_rotation_Rest_R",
         "HP_R":         "HP_Rest_R",
     }
     for short, flat_key in _REST_KEY_MAP.items():
@@ -130,10 +128,8 @@ def import_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
         # rest 状态（固定键）
         rest_reverse = {
             "H_Rest_L":          ("rest", "H_L"),
-            "H_rotation_Rest_L": ("rest", "H_rotation_L"),
             "HP_Rest_L":         ("rest", "HP_L"),
             "H_Rest_R":          ("rest", "H_R"),
-            "H_rotation_Rest_R": ("rest", "H_rotation_R"),
             "HP_Rest_R":         ("rest", "HP_R"),
             "Head_Control_Rest": ("rest", "Head_Control"),
         }
