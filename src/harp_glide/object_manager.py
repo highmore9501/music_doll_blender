@@ -106,8 +106,12 @@ class HarpObjectManager(HarpConfig):
         # 手/脚/支点 → controller_root
         for short in ["H_L", "HP_L", "H_R", "HP_R",
                       "F_L", "FP_L", "F_R", "FP_R",
-                      "harp_pivot", "Head", "Shoulder_Harp"]:
+                      "harp_pivot"]:
             object_utils.parent_to(cr, self.obj(short))
+
+        pivot = self.obj("harp_pivot")
+        for short in ["Head", "Shoulder_Harp"]:
+            object_utils.parent_to(pivot, self.obj(short))
 
         # 五指 → 手掌
         h_l = self.obj("H_L")
