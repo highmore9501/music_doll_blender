@@ -112,6 +112,10 @@ class HG_OT_setup_objects(Operator):
     def execute(self, context):
         props = context.scene.md_hg_props
         cfg = _hg_config(context)
+        skel = _skeleton(context)
+        # 先把面板配置写回骨骼 JSON（与其它乐器模块一致：骨骼是唯一事实来源）
+        if skel is not None:
+            cfg.save_harp_config(props, skel)
         ok = cfg.setup_all_objects(string_count=int(props.string_count))
         if ok:
             self.report({"INFO"}, f"HarpGlide 控件已就绪（弦数：{props.string_count}）")
@@ -583,6 +587,9 @@ class HG_PT_main_panel(Panel):
     bl_region_type = "UI"
     bl_category = "MusicDoll"
 
+    # 记录上一次已同步配置的骨骼名（类属性：面板实例每次 draw 都新建）
+    _synced_skeleton_name = ""
+
     @classmethod
     def poll(cls, context):
         return ui_utils.active_instrument(context) == "harp_glide"
@@ -591,6 +598,15 @@ class HG_PT_main_panel(Panel):
         layout = self.layout
         scene = context.scene
         props = scene.md_hg_props
+
+        # 目标骨骼切换时：把骨骼 JSON config 回填到面板（读取从骨骼来）。
+        # 只记录「骨骼名变化」时才回填，同一骨骼上用户正在编辑的值不会被覆盖。
+        skel = _skeleton(context)
+        skel_name = getattr(skel, "name", None) or ""
+        if skel_name != type(self)._synced_skeleton_name:
+            type(self)._synced_skeleton_name = skel_name
+            if skel is not None:
+                _hg_config(context).load_harp_config(props, skel)
 
         # 1. 竖琴设置
         box = layout.box()

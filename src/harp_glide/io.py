@@ -17,7 +17,7 @@ from ..common import performer_utils as _pu
 from ..common import io_utils
 from ..common import state_io
 
-from .config import STATE_KEY
+from .config import STATE_KEY, HarpConfig
 from .enums import HandPoseState, PedalNote, PedalState
 
 
@@ -75,6 +75,8 @@ def export_harpist(file_path: str, suffix: str, skeleton, props,
 
     file_path = io_utils.ensure_extension(file_path, ".harpist")
     data = state_io.get_state_data(skeleton, STATE_KEY, {})
+    if data is None:
+        data = {}
 
     cfg = dict(data.get("config", {
         "string_count": 47,
@@ -155,6 +157,8 @@ def import_harpist(file_path: str, suffix: str, skeleton, props) -> None:
         return
 
     data = state_io.get_state_data(skeleton, STATE_KEY, {})
+    if data is None:
+        data = {}
 
     # config
     if "config" in raw:
@@ -199,6 +203,10 @@ def import_harpist(file_path: str, suffix: str, skeleton, props) -> None:
     }
 
     state_io.set_state_data(skeleton, STATE_KEY, data)
+
+    # 回填面板属性（骨骼 JSON config → UI），保证导入后界面立即同步
+    if props is not None:
+        HarpConfig().load_harp_config(props, skeleton)
     print(f"✓ .harpist 导入完成：{file_path}")
 
 

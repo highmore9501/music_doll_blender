@@ -44,6 +44,25 @@ def _wr_config(context) -> WindRiseConfig:
     )
 
 
+def _instrument(context):
+    """当前目标乐器（上一级 MusicDoll 定义），即乐器 Shape Key 的载体。"""
+    return ui_utils.get_target_instrument(context)
+
+
+# 人物 / 乐器 Shape Key 折叠区场景属性名（默认收起）
+SCENE_SHOW_CHARACTER_SK = "md_wr_show_character_sk"
+SCENE_SHOW_INSTRUMENT_SK = "md_wr_show_instrument_sk"
+
+
+def _fold_header(box, scene, prop_name: str, label: str, icon: str):
+    """折叠标题行：三角箭头（点击切换）+ 文本。"""
+    row = box.row()
+    row.prop(scene, prop_name,
+             icon="TRIA_DOWN" if getattr(scene, prop_name, False)
+             else "TRIA_RIGHT", icon_only=True, emboss=False)
+    row.label(text=label, icon=icon)
+
+
 def _get_note_items(self, context):
     props = context.scene.md_wr_props
     items = []
@@ -64,12 +83,6 @@ class WindRiseProperties(PropertyGroup):
         "lip_mesh": PointerProperty(
             name="人物Mesh",
             description="包含嘴唇 Shape Key 的角色网格",
-            type=bpy.types.Object,
-            poll=_mesh_poll,
-        ),
-        "instrument_mesh": PointerProperty(
-            name="乐器Mesh",
-            description="包含乐器 Shape Key 的乐器网格",
             type=bpy.types.Object,
             poll=_mesh_poll,
         ),
@@ -145,7 +158,7 @@ class WR_OT_save_state(Operator):
         try:
             note = int(props.current_note)
             save_note_state(note, _suffix(context), skel,
-                            props.lip_mesh, props.instrument_mesh)
+                            props.lip_mesh, _instrument(context))
             self.report({"INFO"}, f"音高 {midi_to_name(note)} 保存完成")
         except Exception as e:
             self.report({"ERROR"}, f"保存失败: {e}")
@@ -167,7 +180,7 @@ class WR_OT_load_state(Operator):
         try:
             note = int(props.current_note)
             load_note_state(note, _suffix(context), skel,
-                            props.lip_mesh, props.instrument_mesh)
+                            props.lip_mesh, _instrument(context))
             self.report({"INFO"}, f"音高 {midi_to_name(note)} 加载完成")
         except Exception as e:
             self.report({"ERROR"}, f"加载失败: {e}")
@@ -232,11 +245,6 @@ class WR_OT_import_wind(Operator):
                 props.max_note = int(config["max_note"])
             if "description" in config:
                 props.description = str(config["description"])
-            inst_name = config.get("instrument_mesh_name", "")
-            if inst_name:
-                found = bpy.data.objects.get(inst_name)
-                if found and found.type == "MESH":
-                    props.instrument_mesh = found
             self.report({"INFO"}, "导入完成")
         except Exception as e:
             self.report({"ERROR"}, f"导入失败: {e}")
@@ -264,7 +272,7 @@ class WR_OT_generate_animation(Operator):
         try:
             generate_animation_from_wind_rise(
                 file_path, _suffix(context),
-                props.lip_mesh, props.instrument_mesh)
+                props.lip_mesh, _instrument(context))
             self.report({"INFO"}, "动画生成完成")
         except Exception as e:
             self.report({"ERROR"}, f"动画生成失败: {e}")
@@ -477,34 +485,46 @@ class WR_PT_main_panel(Panel):
         box.operator("music_doll.wind_rise_setup_objects",
                      text="Setup Objects")
 
-        # 2. 对象选择
+        # 2. 对象选择（人物 Mesh；乐器直接用上一级 MusicDoll 定义的目标乐器）
         box = layout.box()
         box.label(text="对象选择", icon="OBJECT_DATA")
         box.prop(props, "lip_mesh", text="人物Mesh")
-        box.prop(props, "instrument_mesh", text="乐器Mesh")
+        inst = _instrument(context)
+        if inst:
+            box.label(text=f"乐器: {inst.name}", icon="OBJECT_DATA")
+        else:
+            box.label(text="乐器: （未设置，请在「角色操作」选择目标乐器）",
+                      icon="ERROR")
 
-        # 3. 人物 Shape Key
+        # 3. 人物 Shape Key（折叠，默认收起）
         box = layout.box()
-        box.label(text="人物 Shape Key（嘴唇）", icon="SHAPEKEY_DATA")
-        self._draw_sk_editor(box, context, skel, props.lip_mesh,
-                             get_force_shape_keys, "new_character_sk",
-                             "music_doll.wind_rise_add_character_sk",
-                             "music_doll.wind_rise_remove_character_sk")
+        _fold_header(box, scene, SCENE_SHOW_CHARACTER_SK,
+                     "人物 Shape Key（嘴唇）", "SHAPEKEY_DATA")
+        if getattr(scene, SCENE_SHOW_CHARACTER_SK, False):
+            self._draw_sk_editor(box, context, skel, props.lip_mesh,
+                                 get_force_shape_keys, "new_character_sk",
+                                 "music_doll.wind_rise_add_character_sk",
+                                 "music_doll.wind_rise_remove_character_sk")
 
-        # 4. 乐器 Shape Key
+        # 4. 乐器 Shape Key（折叠，默认收起；目标乐器来自上一级 MusicDoll）
         box = layout.box()
-        box.label(text="乐器 Shape Key", icon="SHAPEKEY_DATA")
-        self._draw_sk_editor(box, context, skel, props.instrument_mesh,
-                             get_instrument_shape_keys, "new_instrument_sk",
-                             "music_doll.wind_rise_add_instrument_sk",
-                             "music_doll.wind_rise_remove_instrument_sk")
+        _fold_header(box, scene, SCENE_SHOW_INSTRUMENT_SK,
+                     "乐器 Shape Key", "SHAPEKEY_DATA")
+        if getattr(scene, SCENE_SHOW_INSTRUMENT_SK, False):
+            self._draw_sk_editor(box, context, skel, inst,
+                                 get_instrument_shape_keys, "new_instrument_sk",
+                                 "music_doll.wind_rise_add_instrument_sk",
+                                 "music_doll.wind_rise_remove_instrument_sk")
 
         # 5. 乐器说明
         box = layout.box()
         box.label(text="乐器说明", icon="INFO")
         box.prop(props, "description", text="")
 
-        # 6. 状态管理
+        # 6. 工具区（公共工具 + WindRise 独有工具，折叠 + 按选中展开）
+        ui_utils.draw_tools(layout, scene, tools=TOOLS)
+
+        # 7. 状态管理
         box = layout.box()
         box.label(text="状态管理", icon="FILE_TICK")
         box.prop(props, "current_note", text="当前音高")
@@ -514,7 +534,7 @@ class WR_PT_main_panel(Panel):
         row.operator("music_doll.wind_rise_load_state",
                      text="加载状态", icon="IMPORT")
 
-        # 7. 文件（.wind）
+        # 8. 文件（.wind）
         box = layout.box()
         box.label(text="数据文件 (.wind)", icon="FILE")
         box.prop(props, "instrument_type", text="乐器类型")
@@ -531,15 +551,12 @@ class WR_PT_main_panel(Panel):
         box.operator("music_doll.wind_rise_export_to_unreal",
                      text="导出到 Unreal", icon="EXPORT")
 
-        # 8. 动画生成
+        # 9. 生成动画
         box = layout.box()
         box.label(text="生成动画", icon="PLAY")
         box.prop(props, "wind_rise_animation_file_path", text="")
         box.operator("music_doll.wind_rise_generate_animation",
                      text="生成动画", icon="PLAY")
-
-        # 9. 工具区（公共工具 + WindRise 独有工具，折叠 + 按选中展开）
-        ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
     def _draw_sk_editor(self, box, context, skel, mesh_obj,
                         getter, new_prop_name, add_op, remove_op):
@@ -590,6 +607,11 @@ def register():
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Scene.md_wr_props = PointerProperty(type=WindRiseProperties)
+    for attr, label in ((SCENE_SHOW_CHARACTER_SK, "显示人物 Shape Key"),
+                        (SCENE_SHOW_INSTRUMENT_SK, "显示乐器 Shape Key")):
+        if not hasattr(bpy.types.Scene, attr):
+            setattr(bpy.types.Scene, attr, BoolProperty(
+                name=label, description="展开/折叠 Shape Key 区", default=False))
     ui_utils.register_instrument(
         "wind_rise",
         "WindRise 管乐",
@@ -603,6 +625,9 @@ def unregister():
     ui_utils.unregister_instrument("wind_rise")
     if hasattr(bpy.types.Scene, "md_wr_props"):
         del bpy.types.Scene.md_wr_props
+    for attr in (SCENE_SHOW_CHARACTER_SK, SCENE_SHOW_INSTRUMENT_SK):
+        if hasattr(bpy.types.Scene, attr):
+            delattr(bpy.types.Scene, attr)
     for cls in reversed(_CLASSES):
         bpy.utils.unregister_class(cls)
     tools_unregister()

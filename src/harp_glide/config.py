@@ -110,3 +110,21 @@ class HarpConfig:
             "right_near":   int(props.right_near),
         }
         state_io.set_state_data(sk, STATE_KEY, data)
+
+    def load_harp_config(self, props, skeleton=None) -> None:
+        """将骨骼 JSON 的 config 节回填到面板属性（读取从骨骼来）
+
+        与 save_harp_config 对称；骨骼缺省键时保留面板当前值，不强行覆盖。
+        """
+        sk = skeleton or self.target_skeleton
+        if sk is None:
+            return
+        cfg = self.get_harp_config(sk)
+        props.string_count = int(cfg.get("string_count",   props.string_count))
+        props.left_far = int(cfg.get("left_far",       props.left_far))
+        props.left_near = int(cfg.get("left_near",      props.left_near))
+        props.left_mid_far = int(cfg.get("left_mid_far",   props.left_mid_far))
+        props.left_mid_near = int(
+            cfg.get("left_mid_near",  props.left_mid_near))
+        props.right_far = int(cfg.get("right_far",      props.right_far))
+        props.right_near = int(cfg.get("right_near",     props.right_near))
