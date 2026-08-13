@@ -19,6 +19,7 @@ from bpy_extras.io_utils import ImportHelper, ExportHelper  # type: ignore
 
 from ..common import ui_utils
 from ..common import performer_utils
+from ..common import instrument_base
 from ..common.tools import COMMON_TOOLS
 from .config import BeatBloomConfig, DRUMKIT_KEY
 from .enums import STATE_ITEMS
@@ -75,6 +76,26 @@ def _get_bb_config(context) -> BeatBloomConfig:
     )
 
 
+def _on_beatbloom_path_update(self, context):
+    """动画文件路径变更：写回当前演奏者的 md_animation_path（MusicDoll 层级数据）。"""
+    perf = ui_utils.get_active_performer(context.scene)
+    if perf is not None and perf.collection is not None:
+        instrument_base.set_coll_attr(
+            perf.collection, "animation_path", self.beatbloom_file_path)
+
+
+def _sync_beatbloom_path(context) -> None:
+    """绘制前把当前演奏者的 md_animation_path 回填到 props（切演奏者/重载后保持正确）。"""
+    props = context.scene.md_bb_props
+    perf = ui_utils.get_active_performer(context.scene)
+    if perf is None or perf.collection is None:
+        return
+    stored = instrument_base.get_coll_attr(
+        perf.collection, "animation_path") or ""
+    if props.beatbloom_file_path != stored:
+        props.beatbloom_file_path = stored
+
+
 # ── 动态 EnumProperty 回调 ──────────────────────────────────
 # Blender 5.0 要求 items 回调必须是 2 参数 (self, context)
 
@@ -121,11 +142,12 @@ class BeatBloomProperties(PropertyGroup):
                    ('C', 'C', ''), ('D', 'D', '')],
             default='A',
         ),
-        # .beatbloom 配置文件路径（用于生成动画）
+        # .beatbloom 配置文件路径（用于生成动画；保存到演奏者 md_animation_path）
         "beatbloom_file_path": StringProperty(
             name="BeatBloom File",
-            description=".beatbloom 配置文件路径",
+            description=".beatbloom 配置文件路径（保存到演奏者 md_animation_path）",
             default="", subtype='FILE_PATH',
+            update=_on_beatbloom_path_update,
         ),
     }
 
@@ -328,25 +350,6 @@ class BB_OT_import(Operator, ImportHelper):
             return {'CANCELLED'}
 
 
-class BB_OT_load_beatbloom(Operator, ImportHelper):
-    """选择 .beatbloom 配置文件（仅记录路径，不执行）"""
-    bl_idname = "music_doll.beat_bloom_load_beatbloom"
-    bl_label = "Load BeatBloom File"
-    bl_options = {'REGISTER', 'UNDO'}
-    filename_ext = ".beatbloom"
-    __annotations__ = {
-        "filter_glob": StringProperty(default="*.beatbloom", options={'HIDDEN'})
-    }
-
-    def execute(self, context):
-        if not self.filepath.endswith(".beatbloom"):
-            self.report({'ERROR'}, "请选择 .beatbloom 文件")
-            return {'CANCELLED'}
-        context.scene.md_bb_props.beatbloom_file_path = self.filepath
-        self.report({'INFO'}, f"已选择：{os.path.basename(self.filepath)}")
-        return {'FINISHED'}
-
-
 class BB_OT_execute_beatbloom(Operator):
     """执行 BeatBloom 动画（读取 .beatbloom 配置后生成 transform + shape key 关键帧）"""
     bl_idname = "music_doll.beat_bloom_execute_beatbloom"
@@ -355,8 +358,14 @@ class BB_OT_execute_beatbloom(Operator):
 
     def execute(self, context):
         props = context.scene.md_bb_props
-        filepath = props.beatbloom_file_path
         suffix = _get_active_suffix(context)
+        perf = ui_utils.get_active_performer(context.scene)
+        filepath = props.beatbloom_file_path
+        if perf is not None and perf.collection is not None:
+            stored = instrument_base.get_coll_attr(
+                perf.collection, "animation_path") or ""
+            if stored:
+                filepath = stored
 
         if not filepath or not os.path.exists(filepath):
             self.report({'ERROR'}, "请先选择有效的 .beatbloom 文件")
@@ -509,6 +518,7 @@ class BB_PT_main_panel(Panel):
         layout = self.layout
         scene = context.scene
         props = scene.md_bb_props
+        _sync_beatbloom_path(context)
 
         # 1. DrumKit 配置
         box = layout.box()
@@ -557,9 +567,6 @@ class BB_PT_main_panel(Panel):
         box = layout.box()
         box.label(text="Animation", icon='PLAY')
         box.prop(props, "beatbloom_file_path", text="")
-        row = box.row(align=True)
-        row.operator("music_doll.beat_bloom_load_beatbloom",
-                     text="Select File", icon='FILE_FOLDER')
         box.operator("music_doll.beat_bloom_execute_beatbloom",
                      text="Execute Animation", icon='PLAY')
 
@@ -576,7 +583,6 @@ _CLASSES = (
     BB_OT_load_mapping,
     BB_OT_export,
     BB_OT_import,
-    BB_OT_load_beatbloom,
     BB_OT_execute_beatbloom,
     BB_OT_duplicate_performer,
     BB_OT_rename_performer,
