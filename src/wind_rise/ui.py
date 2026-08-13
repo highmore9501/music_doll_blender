@@ -112,7 +112,6 @@ class WindRiseProperties(PropertyGroup):
             subtype="FILE_PATH",
             default="",
         ),
-        "show_tools": BoolProperty(name="工具", default=False),
     }
 
 
@@ -539,14 +538,8 @@ class WR_PT_main_panel(Panel):
         box.operator("music_doll.wind_rise_generate_animation",
                      text="生成动画", icon="PLAY")
 
-        # 9. 工具（折叠）
-        row = layout.row(align=True)
-        row.prop(props, "show_tools",
-                 icon="TRIA_DOWN" if props.show_tools else "TRIA_RIGHT",
-                 icon_only=True, emboss=False)
-        row.label(text="工具", icon="MODIFIER_ON")
-        if props.show_tools:
-            ui_utils.draw_tools(layout, scene, tools=TOOLS)
+        # 9. 工具区（公共工具 + WindRise 独有工具，折叠 + 按选中展开）
+        ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
     def _draw_sk_editor(self, box, context, skel, mesh_obj,
                         getter, new_prop_name, add_op, remove_op):

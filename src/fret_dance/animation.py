@@ -369,15 +369,10 @@ def clear_string_animation(suffix: str = "", instrument=None):
         if obj and "is_vib" in obj:
             obj["is_vib"] = 0.0
             if obj.animation_data and obj.animation_data.action:
-                fcurves_to_remove = []
-                for fcurve in obj.animation_data.action.fcurves:
-                    if '["is_vib"]' in fcurve.data_path:
-                        fcurve.keyframe_points.clear()
-                        if len(fcurve.keyframe_points) == 0:
-                            fcurves_to_remove.append(fcurve)
-
-                for fcurve in fcurves_to_remove:
-                    obj.animation_data.action.fcurves.remove(fcurve)
+                fc = animation_utils.get_or_create_fcurve(obj, '["is_vib"]')
+                if fc is not None:
+                    fc.keyframe_points.clear()
+                    fc.update()
 
     if not objects_with_shape_keys:
         raise RuntimeError("找不到带有弦动画的物体")

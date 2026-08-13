@@ -217,91 +217,88 @@ def _find_obj_with_shape_key(name: str):
     return None
 
 
-def _clear_shape_key_animation(obj, prefix: str) -> None:
-    if not (obj and obj.data.shape_keys and obj.data.shape_keys.animation_data):
+def generate_shape_key_animations(pedal_path: str = "", string_path: str = "") -> None:
+    """整合生成竖琴的踏板 + 弦振动 Shape Key 动画（Blender 4.x/5.x 兼容）。
+
+    pedal 与 string 的 shape key 位于同一物体上，因此先合并两类数据、
+    只清理一次 shape key 动画、再一次性写入（对齐 fret_dance / key_ripple 模式）。
+    """
+    print("\n=== 生成 Shape Key 动画（踏板 + 弦振动）===")
+
+    # 第一步：收集所有要写入的数据，按 shape_keys 对象分组
+    # id(shape_keys) -> {shape_keys, obj_name, data: {sk_name: (frames, values)}}
+    sk_writes = {}
+
+    def _collect(obj, shape_data) -> None:
+        sk_data = obj.data.shape_keys
+        entry = sk_writes.setdefault(id(sk_data), {
+            "shape_keys": sk_data,
+            "obj_name": obj.name,
+            "data": {}})
+        for sk_name, ed in shape_data.items():
+            entry["data"][sk_name] = (ed["frames"], ed["values"])
+
+    if pedal_path:
+        pedal_obj = _find_obj_with_shape_key("pedal_A_state0")
+        if pedal_obj:
+            key_blocks = pedal_obj.data.shape_keys.key_blocks
+            with open(pedal_path, "r", encoding="utf-8") as f:
+                events = json.load(f)
+            shape_data: dict = {}
+            for ev in events:
+                sk_name = ev.get("pedal_state", "")
+                if not key_blocks.get(sk_name):
+                    continue
+                frame = int(ev["data"]["frame"])
+                value = ev["data"]["value"]
+                shape_data.setdefault(sk_name, {"frames": [], "values": []})
+                shape_data[sk_name]["frames"].append(frame)
+                shape_data[sk_name]["values"].append(value)
+            _collect(pedal_obj, shape_data)
+            print(f"  ✓ 踏板 Shape Key：{len(events)} 个事件")
+        else:
+            print("  ⚠ 未找到含 pedal_A_state0 的物体，跳过踏板动画")
+
+    if string_path:
+        string_obj = _find_obj_with_shape_key("string0_inner")
+        if string_obj:
+            key_blocks = string_obj.data.shape_keys.key_blocks
+            with open(string_path, "r", encoding="utf-8") as f:
+                events = json.load(f)
+            shape_data = {}
+            for ev in events:
+                direction = "outer" if ev.get("is_thumb") else "inner"
+                sk_name = f'string{ev["string_index"]}_{direction}'
+                if not key_blocks.get(sk_name):
+                    continue
+                shape_data.setdefault(sk_name, {"frames": [], "values": []})
+                shape_data[sk_name]["frames"].append(int(ev["frame"]))
+                shape_data[sk_name]["values"].append(ev["value"])
+            _collect(string_obj, shape_data)
+            print(f"  ✓ 弦振动 Shape Key：{len(events)} 个事件")
+        else:
+            print("  ⚠ 未找到含 string0_inner 的物体，跳过弦动画")
+
+    if not sk_writes:
         return
-    action = obj.data.shape_keys.animation_data.action
-    if action is None:
-        return
-    to_remove = [fc for fc in action.fcurves
-                 if fc.data_path.startswith(f'key_blocks["{ prefix}')]
-    for fc in to_remove:
-        action.fcurves.remove(fc)
 
+    # 第二步：对涉及的 shape_keys 各清理一次动画（同一物体即一次）
+    for entry in sk_writes.values():
+        if entry["shape_keys"].animation_data:
+            entry["shape_keys"].animation_data_clear()
 
-def generate_pedal_shape_animation(pedal_path: str) -> None:
-    print("\n=== 生成踏板 Shape Key 动画 ===")
-    pedal_obj = _find_obj_with_shape_key("pedal_A_state0")
-    if not pedal_obj:
-        print("  ⚠ 未找到含 pedal_A_state0 的物体，跳过")
-        return
-
-    _clear_shape_key_animation(pedal_obj, "pedal_")
-    with open(pedal_path, "r", encoding="utf-8") as f:
-        events = json.load(f)
-
-    key_blocks = pedal_obj.data.shape_keys.key_blocks
-    shape_data: dict = {}
-    for ev in events:
-        sk_name = ev.get("pedal_state", "")
-        if not key_blocks.get(sk_name):
-            continue
-        frame = int(ev["data"]["frame"])
-        value = ev["data"]["value"]
-        shape_data.setdefault(sk_name, {"frames": [], "values": []})
-        shape_data[sk_name]["frames"].append(frame)
-        shape_data[sk_name]["values"].append(value)
-
-    sk_data = pedal_obj.data.shape_keys
-    if not sk_data.animation_data:
-        sk_data.animation_data_create()
-    if not sk_data.animation_data.action:
-        sk_data.animation_data.action = bpy.data.actions.new(
-            f"{pedal_obj.name}_pedal_sk")
-
-    for sk_name, ed in shape_data.items():
-        fc = animation_utils.get_or_create_fcurve(
-            sk_data, f'key_blocks["{sk_name}"].value')
-        animation_utils.write_fcurve_points(
-            fc, zip(ed["frames"], ed["values"]))
-    print(f"  ✓ 踏板 Shape Key：{len(events)} 个事件")
-
-
-def generate_string_shape_animation(string_path: str) -> None:
-    print("\n=== 生成弦振动 Shape Key 动画 ===")
-    string_obj = _find_obj_with_shape_key("string0_inner")
-    if not string_obj:
-        print("  ⚠ 未找到含 string0_inner 的物体，跳过")
-        return
-
-    _clear_shape_key_animation(string_obj, "string")
-    with open(string_path, "r", encoding="utf-8") as f:
-        events = json.load(f)
-
-    key_blocks = string_obj.data.shape_keys.key_blocks
-    shape_data: dict = {}
-    for ev in events:
-        direction = "outer" if ev.get("is_thumb") else "inner"
-        sk_name = f'string{ev["string_index"]}_{direction}'
-        if not key_blocks.get(sk_name):
-            continue
-        shape_data.setdefault(sk_name, {"frames": [], "values": []})
-        shape_data[sk_name]["frames"].append(int(ev["frame"]))
-        shape_data[sk_name]["values"].append(ev["value"])
-
-    sk_data = string_obj.data.shape_keys
-    if not sk_data.animation_data:
-        sk_data.animation_data_create()
-    if not sk_data.animation_data.action:
-        sk_data.animation_data.action = bpy.data.actions.new(
-            f"{string_obj.name}_string_sk")
-
-    for sk_name, ed in shape_data.items():
-        fc = animation_utils.get_or_create_fcurve(
-            sk_data, f'key_blocks["{sk_name}"].value')
-        animation_utils.write_fcurve_points(
-            fc, zip(ed["frames"], ed["values"]))
-    print(f"  ✓ 弦振动 Shape Key：{len(events)} 个事件")
+    # 第三步：一次性批量写入所有 shape key 关键帧
+    for entry in sk_writes.values():
+        sk_data = entry["shape_keys"]
+        if not sk_data.animation_data:
+            sk_data.animation_data_create()
+        if not sk_data.animation_data.action:
+            sk_data.animation_data.action = bpy.data.actions.new(
+                f"{entry['obj_name']}_shape_keys")
+        for sk_name, (frames, values) in entry["data"].items():
+            fc = animation_utils.get_or_create_fcurve(
+                sk_data, f'key_blocks["{sk_name}"].value')
+            animation_utils.write_fcurve_points(fc, zip(frames, values))
 
 
 # ── 顶层入口 ─────────────────────────────────────────────────
@@ -326,9 +323,9 @@ def generate_all_animations(report_path: str, suffix: str = "") -> None:
         generate_harp_animation(harp_path, suffix)
     if perf_path and os.path.exists(perf_path):
         generate_performance_animation(perf_path, suffix)
-    if pedal_path and os.path.exists(pedal_path):
-        generate_pedal_shape_animation(pedal_path)
-    if str_path and os.path.exists(str_path):
-        generate_string_shape_animation(str_path)
+    if (pedal_path and os.path.exists(pedal_path)) or (str_path and os.path.exists(str_path)):
+        generate_shape_key_animations(
+            pedal_path if pedal_path and os.path.exists(pedal_path) else "",
+            str_path if str_path and os.path.exists(str_path) else "")
 
     print("\n✓ 全部动画生成完成")

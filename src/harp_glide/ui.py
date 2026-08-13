@@ -98,8 +98,6 @@ class HarpGlideProperties(PropertyGroup):
             name="动画报告", default="", subtype="FILE_PATH"),
         "show_state_settings": BoolProperty(
             name="状态设置", default=False),
-        "show_tools": BoolProperty(
-            name="工具", default=False),
     }
 
 
@@ -377,7 +375,7 @@ class HG_OT_generate_instrument_anim(Operator):
             self.report({"ERROR"}, "请先选择有效的 .harpglide 报告文件")
             return {"CANCELLED"}
         try:
-            from .animation import generate_pedal_shape_animation, generate_string_shape_animation
+            from .animation import generate_shape_key_animations
             import json
             with open(report, "r", encoding="utf-8") as f:
                 rp = json.load(f)
@@ -387,10 +385,10 @@ class HG_OT_generate_instrument_anim(Operator):
                 return p if os.path.isabs(p) else os.path.normpath(os.path.join(base, p))
             pp = _abs(rp.get("pedal_shape_animation", ""))
             sp = _abs(rp.get("string_animation", ""))
-            if pp and os.path.exists(pp):
-                generate_pedal_shape_animation(pp)
-            if sp and os.path.exists(sp):
-                generate_string_shape_animation(sp)
+            if (pp and os.path.exists(pp)) or (sp and os.path.exists(sp)):
+                generate_shape_key_animations(
+                    pp if pp and os.path.exists(pp) else "",
+                    sp if sp and os.path.exists(sp) else "")
             self.report({"INFO"}, "乐器动画生成完成")
         except Exception as e:
             self.report({"ERROR"}, f"生成失败：{e}")
@@ -615,14 +613,8 @@ class HG_PT_main_panel(Panel):
         box.label(text="初始化", icon="TOOL_SETTINGS")
         box.operator("harp_glide.setup_objects", text="Setup Objects")
 
-        # 3. 工具（折叠）
-        row = layout.row(align=True)
-        row.prop(props, "show_tools",
-                 icon="TRIA_DOWN" if props.show_tools else "TRIA_RIGHT",
-                 icon_only=True, emboss=False)
-        row.label(text="工具", icon="MODIFIER_ON")
-        if props.show_tools:
-            ui_utils.draw_tools(layout, scene, tools=TOOLS)
+        # 3. 工具区（公共工具 + 本乐器独有工具，折叠 + 按选中展开）
+        ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
         # 4. 状态设置（折叠）
         row = layout.row(align=True)
