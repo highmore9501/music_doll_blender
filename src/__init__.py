@@ -52,10 +52,14 @@ def register():
     harp_glide_ui.register()
     from .wind_rise import ui as wind_rise_ui
     wind_rise_ui.register()
+    from .string_flow import ui as string_flow_ui
+    string_flow_ui.register()
 
 
 def unregister():
     # 乐器模块注销（与注册顺序相反）
+    from .string_flow import ui as string_flow_ui
+    string_flow_ui.unregister()
     from .wind_rise import ui as wind_rise_ui
     wind_rise_ui.unregister()
     from .harp_glide import ui as harp_glide_ui

@@ -373,6 +373,7 @@ def duplicate_collection_tree(src: bpy.types.Collection,
       跨集合的父级同样生效（例如手掌 H_L 的父级 controller_root_offset 在不同集合里），
       不会残留指向原物体的父级导致层级被破坏；
     - 约束器里的对象引用重映射为新副本；
+    - modifier 里的对象引用（如 Armature 的 object）同样重映射为新副本；
     - 新集合挂到 parent 下（默认 Performers 根）。
     """
     new_root = None
@@ -413,6 +414,10 @@ def duplicate_collection_tree(src: bpy.types.Collection,
     # 重映射约束器：obj.copy() 不会更新约束里指向旧物体的引用
     _remap_constraints(obj_map)
 
+    # 重映射 modifier：obj.copy() 同样不会更新 modifier 里指向旧物体的引用
+    # （如 Mesh 的 Armature modifier 仍指向原骨骼）
+    _remap_modifiers(obj_map)
+
     return new_root
 
 
@@ -447,6 +452,32 @@ def _remap_constraints(obj_map: dict[bpy.types.Object, bpy.types.Object]):
             for pbone in new_obj.pose.bones:
                 for constraint in pbone.constraints:
                     _remap_constraint(constraint)
+
+
+def _remap_modifiers(obj_map: dict[bpy.types.Object, bpy.types.Object]):
+    """把复制后对象上 modifier 里指向源集合旧对象的引用替换为新副本。
+
+    与约束器同理，obj.copy() 不会更新 modifier 里指向旧物体的引用：
+    复制出来的 Mesh 的 Armature modifier 仍指向原骨骼，这里统一按 obj_map
+    重映射；目标不在复制范围内（如指向场景外物体）则保持不动。
+    """
+    # 各 modifier 的通用对象引用字段（Armature.object / Shrinkwrap.target /
+    # Hook.object / Warp.object_from/object_to / Array.offset_object 等）
+    _OBJ_FIELDS = ("object", "target", "object_from", "object_to",
+                   "offset_object")
+
+    def _remap_modifier(modifier):
+        for attr in _OBJ_FIELDS:
+            ref = getattr(modifier, attr, None)
+            if isinstance(ref, bpy.types.Object) and ref in obj_map:
+                try:
+                    setattr(modifier, attr, obj_map[ref])
+                except Exception:
+                    pass
+
+    for new_obj in obj_map.values():
+        for modifier in new_obj.modifiers:
+            _remap_modifier(modifier)
 
 
 # ── 重新后缀（复制/修复通用）──────────────────────────────────
