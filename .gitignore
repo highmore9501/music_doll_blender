@@ -1,4 +1,6 @@
 __pycache__/
-docs/
+docs/*
+!docs/music_doll_blender_项目说明文档.md
+!docs/music_doll_blender_项目说明文档.en.md
 scripts/
 music_doll_blender.zip
