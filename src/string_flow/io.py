@@ -180,6 +180,32 @@ _STATE_SECTIONS = [
 ]
 
 
+def _old_pole_short(pole_short: str) -> str | None:
+    """新 pole 短名 → 旧命名短名（一次性迁移）：'pole_1_L' → '1_L_pole'，'TP_L' → 'T_L_pole'"""
+    if pole_short.startswith("TP_"):
+        return f"T_{pole_short[3:]}_pole"
+    if pole_short.startswith("pole_"):
+        return f"{pole_short[5:]}_pole"
+    return None
+
+
+def _resolve_pole_obj(config, pole_short: str):
+    """按新名查找 pole 物体；找不到时回退旧命名并把物体改名为新名（幂等迁移）"""
+    full = config.obj_name(pole_short)
+    obj = bpy.data.objects.get(full)
+    if obj is not None:
+        return obj
+    old_short = _old_pole_short(pole_short)
+    if old_short:
+        old_full = config.obj_name(old_short)
+        old_obj = bpy.data.objects.get(old_full)
+        if old_obj is not None:
+            old_obj.name = full
+            print(f"  [迁移] pole 控件 {old_full} → {full}")
+            return old_obj
+    return None
+
+
 def export_recorder_info(file_path: str, config, skeleton,
                          for_unreal: bool = False) -> None:
     """导出所有记录器信息到 .violinist JSON 文件（与原版结构完全兼容）。
@@ -237,15 +263,18 @@ def export_recorder_info(file_path: str, config, skeleton,
 
     # pole_controller：手指 pole（挂在 ext 下）的局部位置，短名键
     pole_controllers = {}
-    for pole_short in config.get_pole_controller_names():
-        full = config.obj_name(pole_short)
-        obj = bpy.data.objects.get(full)
+    pole_shorts = config.get_pole_controller_names()
+    pole_found = 0
+    for pole_short in pole_shorts:
+        obj = _resolve_pole_obj(config, pole_short)
         if obj is not None:
             pole_controllers[pole_short] = {
                 "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
             }
-    if pole_controllers:
-        result['pole_controller'] = pole_controllers
+            pole_found += 1
+        else:
+            print(f"  • pole 控件 {config.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
+    result['pole_controller'] = pole_controllers
 
     # 写入文件
     io_utils.save_json(file_path, dict(result))
@@ -255,6 +284,7 @@ def export_recorder_info(file_path: str, config, skeleton,
     print("=" * 60)
     print(f" • 状态记录器：{state_count} 条")
     print(f" • 物理位置标记：{marker_count} 个")
+    print(f" • pole 控件：{pole_found}/{len(pole_shorts)} 个")
     print(f" • 格式：{'Unreal（Y 取反 + 旋转反射共轭）' if for_unreal else 'Blender 原生'}")
     print(f" • 文件路径：{file_path}")
     print("=" * 60)
@@ -355,8 +385,7 @@ def import_recorder_info(file_path: str, config, skeleton) -> bool:
         # pole_controller：应用局部位置到对应 pole 控件
         pole_data = data.get("pole_controller", {})
         for pole_short, pole_info in pole_data.items():
-            full = config.obj_name(pole_short)
-            obj = bpy.data.objects.get(full)
+            obj = _resolve_pole_obj(config, pole_short)
             if obj is None:
                 print(f"  ✗ 跳过 {pole_short} (pole 控件不存在)")
                 continue

@@ -82,15 +82,20 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
     # pole_controller：挂在 ext 下的手指 pole 控件局部位置（短名键）
     suffix = performer_utils.suffix_from_object(skeleton) or ""
     pole_controllers = {}
-    for pole_short in iter_pole_controllers():
+    pole_shorts = list(iter_pole_controllers())
+    pole_found = 0
+    for pole_short in pole_shorts:
         full = performer_utils.resolve(pole_short, suffix)
         obj = bpy.data.objects.get(full)
-        if obj is not None:
-            pole_controllers[pole_short] = {
-                "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
-            }
-    if pole_controllers:
-        export_data["pole_controller"] = pole_controllers
+        if obj is None:
+            print(f"  • pole 控件 {full} 不存在，跳过（请先 Setup 创建）")
+            continue
+        pole_controllers[pole_short] = {
+            "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+        }
+        pole_found += 1
+    export_data["pole_controller"] = pole_controllers
+    print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
 
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(export_data, f, ensure_ascii=False, indent=2)

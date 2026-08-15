@@ -413,8 +413,22 @@ class STRINGFLOW_OT_generate_string_animation(Operator):
             self.report({'ERROR'}, f"弦动画文件不存在: {path}")
             return {'CANCELLED'}
         try:
-            apply_string_animation(path, suffix)
-            self.report({'INFO'}, "String animation generated successfully")
+            summary = apply_string_animation(path, suffix,
+                                             _get_active_instrument(context))
+            if summary["shape_keys"] == 0:
+                self.report(
+                    {'WARNING'},
+                    f"弦动画未生成：共写入 0 个 shape key（文件共 {summary['total_entries']} 条数据，"
+                    f"跳过品格0/1: {summary['skipped_f0f1']}，未找到目标乐器: "
+                    f"{summary['skipped_no_instrument']}，乐器无shape key: "
+                    f"{summary['skipped_no_shape_keys']}，未找到shape key: "
+                    f"{summary['skipped_no_shape_key']}）。请检查目标乐器是否已设置"
+                    f"（角色操作面板）且已生成弦 shape key。")
+                return {'CANCELLED'}
+            self.report(
+                {'INFO'},
+                f"String animation generated: {summary['shape_keys']} shape keys, "
+                f"{summary['keyframes']} keyframes")
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"Failed to generate string animation: {str(e)}")
@@ -431,7 +445,8 @@ class STRINGFLOW_OT_generate_all_animation(Operator):
         suffix = _get_active_suffix(context)
         config = _get_string_flow_config(
             scene.stringflow_props, suffix=suffix,
-            skeleton=_get_active_skeleton(context))
+            skeleton=_get_active_skeleton(context),
+            instrument=_get_active_instrument(context))
 
         success_count = 0
         warning_count = 0
@@ -441,7 +456,12 @@ class STRINGFLOW_OT_generate_all_animation(Operator):
             path = _resolve_anim_path(scene, kind)
             if path and os.path.exists(path):
                 try:
-                    func(path)
+                    result = func(path)
+                    # 弦动画返回统计字典；0 个 shape key 视为未生成
+                    if isinstance(result, dict) and result.get("shape_keys", 1) == 0:
+                        warning_count += 1
+                        print(f"警告: {kind} 未写入任何 shape key 关键帧，弦动画未生成")
+                        return False
                     success_count += 1
                     return True
                 except Exception as e:
@@ -454,7 +474,7 @@ class STRINGFLOW_OT_generate_all_animation(Operator):
         _run("right_hand_animation_file",
              lambda p: make_right_hand_animation(p, config, suffix))
         _run("string_animation_file",
-             lambda p: apply_string_animation(p, suffix))
+             lambda p: apply_string_animation(p, suffix, config.target_instrument))
 
         if success_count > 0:
             self.report(

@@ -126,14 +126,19 @@ class IOManager:
         # 5) pole 控件（挂在 ext 下的手指极向量，导出局部位置）
         print("导出 pole 控件信息...")
         pole_controllers = {}
-        for pole_short in self.get_pole_controller_shorts():
+        pole_shorts = self.get_pole_controller_shorts()
+        pole_found = 0
+        for pole_short in pole_shorts:
             obj = bpy.data.objects.get(self.obj_name(pole_short))
             if obj:
                 pole_controllers[pole_short] = {
                     "location": _pos(list(obj.location)),
                 }
-        if pole_controllers:
-            result["pole_controller"] = pole_controllers
+                pole_found += 1
+            else:
+                print(f"  • pole 控件 {self.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
+        result["pole_controller"] = pole_controllers
+        print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
 
         # 6) 其他设置（从骨骼读演奏者设置，保持无状态）
         settings = self.load_settings(target_skeleton)

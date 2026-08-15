@@ -153,72 +153,110 @@ def make_right_hand_animation(animation_file_path: str, config, suffix: str = ""
 
 # ── 弦动画 ───────────────────────────────────────────────────
 
-def clear_string_shape_key_animation(suffix: str = "") -> None:
-    """清除四根弦上已有的 shape key 动画（只清除动画，保留 shape key）"""
-    for i in range(4):
-        obj = bpy.data.objects.get(performer_utils.resolve(f"string{i}", suffix))
-        if obj and obj.data.shape_keys:
-            # 首先归零所有 shape key 的值（保留 Basis）
-            for shape_key_block in obj.data.shape_keys.key_blocks:
-                if shape_key_block.name != "Basis":
-                    shape_key_block.value = 0.0
-            # 清除 shape key 动画数据
-            if obj.data.shape_keys.animation_data:
-                obj.data.shape_keys.animation_data_clear()
-            # 清除 shape key 上的驱动（保留 Basis）
-            for shape_key in obj.data.shape_keys.key_blocks:
-                if shape_key.name != "Basis":
-                    shape_key.driver_remove("value")
+def clear_string_shape_key_animation(instrument) -> None:
+    """清除目标乐器（四根弦已合并进该物体）上已有的 shape key 动画（只清除动画，保留 shape key）
+
+    instrument: 目标乐器物体（MusicDoll 属性：场景 md_target_instrument /
+    演奏者登记的 target_instrument）；弦 shape key 全部位于它上面。
+    """
+    if instrument is None:
+        return
+    if not hasattr(instrument.data, "shape_keys") or not instrument.data.shape_keys:
+        return
+    # 首先归零所有 shape key 的值（保留 Basis）
+    for shape_key_block in instrument.data.shape_keys.key_blocks:
+        if shape_key_block.name != "Basis":
+            shape_key_block.value = 0.0
+    # 清除 shape key 动画数据
+    if instrument.data.shape_keys.animation_data:
+        instrument.data.shape_keys.animation_data_clear()
+    # 清除 shape key 上的驱动（保留 Basis）
+    for shape_key in instrument.data.shape_keys.key_blocks:
+        if shape_key.name != "Basis":
+            shape_key.driver_remove("value")
 
 
-def apply_string_animation(string_animation_file: str, suffix: str = "") -> None:
-    """应用弦动画到场景中的弦对象（批量写 shape key 关键帧）。
+def apply_string_animation(string_animation_file: str, suffix: str = "",
+                           instrument=None) -> dict:
+    """应用弦动画到目标乐器物体（四根弦已合并进该物体），批量写 shape key 关键帧。
 
     Rust 端输出结构：{"strings": [{"shape_key_name": "s0fret5", "keyframes": [...]}]}
-    shape_key_name 前缀 s0~s3 映射到 string0~3 对象（带后缀）；f0/f1 结尾的跳过。
+    shape key 全部位于目标乐器上（MusicDoll 属性：场景 md_target_instrument /
+    演奏者登记的 target_instrument），直接按名字在乐器上查找；f0/f1 结尾的跳过。
+
+    instrument 为空时按 suffix 从演奏者登记信息解析（get_performer(suffix).target_instrument）。
+
+    返回统计字典（供调用方判断是否真正写入了动画）：
+    {"shape_keys": 实际写入的 shape key 数量, "keyframes": 写入的关键帧总数,
+     "total_entries": 文件数据条目数,
+     "skipped_f0f1": 跳过品格0/1 的条数, "skipped_no_instrument": 未找到目标乐器的条数,
+     "skipped_no_shape_keys": 乐器上没有 shape key 数据的条数,
+     "skipped_no_shape_key": 乐器上未找到对应 shape key 的条数}
     """
+    # 目标乐器：优先显式传入，其次按后缀从演奏者登记信息解析
+    if instrument is None:
+        performer = performer_utils.get_performer(suffix)
+        if performer is not None:
+            instrument = performer.target_instrument
+
+    instrument_name = instrument.name if instrument is not None else "（未找到目标乐器）"
+
     # 清除现有动画
-    clear_string_shape_key_animation(suffix)
+    clear_string_shape_key_animation(instrument)
 
     with open(string_animation_file, 'r', encoding='utf-8') as f:
         string_animation_data = json.load(f)
 
-    # 第一步：预先解析 shape key 名称 -> (物体, shape key) 的映射，避免逐帧重复扫描
+    strings_data = string_animation_data.get("strings") or []
+    total_entries = len(strings_data)
+
+    # 跳过原因统计
+    skipped_f0f1 = 0
+    skipped_no_instrument = 0
+    skipped_no_shape_keys = 0
+    skipped_no_shape_key = 0
+
+    # 目标乐器的 shape key 块（仅在乐器存在且有 shape key 数据时解析）
+    key_blocks = None
+    if instrument is not None and hasattr(instrument.data, "shape_keys") \
+            and instrument.data.shape_keys:
+        key_blocks = instrument.data.shape_keys.key_blocks
+
+    # 第一步：预先解析 shape key 名称 -> shape key 的映射，避免逐帧重复扫描
     shape_key_map = {}
-    for string_data in string_animation_data["strings"]:
+    for string_data in strings_data:
         shape_key_name = string_data["shape_key_name"]
 
         # 品格为 0 或 1 的跳过
         if shape_key_name.endswith("f0") or shape_key_name.endswith("f1"):
+            skipped_f0f1 += 1
             continue
 
-        # 确定目标弦对象
-        target_object = None
-        for i in range(4):
-            if shape_key_name.startswith(f"s{i}"):
-                target_object = bpy.data.objects.get(
-                    performer_utils.resolve(f"string{i}", suffix))
-                break
-        if not target_object or not target_object.data.shape_keys:
+        if instrument is None:
+            skipped_no_instrument += 1
+            continue
+        if key_blocks is None:
+            skipped_no_shape_keys += 1
             continue
 
-        shape_key = target_object.data.shape_keys.key_blocks.get(shape_key_name)
+        shape_key = key_blocks.get(shape_key_name)
         if not shape_key:
+            skipped_no_shape_key += 1
             print(f"未找到shape key: {shape_key_name}")
             continue
 
-        shape_key_map.setdefault(shape_key_name, (target_object, shape_key))
+        shape_key_map.setdefault(shape_key_name, shape_key)
 
     # 第二步：按 shape key 收集每一帧的数据
     shape_data = {}
-    for string_data in string_animation_data["strings"]:
+    for string_data in strings_data:
         shape_key_name = string_data["shape_key_name"]
         if shape_key_name not in shape_key_map:
             continue
 
-        target_object, shape_key = shape_key_map[shape_key_name]
+        shape_key = shape_key_map[shape_key_name]
         entry = shape_data.setdefault(
-            (target_object.name, shape_key_name),
+            shape_key_name,
             {"shape_key": shape_key, "frames": [], "values": []})
 
         for keyframe in string_data["keyframes"]:
@@ -226,19 +264,50 @@ def apply_string_animation(string_animation_file: str, suffix: str = "") -> None
             entry["values"].append(keyframe["shape_key_value"])
 
     # 第三步：批量写入所有 shape key 的关键帧
-    for (obj_name, shape_key_name), entry in shape_data.items():
-        obj = bpy.data.objects[obj_name]
-        shape_keys = obj.data.shape_keys
+    for shape_key_name, entry in shape_data.items():
+        shape_keys = instrument.data.shape_keys
 
         if not shape_keys.animation_data:
             shape_keys.animation_data_create()
         if not shape_keys.animation_data.action:
             shape_keys.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_string_shape_keys")
+                f"{instrument_name}_string_shape_keys")
 
         shape_fcurve = get_or_create_fcurve(
             shape_keys, f'key_blocks["{shape_key_name}"].value')
 
         write_fcurve_points(shape_fcurve, zip(entry["frames"], entry["values"]))
 
-    print(f"弦动画已成功从 {string_animation_file} 生成")
+    # 汇总统计与日志
+    written_shape_keys = len(shape_data)
+    written_keyframes = sum(len(entry["frames"]) for entry in shape_data.values())
+
+    print("\n=== 弦动画写入统计 ===")
+    print(f"目标乐器: {instrument_name}")
+    print(f"数据条目: 共 {total_entries} 条"
+          f"（跳过品格0/1: {skipped_f0f1}, 未找到目标乐器: {skipped_no_instrument}, "
+          f"乐器无shape key: {skipped_no_shape_keys}, "
+          f"未找到shape key: {skipped_no_shape_key}）")
+    for shape_key_name, entry in sorted(shape_data.items()):
+        print(f"  • {instrument_name} / {shape_key_name}: {len(entry['frames'])} 个关键帧")
+    print(f"共写入 {written_shape_keys} 个 shape key, {written_keyframes} 个关键帧")
+
+    if written_shape_keys == 0:
+        print("警告: 没有写入任何 shape key 关键帧，弦动画未生成！")
+        print("可能原因: ① string_animation_file 数据为空或全部为品格0/1；"
+              "② 未找到目标乐器（请在「角色操作」面板设置目标乐器，或确认演奏者已登记乐器）；"
+              "③ 目标乐器上没有 shape key（请先生成 shape key）；"
+              "④ 目标乐器上的 shape key 名字与文件不一致（当前后缀: "
+              + (suffix or "（空）") + "）。")
+    else:
+        print(f"弦动画已成功从 {string_animation_file} 生成")
+
+    return {
+        "shape_keys": written_shape_keys,
+        "keyframes": written_keyframes,
+        "total_entries": total_entries,
+        "skipped_f0f1": skipped_f0f1,
+        "skipped_no_instrument": skipped_no_instrument,
+        "skipped_no_shape_keys": skipped_no_shape_keys,
+        "skipped_no_shape_key": skipped_no_shape_key,
+    }

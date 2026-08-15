@@ -135,11 +135,20 @@ def export_harpist(file_path: str, suffix: str, skeleton, props,
 
     # pole_controller：挂在 ext 下的手指极向量，局部位置
     pole_controllers = {}
-    for pole_short in HarpConfig().get_pole_controller_shorts():
-        entry = _read_obj_transform(_pu.resolve(pole_short, suffix))
-        pole_controllers[pole_short] = {"location": _pos(entry["location"])}
-    if pole_controllers:
-        result["pole_controller"] = pole_controllers
+    pole_shorts = HarpConfig().get_pole_controller_shorts()
+    pole_found = 0
+    for pole_short in pole_shorts:
+        full = _pu.resolve(pole_short, suffix)
+        obj = bpy.data.objects.get(full)
+        if obj is None:
+            print(f"  • pole 控件 {full} 不存在，跳过（请先 Setup 创建）")
+            continue
+        pole_controllers[pole_short] = {
+            "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+        }
+        pole_found += 1
+    result["pole_controller"] = pole_controllers
+    print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
 
     io_utils.save_json(file_path, result)
     print(f"✓ .harpist 导出完成：{file_path}")

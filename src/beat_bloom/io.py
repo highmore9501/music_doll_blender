@@ -18,6 +18,34 @@ from .state import _get_state, _set_state, _ctrl_shorts_for_component
 from .enums import HAND_LIMBS
 
 
+def _old_pole_short(pole_short: str) -> str | None:
+    """新 pole 短名 → 旧命名短名（一次性迁移）：'T_pole_L' → 'TP_L'，'I_pole_L' → 'I_L_pole'"""
+    parts = pole_short.split("_pole_")
+    if len(parts) != 2:
+        return None
+    prefix, hand = parts
+    if prefix == "T":
+        return f"TP_{hand}"
+    return f"{prefix}_{hand}_pole"
+
+
+def _resolve_pole_obj(cfg, pole_short: str):
+    """按新名查找 pole 物体；找不到时回退旧命名并把物体改名为新名（幂等迁移）"""
+    full = cfg.obj_name(pole_short)
+    obj = bpy.data.objects.get(full)
+    if obj is not None:
+        return obj
+    old_short = _old_pole_short(pole_short)
+    if old_short:
+        old_full = cfg.obj_name(old_short)
+        old_obj = bpy.data.objects.get(old_full)
+        if old_obj is not None:
+            old_obj.name = full
+            print(f"  [迁移] pole 控件 {old_full} → {full}")
+            return old_obj
+    return None
+
+
 # ── 导出 ──────────────────────────────────────────────────────
 
 def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
@@ -106,15 +134,19 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
     suffix = performer_utils.suffix_from_object(skeleton) or ""
     cfg = BeatBloomConfig(performer_suffix=suffix)
     pole_controllers = {}
-    for pole_short in cfg.get_pole_controller_shorts():
-        full = cfg.obj_name(pole_short)
-        obj = bpy.data.objects.get(full)
+    pole_shorts = cfg.get_pole_controller_shorts()
+    pole_found = 0
+    for pole_short in pole_shorts:
+        obj = _resolve_pole_obj(cfg, pole_short)
         if obj is not None:
             pole_controllers[pole_short] = {
                 "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
             }
-    if pole_controllers:
-        export_data["pole_controller"] = pole_controllers
+            pole_found += 1
+        else:
+            print(f"  • pole 控件 {cfg.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
+    export_data["pole_controller"] = pole_controllers
+    print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
 
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(export_data, f, indent=2, ensure_ascii=False)
@@ -228,14 +260,13 @@ def import_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
     cfg = BeatBloomConfig(performer_suffix=suffix)
     pole_data = import_data.get("pole_controller", {})
     for pole_short, pole_info in pole_data.items():
-        full = cfg.obj_name(pole_short)
-        obj = bpy.data.objects.get(full)
+        obj = _resolve_pole_obj(cfg, pole_short)
         if obj is None:
-            print(f"  • pole 控件 {full} 不存在，跳过")
+            print(f"  • pole 控件 {cfg.obj_name(pole_short)} 不存在，跳过")
             continue
         loc = pole_info.get("location")
         if loc:
             obj.location = loc
-            print(f"  ✓ 设置 {full} 位置: {loc}")
+            print(f"  ✓ 设置 {obj.name} 位置: {loc}")
 
     print(f"✓ 导入完成：{len(recorder_info)} 条记录器信息 ← {file_path}")

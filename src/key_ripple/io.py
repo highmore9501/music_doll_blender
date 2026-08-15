@@ -16,6 +16,35 @@ from .config import KeyRipple, KeyType, PositionType
 from .state import set_state_data
 
 
+def _old_pole_short(key_ripple: KeyRipple, pole_short: str) -> str | None:
+    """新 pole 短名 → 旧命名短名（一次性迁移）：'pole_0' → '0_L_pole'"""
+    if pole_short.startswith("pole_"):
+        try:
+            key = int(pole_short[5:])
+        except ValueError:
+            return None
+        ctrl = key_ripple.finger_controllers.get(key)
+        return f"{ctrl}_pole" if ctrl else None
+    return None
+
+
+def _resolve_pole_obj(key_ripple: KeyRipple, pole_short: str):
+    """按新名查找 pole 物体；找不到时回退旧命名并把物体改名为新名（幂等迁移）"""
+    full = key_ripple.obj_name(pole_short)
+    obj = bpy.data.objects.get(full)
+    if obj is not None:
+        return obj
+    old_short = _old_pole_short(key_ripple, pole_short)
+    if old_short:
+        old_full = key_ripple.obj_name(old_short)
+        old_obj = bpy.data.objects.get(old_full)
+        if old_obj is not None:
+            old_obj.name = full
+            print(f"  [迁移] pole 控件 {old_full} → {full}")
+            return old_obj
+    return None
+
+
 def export_avatar(
     file_path: str,
     key_ripple: KeyRipple,
@@ -107,15 +136,19 @@ def export_avatar(
 
     # ── pole 控件（挂在 ext 下的手指极向量，局部位置） ──
     pole_controllers = {}
-    for pole_short in key_ripple.get_pole_controller_names():
-        full = key_ripple.obj_name(pole_short)
-        if full in bpy.data.objects:
-            obj = bpy.data.objects[full]
+    pole_shorts = key_ripple.get_pole_controller_names()
+    pole_found = 0
+    for pole_short in pole_shorts:
+        obj = _resolve_pole_obj(key_ripple, pole_short)
+        if obj is not None:
             pole_controllers[pole_short] = {
                 "location": _pos(list(obj.location)),
             }
-    if pole_controllers:
-        result["pole_controller"] = pole_controllers
+            pole_found += 1
+        else:
+            print(f"  • pole 控件 {key_ripple.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
+    result["pole_controller"] = pole_controllers
+    print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
 
     # ── 写入文件 ────────────────────────────────────────────
     with open(file_path, "w", encoding="utf-8") as f:
@@ -230,14 +263,14 @@ def import_avatar(
         # ── pole_controller：把局部位置应用到对应 pole 控件 ──
         pole_data = data.get("pole_controller", {})
         for pole_short, pole_info in pole_data.items():
-            full = key_ripple.obj_name(pole_short)
-            if full not in bpy.data.objects:
-                print(f"  • pole 控件 {full} 不存在，跳过")
+            obj = _resolve_pole_obj(key_ripple, pole_short)
+            if obj is None:
+                print(f"  • pole 控件 {key_ripple.obj_name(pole_short)} 不存在，跳过")
                 continue
             loc = pole_info.get("location")
             if loc:
-                bpy.data.objects[full].location = loc
-                print(f"  ✓ 设置 {full} 位置: {loc}")
+                obj.location = loc
+                print(f"  ✓ 设置 {obj.name} 位置: {loc}")
 
         print(f".avatar 已从 {file_path} 成功导入")
         return True
