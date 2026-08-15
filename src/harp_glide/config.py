@@ -75,6 +75,10 @@ class HarpConfig:
 
     # ── 命名辅助 ─────────────────────────────────────────────────
 
+    def get_pole_controller_shorts(self) -> list:
+        """手指 pole 短名（挂在 ext 下，与 Unreal 端一致）"""
+        return [f"{s}_pole" for s in self.left_finger_shorts + self.right_finger_shorts]
+
     def obj_name(self, short: str) -> str:
         return _pu.resolve(short, self.suffix)
 

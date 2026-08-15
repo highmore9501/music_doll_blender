@@ -9,7 +9,11 @@
 
 import json
 
+import bpy  # type: ignore
+
 from ..common import io_utils
+from ..common import performer_utils
+from .config import BeatBloomConfig
 from .state import _get_state, _set_state, _ctrl_shorts_for_component
 from .enums import HAND_LIMBS
 
@@ -97,6 +101,20 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
         "RECORDER_INFO": recorder_info,
         "MAPPING_HELPERS": mapping_helpers_out,
     }
+
+    # pole_controller：挂在 ext 下的手指 pole 控件局部位置（短名键）
+    suffix = performer_utils.suffix_from_object(skeleton) or ""
+    cfg = BeatBloomConfig(performer_suffix=suffix)
+    pole_controllers = {}
+    for pole_short in cfg.get_pole_controller_shorts():
+        full = cfg.obj_name(pole_short)
+        obj = bpy.data.objects.get(full)
+        if obj is not None:
+            pole_controllers[pole_short] = {
+                "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+            }
+    if pole_controllers:
+        export_data["pole_controller"] = pole_controllers
 
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(export_data, f, indent=2, ensure_ascii=False)
@@ -204,4 +222,20 @@ def import_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
             }
 
     _set_state(skeleton, state_data)
+
+    # pole_controller → 应用局部位置到对应 pole 控件
+    suffix = performer_utils.suffix_from_object(skeleton) or ""
+    cfg = BeatBloomConfig(performer_suffix=suffix)
+    pole_data = import_data.get("pole_controller", {})
+    for pole_short, pole_info in pole_data.items():
+        full = cfg.obj_name(pole_short)
+        obj = bpy.data.objects.get(full)
+        if obj is None:
+            print(f"  • pole 控件 {full} 不存在，跳过")
+            continue
+        loc = pole_info.get("location")
+        if loc:
+            obj.location = loc
+            print(f"  ✓ 设置 {full} 位置: {loc}")
+
     print(f"✓ 导入完成：{len(recorder_info)} 条记录器信息 ← {file_path}")

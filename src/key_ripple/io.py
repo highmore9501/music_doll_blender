@@ -105,6 +105,18 @@ def export_avatar(
                 "location": _pos(list(obj.location)),
             }
 
+    # ── pole 控件（挂在 ext 下的手指极向量，局部位置） ──
+    pole_controllers = {}
+    for pole_short in key_ripple.get_pole_controller_names():
+        full = key_ripple.obj_name(pole_short)
+        if full in bpy.data.objects:
+            obj = bpy.data.objects[full]
+            pole_controllers[pole_short] = {
+                "location": _pos(list(obj.location)),
+            }
+    if pole_controllers:
+        result["pole_controller"] = pole_controllers
+
     # ── 写入文件 ────────────────────────────────────────────
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(result, f, default=list, indent=4, ensure_ascii=False)
@@ -214,6 +226,18 @@ def import_avatar(
                 if loc:
                     obj.location = loc
                     print(f"  ✓ 设置 {target} 位置: {loc}")
+
+        # ── pole_controller：把局部位置应用到对应 pole 控件 ──
+        pole_data = data.get("pole_controller", {})
+        for pole_short, pole_info in pole_data.items():
+            full = key_ripple.obj_name(pole_short)
+            if full not in bpy.data.objects:
+                print(f"  • pole 控件 {full} 不存在，跳过")
+                continue
+            loc = pole_info.get("location")
+            if loc:
+                bpy.data.objects[full].location = loc
+                print(f"  ✓ 设置 {full} 位置: {loc}")
 
         print(f".avatar 已从 {file_path} 成功导入")
         return True

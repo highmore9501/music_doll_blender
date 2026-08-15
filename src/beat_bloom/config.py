@@ -5,7 +5,7 @@
 特殊朝向（Middle_Hand / Look_At / Head_Control）× 3。
 辅助控件（仅创建/驱动，不参与 save/load/export/import 数据传递）：
 - 左右手五指控制器 + ext 辅助控件（挂在手掌 H_L/H_R 下）、
-  各手指 pole target（挂在对应 ext 下，拇指 TP_L/TP_R，其余 <手指>_pole）
+  各手指 pole target（挂在对应 ext 下，命名与 Unreal 端一致：T_pole_L / I_pole_L 等）
 - 左右脚 pole target（FP_L / FP_R，与脚控件同级）
 所有控件名带演奏者后缀（<短名>_<suffix>），通过 obj_name / obj 方法访问。
 """
@@ -97,10 +97,16 @@ class BeatBloomConfig:
         return f"ext_{finger_short}"
 
     def finger_pole_short(self, finger_short: str) -> str:
-        """手指短名 → pole target 短名：拇指 'TP_L'/'TP_R'，其余 '<手指>_pole'"""
-        if finger_short.startswith("T_"):
-            return f"TP_{finger_short[2:]}"
-        return f"{finger_short}_pole"
+        """手指短名 → pole target 短名（与 Unreal 端一致）：'T_L' → 'T_pole_L'，'I_L' → 'I_pole_L'"""
+        return f"{finger_short[0]}_pole_{finger_short[2:]}"
+
+    def get_pole_controller_shorts(self) -> list:
+        """手指 pole 短名（挂在 ext 下，与 Unreal 端一致）"""
+        shorts = []
+        for hand in ["L", "R"]:
+            for finger_short in self.finger_shorts_for_hand(hand):
+                shorts.append(self.finger_pole_short(finger_short))
+        return shorts
 
     # ── Drumkit 配置读取 ─────────────────────────────────────────
 

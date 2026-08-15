@@ -42,7 +42,7 @@ def _generate_hand_animation_from_file(animation_file_path: str, side: str,
         f"M_{suffix_letter}",      # 中指控制器
         f"R_{suffix_letter}",      # 无名指控制器
         f"P_{suffix_letter}",      # 小指控制器
-        f"T_{suffix_letter}_pole",
+        f"TP_{suffix_letter}",
         f"I_{suffix_letter}_pole",
         f"M_{suffix_letter}_pole",
         f"R_{suffix_letter}_pole",
@@ -255,10 +255,10 @@ def clear_all_keyframes(suffix: str = "") -> None:
     all_controllers = [
         # 左手
         "H_L", "HP_L", "T_L", "I_L", "M_L", "R_L", "P_L",
-        "T_L_pole", "I_L_pole", "M_L_pole", "R_L_pole", "P_L_pole",
+        "TP_L", "I_L_pole", "M_L_pole", "R_L_pole", "P_L_pole",
         # 右手
         "H_R", "HP_R", "T_R", "I_R", "M_R", "R_R", "P_R",
-        "T_R_pole", "I_R_pole", "M_R_pole", "R_R_pole", "P_R_pole",
+        "TP_R", "I_R_pole", "M_R_pole", "R_R_pole", "P_R_pole",
         # Target
         "Head_Control",
     ]

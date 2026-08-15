@@ -289,6 +289,10 @@ class KeyRipple:
         print(
             f"已将 {look_at_obj.name} 设为 {mid_hand_obj.name} 的子级，初始位置: [0, 0, 0]")
 
+    def get_pole_controller_names(self) -> list:
+        """生成所有手指 pole 短名（挂 ext 下，与 Unreal 端一致：pole_0, pole_1, ...）"""
+        return [f"pole_{key}" for key in self.finger_controllers]
+
     def add_finger_pole_targets(self):
         """为所有手指控制器创建/更新 pole target（绑定在对应 ext 控件下）
 
@@ -321,7 +325,7 @@ class KeyRipple:
                                if controller_key < self.one_hand_finger_number
                                else right_hand_collection)
 
-            pole_target_name = self.obj_name(f"{controller_name}_pole")
+            pole_target_name = self.obj_name(f"pole_{controller_key}")
             ext_obj = bpy.data.objects[ext_name]
 
             if pole_target_name not in bpy.data.objects:

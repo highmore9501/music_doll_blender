@@ -24,10 +24,10 @@ write_fcurve_points = animation_utils.write_fcurve_points
 def _hand_controller_shorts(config, side: str) -> list:
     """该侧全部动画控制器短名：H/HP/T + 全部手指 + pole（+ 右手弓/触弦点）"""
     letter = 'L' if side == 'left' else 'R'
-    names = [f"H_{letter}", f"HP_{letter}", f"T_{letter}", f"T_{letter}_pole"]
+    names = [f"H_{letter}", f"HP_{letter}", f"T_{letter}", f"TP_{letter}"]
     for n in range(1, config.one_hand_finger_number + 1):
         names.append(f"{n}_{letter}")
-        names.append(f"{n}_{letter}_pole")
+        names.append(f"pole_{n}_{letter}")
     if side == 'right':
         names.append("String_Touch_Point")
         names.append("Bow_Controller")

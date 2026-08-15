@@ -4,9 +4,12 @@
 import json
 import os
 
+import bpy  # type: ignore
+
 from ..common import io_utils
+from ..common import performer_utils
 from ..common import state_io
-from .enums import midi_to_name
+from .enums import midi_to_name, iter_pole_controllers
 from .state import (
     _get_wind_data,
     _set_wind_data,
@@ -75,6 +78,20 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
 
     export_data = {"config": config,
                    "is_unreal": for_unreal, "note_info": note_info}
+
+    # pole_controller：挂在 ext 下的手指 pole 控件局部位置（短名键）
+    suffix = performer_utils.suffix_from_object(skeleton) or ""
+    pole_controllers = {}
+    for pole_short in iter_pole_controllers():
+        full = performer_utils.resolve(pole_short, suffix)
+        obj = bpy.data.objects.get(full)
+        if obj is not None:
+            pole_controllers[pole_short] = {
+                "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+            }
+    if pole_controllers:
+        export_data["pole_controller"] = pole_controllers
+
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(export_data, f, ensure_ascii=False, indent=2)
 
@@ -110,5 +127,19 @@ def import_wind(file_path: str, skeleton) -> dict:
         "note_info": [item for item in note_info if isinstance(item, dict)],
     }
     _set_wind_data(skeleton, write_data)
+
+    # pole_controller：把局部位置应用到对应 pole 控件
+    suffix = performer_utils.suffix_from_object(skeleton) or ""
+    pole_data = file_data.get("pole_controller", {})
+    for pole_short, pole_info in pole_data.items():
+        full = performer_utils.resolve(pole_short, suffix)
+        obj = bpy.data.objects.get(full)
+        if obj is None:
+            print(f"  • pole 控件 {full} 不存在，跳过")
+            continue
+        loc = pole_info.get("location")
+        if loc:
+            obj.location = loc
+            print(f"  ✓ 设置 {full} 位置: {loc}")
 
     return existing_config

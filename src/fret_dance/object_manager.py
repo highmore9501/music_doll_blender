@@ -341,6 +341,17 @@ class BlenderObjectManager:
                     names.append(self.obj_name(f"{finger_name}_{hand}_pole"))
         return names
 
+    def get_pole_controller_shorts(self):
+        """生成所有手指 pole 短名（挂 ext 下，与 Unreal 端一致；不含演奏者后缀）"""
+        names = []
+        for hand in ["L", "R"]:
+            for finger_name in ["T", "I", "M", "R", "P"]:
+                if finger_name == "T":
+                    names.append(f"TP_{hand}")
+                else:
+                    names.append(f"{finger_name}_{hand}_pole")
+        return names
+
     def add_fret_markers(self):
         """添加指板位置标记物体（Fret_P0~P4）到Blender场景中"""
         if bpy.context.mode != 'OBJECT':

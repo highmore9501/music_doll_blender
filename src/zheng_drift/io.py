@@ -123,6 +123,20 @@ def export_recorder_info(file_path: str, config, skeleton,
         }
         bilinear_count += 1
 
+    # pole 控件（挂在 ext 下的手指极向量，导出局部位置）
+    pole_count = 0
+    pole_controllers = {}
+    for pole_short in config.get_pole_controller_shorts():
+        full = config.obj_name(pole_short)
+        if full in bpy.data.objects:
+            obj = bpy.data.objects[full]
+            pole_controllers[pole_short] = {
+                'location': _pos(list(obj.location)),
+            }
+            pole_count += 1
+    if pole_controllers:
+        result['pole_controller'] = pole_controllers
+
     # 标记数据来源（Rust 端按 is_blender 判断坐标系：true=Blender，false=Unreal）
     result['is_blender'] = not for_unreal
 
@@ -133,7 +147,7 @@ def export_recorder_info(file_path: str, config, skeleton,
         f.write(data)
 
     total_count = string_count + left_hand_count + \
-        right_hand_count + foot_count + bilinear_count
+        right_hand_count + foot_count + bilinear_count + pole_count
     print("\n" + "=" * 60)
     print("✓ 记录器信息导出成功!")
     print("=" * 60)
@@ -142,6 +156,7 @@ def export_recorder_info(file_path: str, config, skeleton,
     print(f" • 右手状态记录器：{right_hand_count} 个")
     print(f" • 脚部控制器：{foot_count} 个")
     print(f" • 双线性映射辅助数据：{bilinear_count} 条")
+    print(f" • pole 控件：{pole_count} 个")
     print(f" • 总计：{total_count} 个对象")
     print(f"  • 文件路径：{file_path}")
     print("=" * 60)
@@ -245,6 +260,18 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
                 _sio.set_state_data(skeleton, BILINEAR_KEY, bilinear_data)
         loaded_count += bilinear_loaded
 
+        # pole 控件（应用局部位置到对应对象）
+        pole_loaded = 0
+        if 'pole_controller' in data:
+            for pole_short, pole_info in data['pole_controller'].items():
+                full = config.obj_name(pole_short)
+                if full in bpy.data.objects:
+                    loc = pole_info.get('location')
+                    if loc:
+                        bpy.data.objects[full].location = loc
+                        pole_loaded += 1
+        loaded_count += pole_loaded
+
         print("\n" + "=" * 60)
         print("✓ 记录器信息导入成功!")
         print("=" * 60)
@@ -253,6 +280,7 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
         print(f" • 右手状态记录器：{right_hand_loaded} 个")
         print(f" • 脚部控制器：{foot_loaded} 个")
         print(f" • 双线性映射辅助数据：{bilinear_loaded} 条")
+        print(f" • pole 控件：{pole_loaded} 个")
         print(f" • 总计：{loaded_count} 个对象")
         print(f"  • 文件路径：{file_path}")
         print("=" * 60)

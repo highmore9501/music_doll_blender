@@ -269,7 +269,7 @@ class StringFlowConfig:
                 self._parent_to(bow, ext_obj)
 
             # pole（空环）挂 ext 下，沿局部 Z 偏移 1.0（仅首次挂载时设置，不重置用户调整）
-            pole_name = f"{finger_name}_pole"
+            pole_name = self.pole_short(finger_name)
             pole_obj = self.create_or_update_object(
                 self.obj_name(pole_name), ObjectType.CIRCLE_EMPTY, collection)
             if pole_obj is not None and pole_obj.parent != ext_obj:
@@ -409,13 +409,19 @@ class StringFlowConfig:
             names.append(f"ext_T_{hand}")
         return names
 
+    def pole_short(self, finger_short: str) -> str:
+        """手指短名 → pole 短名（与 Unreal 端一致）：'1_L' → 'pole_1_L'，'T_L' → 'TP_L'"""
+        if finger_short.startswith("T_"):
+            return f"TP_{finger_short[2:]}"
+        return f"pole_{finger_short}"
+
     def get_pole_controller_names(self) -> list:
-        """生成所有手指 pole 名称（含拇指 T_L_pole / T_R_pole）"""
+        """生成所有手指 pole 名称（含拇指 TP_L / TP_R，与 Unreal 端命名一致）"""
         names = []
         for hand in ["L", "R"]:
             for finger_number in range(1, self.one_hand_finger_number + 1):
-                names.append(f"{finger_number}_{hand}_pole")
-            names.append(f"T_{hand}_pole")
+                names.append(self.pole_short(f"{finger_number}_{hand}"))
+            names.append(self.pole_short(f"T_{hand}"))
         return names
 
     # ── 物理位置标记 ────────────────────────────────────────

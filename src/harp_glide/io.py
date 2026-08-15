@@ -133,6 +133,14 @@ def export_harpist(file_path: str, suffix: str, skeleton, props,
         "F_rest_R": _te(foot.get("F_R", {"location": [0]*3, "rotation": [1, 0, 0, 0]}), _pos, _rot),
     }
 
+    # pole_controller：挂在 ext 下的手指极向量，局部位置
+    pole_controllers = {}
+    for pole_short in HarpConfig().get_pole_controller_shorts():
+        entry = _read_obj_transform(_pu.resolve(pole_short, suffix))
+        pole_controllers[pole_short] = {"location": _pos(entry["location"])}
+    if pole_controllers:
+        result["pole_controller"] = pole_controllers
+
     io_utils.save_json(file_path, result)
     print(f"✓ .harpist 导出完成：{file_path}")
 
@@ -167,6 +175,11 @@ def import_harpist(file_path: str, suffix: str, skeleton, props) -> None:
     # STRING_RECORDERS → 物理对象
     for short, entry in raw.get("STRING_RECORDERS", {}).items():
         _write_obj_transform(_pu.resolve(short, suffix), entry)
+
+    # pole_controller → 物理对象（局部位置）
+    for pole_short, pole_info in raw.get("pole_controller", {}).items():
+        entry = {"location": pole_info.get("location", [0, 0, 0])}
+        _write_obj_transform(_pu.resolve(pole_short, suffix), entry)
 
     # PEDAL_POSITION_RECORDERS → 骨骼 JSON
     data["pedal_positions"] = dict(raw.get("PEDAL_POSITION_RECORDERS", {}))

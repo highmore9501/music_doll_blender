@@ -235,6 +235,18 @@ def export_recorder_info(file_path: str, config, skeleton,
             # 与原版一致：物理标记对象不存在时写 None（提醒先 Setup）
             result['other_recorders'][recorder_name] = None
 
+    # pole_controller：手指 pole（挂在 ext 下）的局部位置，短名键
+    pole_controllers = {}
+    for pole_short in config.get_pole_controller_names():
+        full = config.obj_name(pole_short)
+        obj = bpy.data.objects.get(full)
+        if obj is not None:
+            pole_controllers[pole_short] = {
+                "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+            }
+    if pole_controllers:
+        result['pole_controller'] = pole_controllers
+
     # 写入文件
     io_utils.save_json(file_path, dict(result))
 
@@ -339,6 +351,18 @@ def import_recorder_info(file_path: str, config, skeleton) -> bool:
             if quat and len(quat) == 4:
                 obj.rotation_quaternion = (quat[0], quat[1], quat[2], quat[3])
             loaded_count += 1
+
+        # pole_controller：应用局部位置到对应 pole 控件
+        pole_data = data.get("pole_controller", {})
+        for pole_short, pole_info in pole_data.items():
+            full = config.obj_name(pole_short)
+            obj = bpy.data.objects.get(full)
+            if obj is None:
+                print(f"  ✗ 跳过 {pole_short} (pole 控件不存在)")
+                continue
+            loc = pole_info.get("location")
+            if loc:
+                obj.location = (loc[0], loc[1], loc[2])
 
         _sio.set_state_data(skeleton, STATE_KEY, state)
 

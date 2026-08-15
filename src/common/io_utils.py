@@ -58,6 +58,7 @@ def load_dict_from_json_str(raw: str | None) -> dict:
 
 
 # ── Unreal 引擎坐标转换 ─────────────────────────────────────────
+# 为了确保Blender与Unreal中最终演奏者表现一致，两端使用的约束器最终效果必须一致
 
 def to_unreal_position(pos: list) -> list:
     """Blender 位置 → Unreal 位置：Y 轴取反。"""

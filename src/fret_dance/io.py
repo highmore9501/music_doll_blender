@@ -123,7 +123,19 @@ class IOManager:
                     "rotation": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
                 }
 
-        # 5) 其他设置（从骨骼读演奏者设置，保持无状态）
+        # 5) pole 控件（挂在 ext 下的手指极向量，导出局部位置）
+        print("导出 pole 控件信息...")
+        pole_controllers = {}
+        for pole_short in self.get_pole_controller_shorts():
+            obj = bpy.data.objects.get(self.obj_name(pole_short))
+            if obj:
+                pole_controllers[pole_short] = {
+                    "location": _pos(list(obj.location)),
+                }
+        if pole_controllers:
+            result["pole_controller"] = pole_controllers
+
+        # 6) 其他设置（从骨骼读演奏者设置，保持无状态）
         settings = self.load_settings(target_skeleton)
         result["OTHER_SETTING"] = {
             "is_unreal": for_unreal,
@@ -213,7 +225,20 @@ class IOManager:
                 "rotation": ctrl_info.get("rotation", [1, 0, 0, 0]),
             }
 
-        # 4) 其他设置
+        # 4) pole_controller：把局部位置应用到对应 pole 控件
+        print("导入 pole 控件信息...")
+        pole_data = result.get("pole_controller", {})
+        for pole_short, pole_info in pole_data.items():
+            full = self.obj_name(pole_short)
+            obj = bpy.data.objects.get(full)
+            if obj is None:
+                print(f"  • pole 控件 {full} 不存在，跳过")
+                continue
+            loc = pole_info.get("location")
+            if loc:
+                obj.location = loc
+
+        # 5) 其他设置
         other = result.get("OTHER_SETTING", {})
         settings = self.load_settings(target_skeleton)
         data["instruments"] = data.get("instruments", settings["instrument"])

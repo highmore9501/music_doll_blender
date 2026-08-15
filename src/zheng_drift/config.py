@@ -48,7 +48,7 @@ class ZhengConfig:
             "left_middle_controller": "M_L",
             "left_ring_controller": "R_L",
             "left_little_controller": "P_L",
-            "left_thumb_pole": "T_L_pole",
+            "left_thumb_pole": "TP_L",
             "left_index_pole": "I_L_pole",
             "left_middle_pole": "M_L_pole",
             "left_ring_pole": "R_L_pole",
@@ -64,7 +64,7 @@ class ZhengConfig:
             "right_middle_controller": "M_R",
             "right_ring_controller": "R_R",
             "right_little_controller": "P_R",
-            "right_thumb_pole": "T_R_pole",
+            "right_thumb_pole": "TP_R",
             "right_index_pole": "I_R_pole",
             "right_middle_pole": "M_R_pole",
             "right_ring_pole": "R_R_pole",
@@ -114,6 +114,15 @@ class ZhengConfig:
         self._register_bilinear_map()
 
     # ── 后缀化命名 ──────────────────────────────────────────
+
+    def get_pole_controller_shorts(self) -> list:
+        """手指 pole 短名（挂在 ext 下，与 Unreal 端一致；不含脚部 pole）"""
+        poles = []
+        for ctrl in (list(self.left_hand_controllers.values())
+                     + list(self.right_hand_controllers.values())):
+            if ctrl.endswith("_pole") or ctrl.startswith("TP_"):
+                poles.append(ctrl)
+        return poles
 
     def obj_name(self, short: str) -> str:
         """短名 → 完整对象名（带演奏者后缀）"""
@@ -181,19 +190,22 @@ class ZhengConfig:
 
         # 双脚控制器（球形空物体；极向量 pole 用空环）
         for controller_name, obj_name in self.foot_controllers.items():
-            obj_type = (ObjectType.CIRCLE_EMPTY if obj_name.endswith("_pole")
+            obj_type = (ObjectType.CIRCLE_EMPTY
+                        if obj_name.endswith("_pole") or obj_name.startswith("TP_")
                         else ObjectType.SPHERE_EMPTY)
             self.create_or_update_object(
                 self.obj_name(obj_name), obj_type, foot_collection)
 
         # 左右手控制器（含手指极向量；极向量 pole 用空环，其余球形空物体）
         for controller_name, obj_name in self.left_hand_controllers.items():
-            obj_type = (ObjectType.CIRCLE_EMPTY if obj_name.endswith("_pole")
+            obj_type = (ObjectType.CIRCLE_EMPTY
+                        if obj_name.endswith("_pole") or obj_name.startswith("TP_")
                         else ObjectType.SPHERE_EMPTY)
             self.create_or_update_object(
                 self.obj_name(obj_name), obj_type, left_hand_collection)
         for controller_name, obj_name in self.right_hand_controllers.items():
-            obj_type = (ObjectType.CIRCLE_EMPTY if obj_name.endswith("_pole")
+            obj_type = (ObjectType.CIRCLE_EMPTY
+                        if obj_name.endswith("_pole") or obj_name.startswith("TP_")
                         else ObjectType.SPHERE_EMPTY)
             self.create_or_update_object(
                 self.obj_name(obj_name), obj_type, right_hand_collection)
@@ -230,10 +242,10 @@ class ZhengConfig:
 
         # 手指极向量挂到对应 ext 控件下
         finger_poles = {
-            "T_L_pole": "ext_T_L", "I_L_pole": "ext_I_L",
+            "TP_L": "ext_T_L", "I_L_pole": "ext_I_L",
             "M_L_pole": "ext_M_L", "R_L_pole": "ext_R_L",
             "P_L_pole": "ext_P_L",
-            "T_R_pole": "ext_T_R", "I_R_pole": "ext_I_R",
+            "TP_R": "ext_T_R", "I_R_pole": "ext_I_R",
             "M_R_pole": "ext_M_R", "R_R_pole": "ext_R_R",
             "P_R_pole": "ext_P_R",
         }
