@@ -17,6 +17,9 @@ controller_root 作为固定乐器根（小提琴固定不动，无 controller_r
 - 枢轴 HP_R / 弓 / 触弦点 → controller_root（原 violin 帧）；
 - 左手手指/拇指/ext → H_L；右手手指/拇指/H_R/ext → Bow_Controller；
 - pole（空环）→ 对应 ext 下，沿局部 Z 偏移 1.0；
+- 脚部 IK（F_L/F_R）与 pole（FP_L/FP_R）→ 与 controller_root 同级
+  （有后缀时挂演奏者根、无后缀时保持世界对象；**不挂 controller_root**；
+  仅创建，不参与任何数据传递与计算）；
 - 物理位置标记不挂根（世界对象，Rust 按世界坐标消费）。
 """
 
@@ -64,6 +67,16 @@ class StringFlowConfig:
             "left_hand_controller": "H_L",
             "left_hand_pivot_controller": "HP_L",
             "left_thumb_controller": "T_L",
+        }
+
+        # ── 脚部 IK / pole 控件（仅创建，不参与任何数据传递与计算） ──
+        self.foot_controllers = {
+            "left_foot_controller": "F_L",
+            "right_foot_controller": "F_R",
+        }
+        self.foot_pole_controllers = {
+            "left_foot_pole": "FP_L",
+            "right_foot_pole": "FP_R",
         }
 
         # ── 状态记录器命名表（数据键 = 短名，存骨骼；不再生成物体） ──
@@ -211,6 +224,18 @@ class StringFlowConfig:
             self.create_or_update_object(
                 self.obj_name(finger_name), ObjectType.CUBE, collection)
 
+        # 脚部 IK 控件（cube）与 pole 控件（空环）——仅创建，不参与数据传递与计算；
+        # 层级与 controller_root 同级（不挂 controller_root；有后缀时由
+        # _organize_performer_root 挂到演奏者根下）
+        foot_col = self.get_or_create_collection(
+            "Foot_Controllers", controllers_collection)
+        for controller_name in self.foot_controllers.values():
+            self.create_or_update_object(
+                self.obj_name(controller_name), ObjectType.CUBE, foot_col)
+        for controller_name in self.foot_pole_controllers.values():
+            self.create_or_update_object(
+                self.obj_name(controller_name), ObjectType.CIRCLE_EMPTY, foot_col)
+
         # 手指 ext 辅助控件与 pole
         self.add_finger_ext_and_poles(left_col, right_col)
 
@@ -235,6 +260,8 @@ class StringFlowConfig:
             # 右手手掌 H_R → Bow_Controller（与手指同级同空间，右手整体为弓子级）
             self._parent_to(bow, self.obj("H_R"))
         # 左手手掌/枢轴、右手枢轴/弓/触弦点 → controller_root（原 violin 帧）
+        # 脚部 IK/pole 不挂 controller_root，与 controller_root 同级
+        # （由 _organize_performer_root 挂到演奏者根下，见 setup_all_objects）
         for short in ["H_L", "HP_L", "HP_R",
                       "Bow_Controller", "String_Touch_Point"]:
             self._parent_to(controller_root, self.obj(short))
@@ -568,6 +595,8 @@ class StringFlowConfig:
         controllers = (list(self.finger_controllers.values())
                        + list(self.right_finger_controllers.values())
                        + list(self.hand_controllers.values())
+                       + list(self.foot_controllers.values())
+                       + list(self.foot_pole_controllers.values())
                        + self.get_ext_controller_names()
                        + self.get_pole_controller_names()
                        + list(self.other_controllers.values())
@@ -727,8 +756,12 @@ class StringFlowConfig:
         skeleton = self.target_skeleton or performer.target_skeleton
         self._parent_to(root_obj, skeleton)
         self._parent_to(root_obj, self.obj("controller_root"))
+        # 脚部 IK/pole 与 controller_root 同级：挂演奏者根下，不挂 controller_root
+        for short in (list(self.foot_controllers.values())
+                      + list(self.foot_pole_controllers.values())):
+            self._parent_to(root_obj, self.obj(short))
         print(
-            f"  ✓ 演奏者根 {root_obj.name} 就绪（骨骼/controller_root 已挂到其下；乐器请手动绑定到 controller_root）")
+            f"  ✓ 演奏者根 {root_obj.name} 就绪（骨骼/controller_root/脚部控件已挂到其下；乐器请手动绑定到 controller_root）")
 
     def _parent_to(self, parent_obj, child_obj):
         object_utils.parent_to(parent_obj, child_obj)

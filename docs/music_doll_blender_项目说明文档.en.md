@@ -651,6 +651,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 - Left-hand fingers: `1_L`–`N_L`; right-hand fingers: `1_R`–`N_R` (**right fingers/thumb parented to Bow_Controller** — the "hand on bow" rig, unique to StringFlow);
 - Palms/pivots/thumbs: `H_L`/`HP_L`/`T_L`/`H_R`/`HP_R`/`T_R`;
 - Other controllers: `String_Touch_Point`, `Bow_Controller`;
+- Feet IK / poles (creation only, **not part of any data transfer or computation**, at the same level as `controller_root` — **not parented to it**, but to the performer root / kept as world objects): `F_L`/`F_R` + `FP_L`/`FP_R` (poles are empty rings);
 - ext / poles: `ext_{finger}`, `{finger}_pole` (empty rings);
 - **ext constraints** (drivers, cleared-then-rebuilt idempotently): left hand `ext = 2×finger` (H_L local space — finger and palm are both H_L children, so the palm is the origin); right hand `ext = 2×finger − palm` (Bow_Controller local space — finger and palm H_R are both bow children, keeping ext on the "palm → finger" extension line; the code comments note this replaced the earlier two-Copy-Location-world-constraint scheme);
 - Physical position markers (17, parented to controller_root): `position_s{i}_f0/f12`, `mid_s{i}` / `f9_s{i}` (midpoint drivers), `middle_fret_board_position` (**the third point of the three-point plane**, shared by the Rust side and the string tool).

@@ -651,6 +651,7 @@ class ToolDef:
 - 左手手指：`1_L`~`N_L`；右手手指：`1_R`~`N_R`（**右手手指/拇指挂 Bow_Controller**——"手在弓上"结构，StringFlow 独有）；
 - 手掌/枢轴/拇指：`H_L`/`HP_L`/`T_L`/`H_R`/`HP_R`/`T_R`；
 - 其他控制器：`String_Touch_Point`（触弦点）、`Bow_Controller`（琴弓）；
+- 脚部 IK / pole（仅创建，**不参与任何数据传递与计算**，与 controller_root 同级：**不挂 controller_root**，挂演奏者根/保持世界对象）：`F_L`/`F_R` + `FP_L`/`FP_R`（pole 空环）；
 - ext / pole：`ext_{手指}`、`{手指}_pole`（空环）；
 - **ext 约束**（driver，先清后建幂等）：左手 `ext = 2×手指`（H_L 局部空间，手指/手掌同为 H_L 子级，手掌即原点）；右手 `ext = 2×手指 − 手掌`（Bow_Controller 局部空间，手指与手掌 H_R 同为弓子级，确保 ext 位于"手掌→手指"延长线上；注释注明已取代早期两个 Copy Location 世界坐标约束的方案）；
 - 物理位置标记（17 个，挂 controller_root）：`position_s{i}_f0/f12`、`mid_s{i}` / `f9_s{i}`（driver 中点）、`middle_fret_board_position`（**三点定平面第三点**，Rust 端与琴弦工具共用）。
