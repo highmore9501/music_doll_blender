@@ -132,7 +132,8 @@ class StringFlowConfig:
             self.other_recorders.append(f"mid_s{i}")
             self.other_recorders.append(f"f9_s{i}")
             for position in RightHandPositionType:
-                self.other_recorders.append(f"bow_position_s{i}_{position.value}")
+                self.other_recorders.append(
+                    f"bow_position_s{i}_{position.value}")
                 self.other_recorders.append(f"stp_{i}_{position.value}")
             for j in [0, 12]:
                 self.other_recorders.append(f"position_s{i}_f{j}")
@@ -159,6 +160,10 @@ class StringFlowConfig:
     def obj(self, short: str):
         """按短名取对象"""
         return bpy.data.objects.get(self.obj_name(short))
+
+    def is_cello_instrument(self) -> bool:
+        """当前是否为大提琴模式（仅该模式额外创建 head_control）。"""
+        return str(self.instrument_type).lower() == "cello"
 
     # ── 集合/物体创建（改调 common） ────────────────────────
 
@@ -218,7 +223,8 @@ class StringFlowConfig:
 
         # 手掌/枢轴/拇指（cube）
         for controller_name in self.hand_controllers.values():
-            collection = left_col if controller_name.endswith("_L") else right_col
+            collection = left_col if controller_name.endswith(
+                "_L") else right_col
             self.create_or_update_object(
                 self.obj_name(controller_name), ObjectType.CUBE, collection)
 
@@ -251,6 +257,11 @@ class StringFlowConfig:
             self.create_or_update_object(
                 self.obj_name(controller_name), ObjectType.CUBE, other_col)
 
+        # 大提琴额外头部控制器（与 controller_root 同级体系，挂在 controller_root 下）
+        if self.is_cello_instrument():
+            self.create_or_update_object(
+                self.obj_name("head_control"), ObjectType.CUBE, other_col)
+
         # ── 层级（原版 set_parent_for_object 语义） ──
         palm_L = self.obj("H_L")
         bow = self.obj("Bow_Controller")
@@ -270,6 +281,8 @@ class StringFlowConfig:
         for short in ["H_L", "HP_L", "HP_R",
                       "Bow_Controller", "String_Touch_Point"]:
             self._parent_to(controller_root, self.obj(short))
+        if self.is_cello_instrument():
+            self._parent_to(controller_root, self.obj("head_control"))
 
         print("  ✓ 控制器添加完成")
 
@@ -607,6 +620,9 @@ class StringFlowConfig:
                        + list(self.other_controllers.values())
                        + ["controller_root"])
 
+        if self.is_cello_instrument():
+            controllers.append("head_control")
+
         print("\n【控制器状态】")
         existing_ctrl = 0
         missing_ctrl = 0
@@ -643,7 +659,8 @@ class StringFlowConfig:
                 missing_string += 1
                 print(f"  ✗ {full} (缺失)")
 
-        total = len(controllers) + len(self.physical_markers) + self.string_number
+        total = len(controllers) + len(self.physical_markers) + \
+            self.string_number
         existing = existing_ctrl + existing_marker + existing_string
         missing = missing_ctrl + missing_marker + missing_string
 
