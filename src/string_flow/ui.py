@@ -75,6 +75,7 @@ def _get_string_flow_config(props, suffix="", skeleton=None, instrument=None) ->
         target_skeleton=skeleton,
         target_instrument=instrument,
         one_hand_finger_number=props.one_hand_finger_number,
+        instrument_type=props.instrument_type,
     )
 
 
@@ -108,6 +109,20 @@ def _resolve_anim_path(scene, kind: str) -> str:
 class StringFlowProperties(PropertyGroup):
     """StringFlow 面板属性（初始化 + 左右手状态选择 + 动画配置路径）"""
     __annotations__ = {
+        # 乐器类型（小提琴/中提琴/大提琴；写入 .violinist 的 config.instrument，
+        # Rust 端据此选择琴弦音高与品格范围配置）
+        "instrument_type": EnumProperty(
+            name="乐器类型",
+            description="选择乐器类型（小提琴/中提琴/大提琴），"
+                        "写入 .violinist 的 config.instrument，Rust 端据此确定琴弦音高与品格范围",
+            items=[
+                ('violin', "小提琴", "Violin（空弦 E4=76 / A3=69 / D3=62 / G3=55）"),
+                ('viola', "中提琴", "Viola（空弦 A3=69 / D3=62 / G3=55 / C3=48）"),
+                ('cello', "大提琴", "Cello（空弦 A2=45 / D2=38 / G2=31 / C2=24）"),
+            ],
+            default='violin',
+        ),
+
         # 初始化参数
         "one_hand_finger_number": IntProperty(
             name="Finger Number",
@@ -643,6 +658,12 @@ class STRINGFLOW_PT_main_panel(Panel):
         layout = self.layout
         scene = context.scene
         props = scene.stringflow_props
+
+        # 0. 乐器类型选择（放在工具区上方，对齐 FretDance 的乐器选择；
+        #    决定 .violinist 的 config.instrument，Rust 端据此选择音高/品格配置）
+        box = layout.box()
+        box.label(text="乐器类型", icon='OUTLINER_OB_ARMATURE')
+        box.prop(props, "instrument_type")
 
         # 1. 初始化模块
         box = layout.box()

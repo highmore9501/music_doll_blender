@@ -36,13 +36,18 @@ class StringFlowConfig:
 
     def __init__(self, performer_suffix: str = "",
                  target_skeleton=None, target_instrument=None,
-                 performer_name=None, one_hand_finger_number: int = 4):
+                 performer_name=None, one_hand_finger_number: int = 4,
+                 instrument_type: str = "violin"):
         self.suffix: str = performer_suffix
         self.target_skeleton = target_skeleton
         self.target_instrument = target_instrument
         self.performer_name: str = performer_name or (
             performer_suffix if performer_suffix else "Performer")
         self.instruments_name: str = "string_flow"
+
+        # 乐器类型（violin/viola/cello，写进 .violinist 的 config.instrument，
+        # Rust 端据此选择琴弦音高与品格范围；小提琴/中提琴/大提琴均为 4 弦）
+        self.instrument_type: str = instrument_type
 
         # 左手手指数量（可调 1~N；命名表按它生成，外星人多指也支持）
         self.one_hand_finger_number = one_hand_finger_number

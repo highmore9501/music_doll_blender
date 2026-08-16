@@ -5,6 +5,20 @@ from enum import Enum
 from typing import Dict, Tuple
 
 
+class StringFlowInstrumentType(Enum):
+    """乐器类型（小提琴/中提琴/大提琴）。
+
+    值即写入 .violinist 的 config.instrument 标识符，Rust 端（string_flow_rust
+    的 parse_instrument_from_file）据此选择琴弦音高与品格范围配置：
+    - violin → InstrumentConfig::violin()（空弦 E4=76 / A3=69 / D3=62 / G3=55）
+    - viola  → InstrumentConfig::viola()（空弦 A3=69 / D3=62 / G3=55 / C3=48）
+    - cello  → InstrumentConfig::cello()（空弦 A2=45 / D2=38 / G2=31 / C2=24）
+    """
+    VIOLIN = "violin"
+    VIOLA = "viola"
+    CELLO = "cello"
+
+
 class HandType(Enum):
     """手类型"""
     LEFT = 'L'

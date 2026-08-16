@@ -224,6 +224,9 @@ def export_recorder_info(file_path: str, config, skeleton,
     # 配置参数
     result['config']['one_hand_finger_number'] = config.one_hand_finger_number
     result['config']['string_number'] = config.string_number
+    # 乐器类型（violin/viola/cello）：Rust 端 parse_instrument_from_file
+    # 据此选择琴弦音高与品格范围（viola/cello 命中预设，其他值回退小提琴）
+    result['config']['instrument'] = config.instrument_type
     if for_unreal:
         result['config']['is_unreal'] = True
 
