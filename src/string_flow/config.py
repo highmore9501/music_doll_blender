@@ -126,11 +126,10 @@ class StringFlowConfig:
             "bow_controller": "Bow_Controller",
         }
 
-        # ── 其他记录器（other_recorders 完整键列表：物理标记对象 + bow/stp 状态键） ──
+        # ── 其他记录器（仅参与 IO 的键：position/middle_fret_board + bow/stp） ──
+        # 注：mid_s*/f9_s* 是由 driver 派生出来的参考点，只创建不参与 Save/Load/Export/Import。
         self.other_recorders = []
         for i in range(0, self.string_number):
-            self.other_recorders.append(f"mid_s{i}")
-            self.other_recorders.append(f"f9_s{i}")
             for position in RightHandPositionType:
                 self.other_recorders.append(
                     f"bow_position_s{i}_{position.value}")

@@ -240,8 +240,11 @@ def export_recorder_info(file_path: str, config, skeleton,
             state_count += 1
 
     # other_recorders：物理标记从对象读；bow/stp 从骨骼读
+    # 注：mid_s*/f9_s* 属于 driver 派生点，不参与 IO（即便旧配置里残留也跳过）。
     marker_count = 0
     for recorder_name in config.other_recorders:
+        if recorder_name.startswith("mid_s") or recorder_name.startswith("f9_s"):
+            continue
         if _STP_RE.match(recorder_name):
             result['other_recorders'][recorder_name] = _state_entry(
                 state, recorder_name, _pos, _rot)
@@ -276,7 +279,8 @@ def export_recorder_info(file_path: str, config, skeleton,
             }
             pole_found += 1
         else:
-            print(f"  • pole 控件 {config.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
+            print(
+                f"  • pole 控件 {config.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
     result['pole_controller'] = pole_controllers
 
     # 写入文件
@@ -350,6 +354,9 @@ def import_recorder_info(file_path: str, config, skeleton) -> bool:
         other = data.get("other_recorders", {})
         for recorder_name, rec_info in other.items():
             if rec_info is None:
+                continue
+            # 派生参考点（mid/f9）只由 driver 自动计算，旧文件里即便存在也忽略导入
+            if recorder_name.startswith("mid_s") or recorder_name.startswith("f9_s"):
                 continue
             if _STP_RE.match(recorder_name):
                 parsed = _parse_recorder(recorder_name)
