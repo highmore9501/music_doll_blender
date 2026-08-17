@@ -6,8 +6,7 @@
 - 三点定平面参考对象（position_s0_f0 / position_s3_f0 / middle_fret_board_position）
   按后缀解析（弦工具与 Rust 端 calculate_finger_positions 逻辑一致）；
 - shape key 名 s{n}fret{k} 在弦数据内部，不需要后缀；
-- offset_ratio 参数保留（原版 UI 引用但属性未定义、函数内也未实际使用——此处补场景属性
-  并传入签名，算法与原版保持一致）。
+- 按弦位移按几何投影计算，未使用独立振幅参数。
 """
 
 import re
@@ -30,6 +29,108 @@ def _string_index_from_name(obj_name: str):
     return m.group(1) if m else None
 
 
+def _set_parent_keep_world_transform(obj, target_parent) -> None:
+    """把对象设置为 target_parent 子级，并保持世界坐标不变。"""
+    world_matrix = obj.matrix_world.copy()
+    obj.parent = target_parent
+    if target_parent is not None:
+        obj.matrix_parent_inverse = target_parent.matrix_world.inverted()
+    else:
+        obj.matrix_parent_inverse.identity()
+    obj.matrix_world = world_matrix
+
+
+def _infer_suffix_from_object(obj) -> str:
+    """优先从对象所属演奏者关系推断后缀，失败再从对象名回退解析。"""
+    if obj is None:
+        return ""
+
+    suffix = performer_utils.suffix_from_object(obj)
+    if suffix:
+        return suffix
+
+    parsed = performer_utils.performer_from_object(obj.name)
+    if parsed is not None:
+        return parsed[0]
+    return ""
+
+
+def _find_reference_object(short_name: str, suffix: str, context_obj):
+    """按后缀优先解析参考对象；找不到时在同短名对象里按上下文后缀回退匹配。"""
+    full = performer_utils.resolve(short_name, suffix)
+    if full in bpy.data.objects:
+        return bpy.data.objects[full]
+
+    base_suffix = _infer_suffix_from_object(context_obj)
+    candidates = []
+    for obj in bpy.data.objects:
+        parsed = performer_utils.performer_from_object(obj.name)
+        if parsed is None:
+            continue
+        cand_suffix, cand_short = parsed
+        if cand_short == short_name:
+            candidates.append((cand_suffix, obj))
+
+    if base_suffix:
+        for cand_suffix, cand_obj in candidates:
+            if cand_suffix == base_suffix:
+                return cand_obj
+
+    if len(candidates) == 1:
+        return candidates[0][1]
+
+    raise ValueError(
+        f"场景中缺少必要的参考对象: {full}；"
+        f"且无法唯一匹配短名 {short_name} 的后缀对象")
+
+
+def _build_loop_groups_by_distance(vertices, start_vertex, axis_dir, axis_len,
+                                   subdivisions=None, verts_per_loop: int = 8):
+    """按顶点到 start 的距离分桶为 loop，并按桶索引计算轴向比例。"""
+    total_vertices = len(vertices)
+    if total_vertices == 0:
+        return []
+
+    if subdivisions is not None:
+        loop_count = int(subdivisions) + 2
+    else:
+        # 独立运行“生成ShapeKey”时没有 subdivisions，按常见圆柱拓扑推断侧面 loop 数。
+        if total_vertices % verts_per_loop == 0:
+            side_vertex_count = total_vertices
+        elif total_vertices >= 2 and (total_vertices - 2) % verts_per_loop == 0:
+            side_vertex_count = total_vertices - 2
+        else:
+            side_vertex_count = (
+                total_vertices // verts_per_loop) * verts_per_loop
+        if side_vertex_count < verts_per_loop * 2:
+            raise ValueError("无法从当前网格推断有效的 loop 分组")
+        loop_count = side_vertex_count // verts_per_loop
+
+    groups = [
+        {"indices": [], "loop_index": loop_idx, "t": 0.0}
+        for loop_idx in range(loop_count)
+    ]
+
+    # 按“顶点到start距离”分桶；使用轴向投影上限做归一化，避免半径影响过大。
+    for idx, v in enumerate(vertices):
+        d = (v - start_vertex).length
+        normalized = d / axis_len if axis_len > 1e-8 else 0.0
+        normalized = max(0.0, min(1.0, normalized))
+        bucket = int(round(normalized * (loop_count - 1))
+                     ) if loop_count > 1 else 0
+        bucket = max(0, min(loop_count - 1, bucket))
+        groups[bucket]["indices"].append(idx)
+
+    # 每个 loop 的 t 严格按索引比例计算（0=起点端, 1=终点端）。
+    for group in groups:
+        if loop_count > 1:
+            group["t"] = group["loop_index"] / (loop_count - 1)
+        else:
+            group["t"] = 0.0
+
+    return groups
+
+
 def create_violin_string(start_obj_name: str, end_obj_name: str, number: int = 1,
                          subdivisions: int = 80, suffix: str = ""):
     """在 Blender 中创建琴弦物体（string{number}_{suffix}）。
@@ -43,9 +144,9 @@ def create_violin_string(start_obj_name: str, end_obj_name: str, number: int = 1
     start_obj = bpy.data.objects[start_obj_name]
     end_obj = bpy.data.objects[end_obj_name]
 
-    # 获取世界坐标（起点/终点对象未父级化，.location 即世界坐标）
-    p1 = start_obj.location
-    p2 = end_obj.location
+    # 获取世界坐标（有父级时 .location 是局部坐标，这里必须使用 matrix_world）。
+    p1 = start_obj.matrix_world.translation.copy()
+    p2 = end_obj.matrix_world.translation.copy()
 
     print(f"起点: {p1}")
     print(f"终点: {p2}")
@@ -113,14 +214,13 @@ def calculate_fret_positions(num_fret: int, scale_length: float = 1.0) -> float:
     return scale_length * (1.0 - (1.0 / (2 ** (num_fret / 12.0))))
 
 
-def make_violin_string_shape_keys(offset_ratio: float = 0.005, number: int = 1,
+def make_violin_string_shape_keys(number: int = 1,
                                   subdivisions: int = 80, reverse_frets: bool = False,
                                   suffix: str = ""):
     """创建琴弦物体并自动生成所有 shape keys。
 
     检查选中的物体是否为两个（start 和 end），然后创建琴弦、细分并生成 shape keys。
 
-    :param offset_ratio: 移动偏移比例（保留参数；原版函数体内未实际使用，算法保持一致）
     :param number: 琴弦编号
     :param subdivisions: 沿圆柱体长度方向的细分数
     :param reverse_frets: 是否反序遍历品格
@@ -133,6 +233,9 @@ def make_violin_string_shape_keys(offset_ratio: float = 0.005, number: int = 1,
 
     start_obj = selected_objects[0]
     end_obj = selected_objects[1]
+    if not suffix:
+        suffix = _infer_suffix_from_object(
+            start_obj) or _infer_suffix_from_object(end_obj)
     print(f"选中对象: {start_obj.name} (start), {end_obj.name} (end)")
 
     # 创建琴弦
@@ -192,7 +295,11 @@ def make_violin_string_shape_keys(offset_ratio: float = 0.005, number: int = 1,
     bpy.context.view_layer.objects.active = current_object
     current_object.select_set(True)
 
-    generate_shape_keys_for_string(reverse_frets=reverse_frets, suffix=suffix)
+    generate_shape_keys_for_string(
+        reverse_frets=reverse_frets,
+        suffix=suffix,
+        subdivisions=subdivisions,
+    )
 
     print("\n" + "=" * 60)
     print(f"琴弦 {current_object.name} 创建完成！所有shape keys已自动生成。")
@@ -202,7 +309,8 @@ def make_violin_string_shape_keys(offset_ratio: float = 0.005, number: int = 1,
 
 
 def generate_shape_keys_for_string(reverse_frets: bool = False,
-                                   suffix: str = ""):
+                                   suffix: str = "",
+                                   subdivisions=None):
     """为选中的琴弦对象生成 shape key（前提：琴弦已被细分好）。
 
     按三点定平面（position_s0_f0 / position_s3_f0 / middle_fret_board_position，
@@ -214,6 +322,8 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
             f"请选择一个琴弦对象，当前选中了 {len(selected_objects)} 个")
 
     current_object = selected_objects[0]
+    if not suffix:
+        suffix = _infer_suffix_from_object(current_object)
     print(f"\n=== 为琴弦 {current_object.name} 生成shape key ===")
 
     bpy.context.view_layer.objects.active = current_object
@@ -232,24 +342,56 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
     main_axis = max(ranges.items(), key=lambda item: item[1])[0]
 
     coord_values = {'x': x_coords, 'y': y_coords, 'z': z_coords}[main_axis]
-    min_idx = coord_values.index(min(coord_values))
-    max_idx = coord_values.index(max(coord_values))
+    min_coord = min(coord_values)
+    max_coord = max(coord_values)
+    coord_span = max_coord - min_coord
+    cap_eps = max(coord_span * 0.01, 1e-6)
 
-    start_vertex = vertices[min_idx]
-    end_vertex = vertices[max_idx]
+    start_cap = [v for v in vertices if abs(
+        getattr(v, main_axis) - min_coord) <= cap_eps]
+    end_cap = [v for v in vertices if abs(
+        getattr(v, main_axis) - max_coord) <= cap_eps]
+    if not start_cap or not end_cap:
+        raise ValueError("无法识别琴弦两端顶点，无法生成 shape key")
+
+    # 使用两端端面中心作为弦轴端点，避免使用圆柱外圈顶点带来的半径误差。
+    start_vertex = Vector((0.0, 0.0, 0.0))
+    for v in start_cap:
+        start_vertex += v
+    start_vertex /= len(start_cap)
+
+    end_vertex = Vector((0.0, 0.0, 0.0))
+    for v in end_cap:
+        end_vertex += v
+    end_vertex /= len(end_cap)
+    axis_vec = end_vertex - start_vertex
+    axis_len = axis_vec.length
+    if axis_len <= 1e-8:
+        raise ValueError("琴弦长度过小，无法生成 shape key")
+    axis_dir = axis_vec.normalized()
+
+    loop_groups = _build_loop_groups_by_distance(
+        vertices,
+        start_vertex,
+        axis_dir,
+        axis_len,
+        subdivisions=subdivisions,
+        verts_per_loop=8,
+    )
+    if not loop_groups:
+        raise ValueError("无法按弦轴分组顶点 loop，无法生成 shape key")
+    print(f"检测到 loop 组数量: {len(loop_groups)}")
 
     print(f"主延伸轴: {main_axis}")
-    print(f"起点索引: {min_idx}, 终点索引: {max_idx}")
+    print(f"弦轴起点(局部): {start_vertex}, 终点(局部): {end_vertex}")
 
     # 三点定平面（带后缀解析；与 Rust calculate_finger_positions 一致）
     required_objects = ['position_s0_f0', 'position_s3_f0',
                         'middle_fret_board_position']
     resolved_refs = {}
     for obj_name in required_objects:
-        full = performer_utils.resolve(obj_name, suffix)
-        if full not in bpy.data.objects:
-            raise ValueError(f"场景中缺少必要的参考对象: {full}")
-        resolved_refs[obj_name] = bpy.data.objects[full]
+        resolved_refs[obj_name] = _find_reference_object(
+            obj_name, suffix, current_object)
 
     p1 = resolved_refs['position_s0_f0'].matrix_world.translation
     p2 = resolved_refs['position_s3_f0'].matrix_world.translation
@@ -281,25 +423,22 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
         if bpy.context.object.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        fret_position_ratio = (1 - calculate_fret_positions(fret, 1.0))
+        fret_position_ratio = calculate_fret_positions(fret, 1.0)
         if reverse_frets:
             fret_position_ratio = 1 - fret_position_ratio
+        fret_position_ratio = max(0.0, min(1.0, fret_position_ratio))
 
-        raw_position_world = (current_object.matrix_world @ start_vertex) + \
-            (current_object.matrix_world @ end_vertex -
-             current_object.matrix_world @ start_vertex) * fret_position_ratio
+        raw_position_local = start_vertex + axis_vec * fret_position_ratio
+        raw_position_world = current_object.matrix_world @ raw_position_local
 
         to_point = raw_position_world - p1
         distance = to_point.dot(plane_normal)
         projected_position_world = raw_position_world - distance * plane_normal
 
         projected_position_local = current_object.matrix_world.inverted() @ projected_position_world
+        max_displacement = projected_position_local - raw_position_local
 
-        original_position_local = start_vertex + \
-            (end_vertex - start_vertex) * fret_position_ratio
-        max_displacement = projected_position_local - original_position_local
-
-        print(f"原始理论位置(局部): {original_position_local}")
+        print(f"原始理论位置(局部): {raw_position_local}")
         print(f"投影后位置(局部): {projected_position_local}")
         print(f"最大位移向量: {max_displacement}")
 
@@ -320,27 +459,39 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
         bm = bmesh.from_edit_mesh(morph_obj.data)
         bm.verts.ensure_lookup_table()
 
-        # 应用该 fret 的变形
-        for v in bm.verts:
-            # 计算顶点在弦上的位置比例 (0=弦头, 1=弦尾)
-            t = (v.co - start_vertex).length / \
-                (end_vertex - start_vertex).length
-
-            if t <= fret_position_ratio:  # 弦头到按弦点段
-                if fret_position_ratio > 0:
-                    segment_t = t / fret_position_ratio
+        # 应用该 fret 的变形（按 loop 中心算位移，整圈同位移，避免压扁 loop 截面）。
+        for group in loop_groups:
+            if not group["indices"]:
+                continue
+            t = group["t"]
+            if t <= fret_position_ratio:
+                if fret_position_ratio > 1e-8:
+                    weight = t / fret_position_ratio
                 else:
-                    segment_t = 0
-                displacement = max_displacement * segment_t
-            else:  # 按弦点到弦尾段
-                if (1 - fret_position_ratio) > 0:
-                    segment_t = (t - fret_position_ratio) / \
-                        (1 - fret_position_ratio)
+                    weight = 0.0
+            else:
+                tail_len = 1.0 - fret_position_ratio
+                if tail_len > 1e-8:
+                    weight = (1.0 - t) / tail_len
                 else:
-                    segment_t = 0
-                displacement = max_displacement * (1 - segment_t)
+                    weight = 0.0
 
-            v.co += displacement
+            center_local = Vector((0.0, 0.0, 0.0))
+            indices = group["indices"]
+            for i in indices:
+                center_local += bm.verts[i].co
+            center_local /= len(indices)
+
+            center_world = morph_obj.matrix_world @ center_local
+            to_center = center_world - p1
+            center_distance = to_center.dot(plane_normal)
+            center_projected_world = center_world - center_distance * plane_normal
+            center_projected_local = morph_obj.matrix_world.inverted() @ center_projected_world
+            displacement_to_plane = center_projected_local - center_local
+
+            loop_displacement = -displacement_to_plane * weight
+            for i in indices:
+                bm.verts[i].co += loop_displacement
 
         bmesh.update_edit_mesh(morph_obj.data)
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -369,6 +520,14 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
 
     # 重命名 shape key（加弦号前缀：fret{n} → s{弦号}fret{n}）
     rename_shape_key(current_object)
+
+    # 计算与 shape key 生成完成后，再绑定到指板参考点同 parent，避免影响世界坐标计算。
+    fretboard_parent = resolved_refs['middle_fret_board_position'].parent
+    _set_parent_keep_world_transform(current_object, fretboard_parent)
+    if fretboard_parent is not None:
+        print(f"已设置父级为: {fretboard_parent.name}（保持世界坐标不变）")
+    else:
+        print("参考点无父级，琴弦保持无父级（保持世界坐标不变）")
 
 
 def rename_shape_key(obj) -> None:

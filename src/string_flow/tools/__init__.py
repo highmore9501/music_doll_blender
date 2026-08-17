@@ -8,7 +8,7 @@
 
 import bpy  # type: ignore
 from bpy.types import Operator  # type: ignore
-from bpy.props import IntProperty, FloatProperty, BoolProperty  # type: ignore
+from bpy.props import IntProperty, BoolProperty  # type: ignore
 
 from ...common import ui_utils
 from ...common.tools import ToolDef
@@ -28,15 +28,6 @@ def register_tool_scene_props():
             min=0,
             max=10,
         )
-    if not hasattr(bpy.types.Scene, "string_flow_offset_ratio"):
-        bpy.types.Scene.string_flow_offset_ratio = FloatProperty(
-            name="偏移比例",
-            description="琴弦 shape key 的偏移比例（原版 UI 引用但属性缺失，此处补齐）",
-            default=0.005,
-            min=0.0,
-            max=1.0,
-            precision=4,
-        )
     if not hasattr(bpy.types.Scene, "string_flow_reverse_frets"):
         bpy.types.Scene.string_flow_reverse_frets = BoolProperty(
             name="反序遍历品格",
@@ -46,7 +37,7 @@ def register_tool_scene_props():
 
 
 def unregister_tool_scene_props():
-    for name in ("string_flow_reverse_frets", "string_flow_offset_ratio",
+    for name in ("string_flow_reverse_frets",
                  "string_flow_string_index"):
         if hasattr(bpy.types.Scene, name):
             delattr(bpy.types.Scene, name)
@@ -68,7 +59,6 @@ class STRINGFLOW_OT_tool_create_violin_string(Operator):
         scene = context.scene
         try:
             make_violin_string.make_violin_string_shape_keys(
-                offset_ratio=scene.string_flow_offset_ratio,
                 number=int(scene.string_flow_string_index),
                 reverse_frets=scene.string_flow_reverse_frets,
                 suffix=_active_suffix(context))
@@ -103,10 +93,9 @@ class STRINGFLOW_OT_tool_generate_shape_keys(Operator):
 # ── 工具参数区绘制 ───────────────────────────────────────────
 
 def _draw_violin_string(layout, scene):
-    """一键创建琴弦工具的参数区（弦号 + 偏移比例 + 反序）"""
+    """一键创建琴弦工具的参数区（弦号 + 反序）"""
     col = layout.column(align=True)
     col.prop(scene, "string_flow_string_index", text="弦号")
-    col.prop(scene, "string_flow_offset_ratio", text="偏移比例")
     col.prop(scene, "string_flow_reverse_frets", text="反序")
     layout.label(text="提示：先选中两个端点对象（start / end），再执行", icon="INFO")
 
