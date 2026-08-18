@@ -6,7 +6,9 @@
 - 三点定平面参考对象（position_s0_f0 / position_s3_f0 / middle_fret_board_position）
   按后缀解析（弦工具与 Rust 端 calculate_finger_positions 逻辑一致）；
 - shape key 名 s{n}fret{k} 在弦数据内部，不需要后缀；
-- 按弦位移按几何投影计算，未使用独立振幅参数。
+- 按弦位移按几何投影计算，未使用独立振幅参数；
+- flip_normal 取代原 reverse_frets：不再反序品格，而是将琴弦偏移（弯曲）方向取反，
+  即向指板平面另一侧弯（变形沿平面法线方向，等价于法线方向取反）。
 """
 
 import re
@@ -215,7 +217,7 @@ def calculate_fret_positions(num_fret: int, scale_length: float = 1.0) -> float:
 
 
 def make_violin_string_shape_keys(number: int = 1,
-                                  subdivisions: int = 80, reverse_frets: bool = False,
+                                  subdivisions: int = 80, flip_normal: bool = False,
                                   suffix: str = ""):
     """创建琴弦物体并自动生成所有 shape keys。
 
@@ -223,7 +225,7 @@ def make_violin_string_shape_keys(number: int = 1,
 
     :param number: 琴弦编号
     :param subdivisions: 沿圆柱体长度方向的细分数
-    :param reverse_frets: 是否反序遍历品格
+    :param flip_normal: 是否将琴弦偏移（弯曲）方向取反（向指板平面另一侧弯，等价于法线方向取反）
     :param suffix: 演奏者后缀
     """
     selected_objects = bpy.context.selected_objects
@@ -296,7 +298,7 @@ def make_violin_string_shape_keys(number: int = 1,
     current_object.select_set(True)
 
     generate_shape_keys_for_string(
-        reverse_frets=reverse_frets,
+        flip_normal=flip_normal,
         suffix=suffix,
         subdivisions=subdivisions,
     )
@@ -308,13 +310,15 @@ def make_violin_string_shape_keys(number: int = 1,
     return current_object
 
 
-def generate_shape_keys_for_string(reverse_frets: bool = False,
+def generate_shape_keys_for_string(flip_normal: bool = False,
                                    suffix: str = "",
                                    subdivisions=None):
     """为选中的琴弦对象生成 shape key（前提：琴弦已被细分好）。
 
     按三点定平面（position_s0_f0 / position_s3_f0 / middle_fret_board_position，
     均按后缀解析）计算指板平面，为品格 1~20 生成按下变形的 shape key。
+
+    :param flip_normal: 是否将琴弦偏移（弯曲）方向取反（向指板平面另一侧弯，等价于法线方向取反）
     """
     selected_objects = bpy.context.selected_objects
     if len(selected_objects) != 1:
@@ -400,6 +404,10 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
     v1 = p2 - p1
     v2 = p3 - p1
     plane_normal = v1.cross(v2).normalized()
+    # 变形（偏移）方向沿平面法线：默认与原逻辑一致；flip_normal 时在位移处取反
+    # （见 loop_displacement），琴弦向指板平面另一侧弯。
+    bend_sign = 1.0 if flip_normal else -1.0
+    print(f"指板平面法线: {plane_normal}")
 
     # 检查是否有 basis shape key，没有就生成一个
     if not current_object.data.shape_keys:
@@ -424,8 +432,6 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
             bpy.ops.object.mode_set(mode='OBJECT')
 
         fret_position_ratio = calculate_fret_positions(fret, 1.0)
-        if reverse_frets:
-            fret_position_ratio = 1 - fret_position_ratio
         fret_position_ratio = max(0.0, min(1.0, fret_position_ratio))
 
         raw_position_local = start_vertex + axis_vec * fret_position_ratio
@@ -489,7 +495,7 @@ def generate_shape_keys_for_string(reverse_frets: bool = False,
             center_projected_local = morph_obj.matrix_world.inverted() @ center_projected_world
             displacement_to_plane = center_projected_local - center_local
 
-            loop_displacement = -displacement_to_plane * weight
+            loop_displacement = bend_sign * displacement_to_plane * weight
             for i in indices:
                 bm.verts[i].co += loop_displacement
 

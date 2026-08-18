@@ -448,7 +448,7 @@ class ToolDef:
 | beat_bloom | （无专属工具，仅公共工具） | — | — |
 | harp_glide | 生成弦 Shape Key / 批量生成所有弦 / 线性分布弦位置 | `harp_glide.create_string_shape_key` 等 | 弦数 / 振幅 |
 | wind_rise | 轴旋转工具 / 轴移动工具 | （参数区自带按钮） | — |
-| string_flow | 一键创建琴弦 / 生成 ShapeKey | `music_doll.tool_string_flow_create_violin_string` 等 | 弦号 / 偏移比例 / 反序遍历品格 |
+| string_flow | 一键创建琴弦 / 生成 ShapeKey | `music_doll.tool_string_flow_create_violin_string` 等 | 弦号 / 偏移比例 / 翻转法线方向 |
 
 ### 6.3 典型工具实现位置
 

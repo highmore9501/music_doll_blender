@@ -28,16 +28,16 @@ def register_tool_scene_props():
             min=0,
             max=10,
         )
-    if not hasattr(bpy.types.Scene, "string_flow_reverse_frets"):
-        bpy.types.Scene.string_flow_reverse_frets = BoolProperty(
-            name="反序遍历品格",
-            description="是否反序遍历品格（正序：fret1→fret20；反序：fret20→fret1）",
-            default=False,
+    if not hasattr(bpy.types.Scene, "string_flow_flip_normal"):
+        bpy.types.Scene.string_flow_flip_normal = BoolProperty(
+            name="翻转法线方向",
+            description="是否将琴弦偏移（弯曲）方向取反（向指板平面另一侧弯，等价于法线方向取反）",
+            default=True,
         )
 
 
 def unregister_tool_scene_props():
-    for name in ("string_flow_reverse_frets",
+    for name in ("string_flow_flip_normal",
                  "string_flow_string_index"):
         if hasattr(bpy.types.Scene, name):
             delattr(bpy.types.Scene, name)
@@ -60,7 +60,7 @@ class STRINGFLOW_OT_tool_create_violin_string(Operator):
         try:
             make_violin_string.make_violin_string_shape_keys(
                 number=int(scene.string_flow_string_index),
-                reverse_frets=scene.string_flow_reverse_frets,
+                flip_normal=scene.string_flow_flip_normal,
                 suffix=_active_suffix(context))
             self.report(
                 {'INFO'}, f"琴弦 {int(scene.string_flow_string_index)} 已全部完成！"
@@ -81,7 +81,7 @@ class STRINGFLOW_OT_tool_generate_shape_keys(Operator):
         scene = context.scene
         try:
             make_violin_string.generate_shape_keys_for_string(
-                reverse_frets=scene.string_flow_reverse_frets,
+                flip_normal=scene.string_flow_flip_normal,
                 suffix=_active_suffix(context))
             self.report({'INFO'}, "ShapeKey生成完成")
             return {'FINISHED'}
@@ -93,17 +93,17 @@ class STRINGFLOW_OT_tool_generate_shape_keys(Operator):
 # ── 工具参数区绘制 ───────────────────────────────────────────
 
 def _draw_violin_string(layout, scene):
-    """一键创建琴弦工具的参数区（弦号 + 反序）"""
+    """一键创建琴弦工具的参数区（弦号 + 法线取反）"""
     col = layout.column(align=True)
     col.prop(scene, "string_flow_string_index", text="弦号")
-    col.prop(scene, "string_flow_reverse_frets", text="反序")
+    col.prop(scene, "string_flow_flip_normal", text="法线取反")
     layout.label(text="提示：先选中两个端点对象（start / end），再执行", icon="INFO")
 
 
 def _draw_generate_shape_keys(layout, scene):
-    """生成ShapeKey 工具的参数区（反序）"""
+    """生成ShapeKey 工具的参数区（法线取反）"""
     col = layout.column(align=True)
-    col.prop(scene, "string_flow_reverse_frets", text="反序")
+    col.prop(scene, "string_flow_flip_normal", text="法线取反")
     layout.label(text="提示：先选中已细分好的琴弦对象，再执行", icon="INFO")
 
 
