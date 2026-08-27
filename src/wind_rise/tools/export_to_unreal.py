@@ -6,11 +6,14 @@ from bpy.types import Operator  # type: ignore
 from bpy.props import StringProperty  # type: ignore
 from bpy_extras.io_utils import ExportHelper  # type: ignore
 
+from ...common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
+
 
 class WR_OT_export_to_unreal(Operator, ExportHelper):
     """导出 .wind（Unreal 引擎格式：坐标 ×100，Y 轴取反，旋转取共轭）"""
     bl_idname = "music_doll.wind_rise_export_to_unreal"
-    bl_label = "导出到 Unreal"
     bl_options = {'REGISTER', 'UNDO'}
 
     filename_ext = ".wind"
@@ -39,6 +42,7 @@ class WR_OT_export_to_unreal(Operator, ExportHelper):
 
 
 def register():
+    bl_label_set(WR_OT_export_to_unreal, "导出到 Unreal")
     bpy.utils.register_class(WR_OT_export_to_unreal)
 
 

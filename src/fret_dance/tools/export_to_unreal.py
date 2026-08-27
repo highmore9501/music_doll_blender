@@ -9,11 +9,14 @@ from bpy.types import Operator  # type: ignore
 from bpy.props import StringProperty  # type: ignore
 from bpy_extras.io_utils import ExportHelper  # type: ignore
 
+from ...common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
+
 
 class FRET_DANCE_OT_export_to_unreal(Operator, ExportHelper):
     """导出人物信息（Unreal 引擎格式：坐标 ×100，Y 轴取反，旋转取共轭）"""
     bl_idname = "music_doll.fret_dance_export_to_unreal"
-    bl_label = "导出到 Unreal"
     bl_options = {'REGISTER', 'UNDO'}
 
     filename_ext = ".json"
@@ -26,7 +29,7 @@ class FRET_DANCE_OT_export_to_unreal(Operator, ExportHelper):
 
         skeleton = _get_active_skeleton(context)
         if skeleton is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
 
         base_state = _build_base_state(context)
@@ -36,14 +39,15 @@ class FRET_DANCE_OT_export_to_unreal(Operator, ExportHelper):
 
         try:
             base_state.export_controller_info(path, skeleton, for_unreal=True)
-            self.report({'INFO'}, f"已导出 Unreal 格式 → {path}")
+            self.report({'INFO'}, T("已导出 Unreal 格式 → %s") % path)
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"导出失败：{e}")
+            self.report({'ERROR'}, T("导出失败：%s") % e)
             return {'CANCELLED'}
 
 
 def register():
+    bl_label_set(FRET_DANCE_OT_export_to_unreal, "导出到 Unreal")
     bpy.utils.register_class(FRET_DANCE_OT_export_to_unreal)
 
 

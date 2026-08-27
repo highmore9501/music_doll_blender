@@ -12,6 +12,7 @@ import bpy     # type: ignore
 import bmesh  # type: ignore
 from mathutils import Vector  # type: ignore
 
+from ...common import i18n; T = i18n.T
 from ...common import performer_utils as _pu
 from ...common import state_io
 from ..config import STATE_KEY
@@ -21,17 +22,17 @@ from ..config import STATE_KEY
 
 def draw_create_string_shape_key(layout, scene):
     props = scene.md_hg_props
-    layout.prop(props, "string_index", text="弦序号")
-    layout.prop(props, "string_amplitude", text="振幅比例")
+    layout.prop(props, "string_index", text=T("弦序号"))
+    layout.prop(props, "string_amplitude", text=T("振幅比例"))
 
 
 def draw_create_all_strings_shape_keys(layout, scene):
     props = scene.md_hg_props
-    layout.prop(props, "string_amplitude", text="振幅比例")
+    layout.prop(props, "string_amplitude", text=T("振幅比例"))
 
 
 def draw_linear_distribute(layout, scene):
-    layout.label(text="选中两端 Empty，中间弦标记将线性分布", icon="INFO")
+    layout.label(text=T("选中两端 Empty，中间弦标记将线性分布"), icon="INFO")
 
 
 # ── 内部辅助：振动方向 ───────────────────────────────────────

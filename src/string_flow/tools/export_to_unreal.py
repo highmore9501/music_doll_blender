@@ -13,11 +13,14 @@ from bpy.types import Operator  # type: ignore
 from bpy.props import StringProperty  # type: ignore
 from bpy_extras.io_utils import ExportHelper  # type: ignore
 
+from ...common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
+
 
 class STRINGFLOW_OT_export_to_unreal(Operator, ExportHelper):
     """导出 .violinist（Unreal 引擎格式：坐标 Y 轴取反、旋转取反射共轭，is_unreal=true）"""
     bl_idname = "music_doll.string_flow_export_to_unreal"
-    bl_label = "导出到 Unreal"
     bl_options = {'REGISTER', 'UNDO'}
 
     filename_ext = ".violinist"
@@ -31,7 +34,7 @@ class STRINGFLOW_OT_export_to_unreal(Operator, ExportHelper):
 
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
 
         config = _get_string_flow_config(
@@ -40,14 +43,15 @@ class STRINGFLOW_OT_export_to_unreal(Operator, ExportHelper):
 
         try:
             export_recorder_info(self.filepath, config, skel, for_unreal=True)
-            self.report({'INFO'}, f"已导出 Unreal 格式 → {self.filepath}")
+            self.report({'INFO'}, T("已导出 Unreal 格式 → %s") % self.filepath)
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"导出失败：{e}")
+            self.report({'ERROR'}, T("导出失败：%s") % str(e))
             return {'CANCELLED'}
 
 
 def register():
+    bl_label_set(STRINGFLOW_OT_export_to_unreal, "导出到 Unreal")
     bpy.utils.register_class(STRINGFLOW_OT_export_to_unreal)
 
 

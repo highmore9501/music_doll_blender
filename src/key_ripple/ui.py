@@ -19,12 +19,16 @@ from bpy.props import (  # type: ignore
 
 from ..common import ui_utils
 from ..common import performer_utils
+from ..common import i18n
 from ..common.tools import COMMON_TOOLS
 from .config import KeyRipple, HandType, KeyType, PositionType
 from .state import save_state, load_state
 from .io import export_avatar, import_avatar
 from .animation import make_animation_from_keyripple
 from .tools import INSTRUMENT_TOOLS
+
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 
 
 # 该乐器的工具列表 = 公共工具 + 乐器独有工具
@@ -142,67 +146,67 @@ class KeyRippleProperties(PropertyGroup):
     """KeyRipple 面板属性（编辑入口；提交时写回骨骼）"""
     __annotations__ = {
         "one_hand_finger_number": IntProperty(
-            name="Finger Number", description="Number of fingers per hand",
+            name=T("Finger Number"), description=T("Number of fingers per hand"),
             default=5, min=1, max=10),
         "leftest_position": IntProperty(
-            name="Leftest Position", description="Leftmost position",
+            name=T("Leftest Position"), description=T("Leftmost position"),
             default=28, min=0),
         "left_position": IntProperty(
-            name="Left Position", description="Left position",
+            name=T("Left Position"), description=T("Left position"),
             default=40, min=0),
         "middle_left_position": IntProperty(
-            name="Middle Left Position", description="Middle left position",
+            name=T("Middle Left Position"), description=T("Middle left position"),
             default=52, min=0),
         "middle_right_position": IntProperty(
-            name="Middle Right Position", description="Middle right position",
+            name=T("Middle Right Position"), description=T("Middle right position"),
             default=76, min=0),
         "right_position": IntProperty(
-            name="Right Position", description="Right position",
+            name=T("Right Position"), description=T("Right position"),
             default=88, min=0),
         "rightest_position": IntProperty(
-            name="Rightest Position", description="Rightmost position",
+            name=T("Rightest Position"), description=T("Rightmost position"),
             default=100, min=0),
         "min_key": IntProperty(
-            name="Min Key", description="Lowest key on the piano",
+            name=T("Min Key"), description=T("Lowest key on the piano"),
             default=21, min=0),
         "max_key": IntProperty(
-            name="Max Key", description="Highest key on the piano",
+            name=T("Max Key"), description=T("Highest key on the piano"),
             default=108, min=0),
         "hand_range": IntProperty(
-            name="Hand Range", description="the range of hand",
+            name=T("Hand Range"), description=T("the range of hand"),
             default=12, min=10),
 
         # 左手状态
         "left_hand_key_type": EnumProperty(
-            name="Left Hand Key Type", description="Key type for left hand",
-            items=[('WHITE', "White Key", "White key"),
-                   ('BLACK', "Black Key", "Black key")],
+            name=T("Left Hand Key Type"), description=T("Key type for left hand"),
+            items=[('WHITE', T("White Key"), T("White key")),
+                   ('BLACK', T("Black Key"), T("Black key"))],
             default='WHITE'),
         "left_hand_position_type": EnumProperty(
-            name="Left Hand Position Type", description="Position type for left hand",
-            items=[('HIGH', "High", "High position"),
-                   ('LOW', "Low", "Low position"),
-                   ('MIDDLE', "Middle", "Middle position")],
+            name=T("Left Hand Position Type"), description=T("Position type for left hand"),
+            items=[('HIGH', T("High"), T("High position")),
+                   ('LOW', T("Low"), T("Low position")),
+                   ('MIDDLE', T("Middle"), T("Middle position"))],
             default='HIGH'),
 
         # 右手状态
         "right_hand_key_type": EnumProperty(
-            name="Right Hand Key Type", description="Key type for right hand",
-            items=[('WHITE', "White Key", "White key"),
-                   ('BLACK', "Black Key", "Black key")],
+            name=T("Right Hand Key Type"), description=T("Key type for right hand"),
+            items=[('WHITE', T("White Key"), T("White key")),
+                   ('BLACK', T("Black Key"), T("Black key"))],
             default='WHITE'),
         "right_hand_position_type": EnumProperty(
-            name="Right Hand Position Type", description="Position type for right hand",
-            items=[('HIGH', "High", "High position"),
-                   ('LOW', "Low", "Low position"),
-                   ('MIDDLE', "Middle", "Middle position")],
+            name=T("Right Hand Position Type"), description=T("Position type for right hand"),
+            items=[('HIGH', T("High"), T("High position")),
+                   ('LOW', T("Low"), T("Low position")),
+                   ('MIDDLE', T("Middle"), T("Middle position"))],
             default='HIGH'),
 
         # .keyripple 动画文件路径
         # （乐器物体/人物信息路径由角色模块「角色操作」面板统一设置，这里不再重复）
         "keyripple_file_path": StringProperty(
-            name="KeyRipple File",
-            description="Path to .keyripple file",
+            name=T("KeyRipple File"),
+            description=T("Path to .keyripple file"),
             default="", subtype='FILE_PATH'),
     }
 
@@ -211,8 +215,8 @@ class KeyRippleProperties(PropertyGroup):
 
 class KEYRIPPLE_OT_check_status(Operator):
     bl_idname = "music_doll.key_ripple_check_status"
-    bl_label = "Check Objects Status"
-    bl_description = "Check the status of all KeyRipple objects"
+    bl_label = T("Check Objects Status")
+    bl_description = T("Check the status of all KeyRipple objects")
 
     def execute(self, context):
         skel = _get_active_skeleton(context)
@@ -225,8 +229,8 @@ class KEYRIPPLE_OT_check_status(Operator):
 
 class KEYRIPPLE_OT_setup_objects(Operator):
     bl_idname = "music_doll.key_ripple_setup_objects"
-    bl_label = "Setup All Objects"
-    bl_description = "Create all KeyRipple controllers"
+    bl_label = T("Setup All Objects")
+    bl_description = T("Create all KeyRipple controllers")
 
     def execute(self, context):
         scene = context.scene
@@ -251,21 +255,21 @@ class KEYRIPPLE_OT_setup_objects(Operator):
             props, suffix=suffix, skeleton=skel)
         if not key_ripple.setup_all_objects():
             self.report(
-                {'ERROR'}, "设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）")
+                {'ERROR'}, T("设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）"))
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 class KEYRIPPLE_OT_save_state(Operator):
     bl_idname = "music_doll.key_ripple_save_state"
-    bl_label = "Save State"
-    bl_description = "Save all controller states to performer skeleton custom properties"
+    bl_label = T("Save State")
+    bl_description = T("Save all controller states to performer skeleton custom properties")
 
     def execute(self, context):
         props = context.scene.keyripple_props
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
@@ -283,20 +287,20 @@ class KEYRIPPLE_OT_save_state(Operator):
                    right_key_type, right_position_type)
 
         self.report(
-            {"INFO"}, f"状态已保存: 左{left_position_type.value}/{left_key_type.value} 右{right_position_type.value}/{right_key_type.value}")
+            {"INFO"}, T("状态已保存: 左%s/%s 右%s/%s") % (left_position_type.value, left_key_type.value, right_position_type.value, right_key_type.value))
         return {'FINISHED'}
 
 
 class KEYRIPPLE_OT_load_state(Operator):
     bl_idname = "music_doll.key_ripple_load_state"
-    bl_label = "Load State"
-    bl_description = "Load hand states from performer skeleton custom properties"
+    bl_label = T("Load State")
+    bl_description = T("Load hand states from performer skeleton custom properties")
 
     def execute(self, context):
         props = context.scene.keyripple_props
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
@@ -318,14 +322,14 @@ class KEYRIPPLE_OT_load_state(Operator):
             return {'CANCELLED'}
 
         self.report(
-            {"INFO"}, f"状态已加载: 左{left_position_type.value}/{left_key_type.value} 右{right_position_type.value}/{right_key_type.value}")
+            {"INFO"}, T("状态已保存: 左%s/%s 右%s/%s") % (left_position_type.value, left_key_type.value, right_position_type.value, right_key_type.value))
         return {'FINISHED'}
 
 
 class KEYRIPPLE_OT_export_avatar(Operator):
     bl_idname = "music_doll.key_ripple_export_avatar"
-    bl_label = "Export Avatar"
-    bl_description = "Export all state data to .avatar file"
+    bl_label = T("Export Avatar")
+    bl_description = T("Export avatar to .avatar file")
 
     def execute(self, context):
         props = context.scene.keyripple_props
@@ -333,24 +337,24 @@ class KEYRIPPLE_OT_export_avatar(Operator):
         # 人物信息路径由角色模块「角色操作」面板统一设置
         file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
         if not file_path:
-            self.report({'ERROR'}, "请先在「角色操作」面板中设置人物信息路径")
+            self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
 
         export_avatar(file_path, key_ripple, skel)
         self.report(
-            {'INFO'}, f"Avatar exported successfully to {file_path}")
+            {'INFO'}, T("Avatar exported to %s") % file_path)
         return {'FINISHED'}
 
 
 class KEYRIPPLE_OT_import_avatar(Operator):
     bl_idname = "music_doll.key_ripple_import_avatar"
-    bl_label = "Import Avatar"
-    bl_description = "Import all state data from .avatar file"
+    bl_label = T("Import Avatar")
+    bl_description = T("Import avatar from .avatar file")
 
     def execute(self, context):
         props = context.scene.keyripple_props
@@ -358,10 +362,10 @@ class KEYRIPPLE_OT_import_avatar(Operator):
         # 人物信息路径由角色模块「角色操作」面板统一设置
         file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
         if not file_path:
-            self.report({'ERROR'}, "请先在「角色操作」面板中设置人物信息路径")
+            self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
@@ -369,7 +373,7 @@ class KEYRIPPLE_OT_import_avatar(Operator):
         success = import_avatar(file_path, key_ripple, skel)
         if success:
             self.report(
-                {'INFO'}, f"Avatar imported successfully from {file_path}")
+                {'INFO'}, T("Avatar imported from %s") % file_path)
             return {'FINISHED'}
         else:
             self.report(
@@ -379,20 +383,20 @@ class KEYRIPPLE_OT_import_avatar(Operator):
 
 class KEYRIPPLE_OT_generate_animation(Operator):
     bl_idname = "music_doll.key_ripple_generate_animation"
-    bl_label = "Generate Animation"
-    bl_description = "Generate animation from .keyripple file"
+    bl_label = T("Generate Animation")
+    bl_description = T("Generate KeyRipple animation from .keyripple file")
 
     def execute(self, context):
         props = context.scene.keyripple_props
         suffix = _get_active_suffix(context)
 
         if not props.keyripple_file_path:
-            self.report({'ERROR'}, "Please select .keyripple file")
+            self.report({'ERROR'}, T("Please select .keyripple file"))
             return {'CANCELLED'}
 
         file_path = props.keyripple_file_path
         if not file_path.endswith('.keyripple'):
-            self.report({'ERROR'}, "Selected file is not a .keyripple file")
+            self.report({'ERROR'}, T("Selected file is not a .keyripple file"))
             return {'CANCELLED'}
 
         if not os.path.exists(file_path):
@@ -407,7 +411,7 @@ class KEYRIPPLE_OT_generate_animation(Operator):
             make_animation_from_keyripple(
                 file_path, keyboard_obj_name, suffix=suffix)
             self.report(
-                {'INFO'}, f"Animation generated successfully from {file_path}")
+                {'INFO'}, T("KeyRipple animation generated from %s") % file_path)
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"Failed to generate animation: {str(e)}")
@@ -417,10 +421,10 @@ class KEYRIPPLE_OT_generate_animation(Operator):
 class KEYRIPPLE_OT_duplicate_performer(Operator):
     """复制当前角色，生成一个新角色（输入新名字）"""
     bl_idname = "music_doll.key_ripple_duplicate_performer"
-    bl_label = "复制角色"
+    bl_label = T("复制角色")
     bl_options = {'REGISTER', 'UNDO'}
 
-    new_name: StringProperty(default="", name="新名字")
+    new_name: StringProperty(default="", name=T("新名字"))
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -433,32 +437,32 @@ class KEYRIPPLE_OT_duplicate_performer(Operator):
         scene = context.scene
         suffix = _get_active_suffix(context)
         if not suffix:
-            self.report({'ERROR'}, "请先在下拉框选中要复制的角色")
+            self.report({'ERROR'}, T("请先在下拉框选中要复制的角色"))
             return {'CANCELLED'}
         src = performer_utils.get_performer(suffix)
         if src is None:
             self.report(
-                {'ERROR'}, f"找不到已登记的角色 {suffix}（请先初始化该角色）")
+                {'ERROR'}, T("找不到已登记的角色 %s（请先初始化该角色）") % suffix)
             return {'CANCELLED'}
         new_name = (self.new_name or "").strip()
         if not new_name:
-            self.report({'ERROR'}, "请输入新名字")
+            self.report({'ERROR'}, T("请输入新名字"))
             return {'CANCELLED'}
         if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
             self.report(
-                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+                {'ERROR'}, T("名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文"))
             return {'CANCELLED'}
         if performer_utils.has_performer(new_name):
-            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            self.report({'ERROR'}, T("已存在名字 %s，请换一个") % new_name)
             return {'CANCELLED'}
 
         try:
             dup = performer_utils.duplicate_collection_tree(src.collection)
         except Exception as e:
-            self.report({'ERROR'}, f"复制集合失败: {str(e)}")
+            self.report({'ERROR'}, T("复制集合失败: %s") % str(e))
             return {'CANCELLED'}
         if dup is None:
-            self.report({'ERROR'}, "复制集合失败（未能生成副本）")
+            self.report({'ERROR'}, T("复制集合失败（未能生成副本）"))
             return {'CANCELLED'}
 
         # 补上源名字/乐器元信息，让 resuffix 知道要替换什么
@@ -480,17 +484,17 @@ class KEYRIPPLE_OT_duplicate_performer(Operator):
             self.report(
                 {'WARNING'}, f"复制完成，但整理演奏者结构失败: {str(e)}")
 
-        self.report({'INFO'}, f"已复制角色为 {new_name}")
+        self.report({'INFO'}, T("已复制角色为 %s") % new_name)
         return {'FINISHED'}
 
 
 class KEYRIPPLE_OT_rename_performer(Operator):
     """重命名当前角色：原地修改名字（名字即命名空间后缀），不生成新角色"""
     bl_idname = "music_doll.key_ripple_rename_performer"
-    bl_label = "重命名当前角色"
+    bl_label = T("重命名当前角色")
     bl_options = {'REGISTER', 'UNDO'}
 
-    new_name: StringProperty(default="", name="新名字")
+    new_name: StringProperty(default="", name=T("新名字"))
 
     def invoke(self, context, event):
         src = ui_utils.get_rename_target(context)
@@ -508,21 +512,21 @@ class KEYRIPPLE_OT_rename_performer(Operator):
         src = ui_utils.get_rename_target(context)
         if src is None:
             self.report(
-                {'ERROR'}, "找不到当前角色（请先在下拉框选中，或指定其骨骼/乐器）")
+                {'ERROR'}, T("找不到当前角色（请先在下拉框选中，或指定其骨骼/乐器）"))
             return {'CANCELLED'}
         new_name = (self.new_name or "").strip()
         if not new_name:
-            self.report({'ERROR'}, "请输入新名字")
+            self.report({'ERROR'}, T("请输入新名字"))
             return {'CANCELLED'}
         if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
             self.report(
-                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+                {'ERROR'}, T("名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文"))
             return {'CANCELLED'}
         if new_name == src.name:
-            self.report({'ERROR'}, f"新名字与当前相同（{new_name}），无需重命名")
+            self.report({'ERROR'}, T("新名字与当前相同（%s），无需重命名") % new_name)
             return {'CANCELLED'}
         if performer_utils.has_performer(new_name):
-            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            self.report({'ERROR'}, T("已存在名字 %s，请换一个") % new_name)
             return {'CANCELLED'}
 
         try:
@@ -549,7 +553,7 @@ class KEYRIPPLE_OT_rename_performer(Operator):
         except Exception:
             pass
 
-        self.report({'INFO'}, f"已将角色重命名为 {new_name}")
+        self.report({'INFO'}, T("已将角色重命名为 %s") % new_name)
         return {'FINISHED'}
 
 
@@ -557,7 +561,7 @@ class KEYRIPPLE_OT_rename_performer(Operator):
 
 class KEYRIPPLE_PT_main_panel(Panel):
     """KeyRipple 乐器子面板（挂在 MusicDoll 统一主面板下，按乐器类型显示）"""
-    bl_label = "KeyRipple"
+    bl_label = T("KeyRipple")
     bl_idname = "KEYRIPPLE_PT_main_panel"
     bl_parent_id = "MUSICDOLL_PT_main_panel"
     bl_space_type = 'VIEW_3D'
@@ -575,7 +579,7 @@ class KEYRIPPLE_PT_main_panel(Panel):
 
         # 初始化区
         box = layout.box()
-        box.label(text="Initialization", icon='SETTINGS')
+        box.label(text=T("Initialization"), icon='SETTINGS')
         col = box.column(align=True)
         col.prop(props, "one_hand_finger_number")
         col.prop(props, "leftest_position")
@@ -597,44 +601,44 @@ class KEYRIPPLE_PT_main_panel(Panel):
 
         # 左手状态选择区
         box = layout.box()
-        box.label(text="Left Hand State", icon='TRIA_LEFT')
+        box.label(text=T("Left Hand State"), icon='TRIA_LEFT')
         box.prop(props, "left_hand_key_type")
         box.prop(props, "left_hand_position_type")
 
         # 右手状态选择区
         box = layout.box()
-        box.label(text="Right Hand State", icon='TRIA_RIGHT')
+        box.label(text=T("Right Hand State"), icon='TRIA_RIGHT')
         box.prop(props, "right_hand_key_type")
         box.prop(props, "right_hand_position_type")
 
         # 信息记录/加载区
         box = layout.box()
-        box.label(text="Hand State Transfer", icon='FILE_REFRESH')
+        box.label(text=T("Hand State Transfer"), icon='FILE_REFRESH')
         row = box.row(align=True)
         row.operator("music_doll.key_ripple_save_state",
-                     text="Set", icon='IMPORT')
+                     text=T("Set"), icon='IMPORT')
         row.operator("music_doll.key_ripple_load_state",
-                     text="Load", icon='EXPORT')
+                     text=T("Load"), icon='EXPORT')
 
         # 全部信息导入导出区
         # （人物信息路径由角色模块「角色操作」面板统一设置，这里不再重复）
         box = layout.box()
-        box.label(text="Avatar I/O", icon='FILE')
+        box.label(text=T("Avatar I/O"), icon='FILE')
         row = box.row(align=True)
         row.operator("music_doll.key_ripple_export_avatar",
-                     text="Export", icon='EXPORT')
+                     text=T("Export"), icon='EXPORT')
         row.operator("music_doll.key_ripple_import_avatar",
-                     text="Import", icon='IMPORT')
+                     text=T("Import"), icon='IMPORT')
         box.operator("music_doll.key_ripple_export_to_unreal",
-                     text="导出到 Unreal", icon='EXPORT')
+                     text=T("导出到 Unreal"), icon='EXPORT')
 
         # 动画生成区
         box = layout.box()
-        box.label(text="Animation Generation", icon='PLAY')
+        box.label(text=T("Animation Generation"), icon='PLAY')
         box.prop(props, "keyripple_file_path", text="")
         row = box.row(align=True)
         row.operator("music_doll.key_ripple_generate_animation",
-                     text="Generate Animation", icon='PLAY')
+                     text=T("Generate Animation"), icon='PLAY')
 
 
 # ── 注册/注销 ──────────────────────────────────────────────────
@@ -660,7 +664,7 @@ def register():
 
     # 登记本乐器 UI（角色生成器下拉 + 角色操作器接入）
     ui_utils.register_instrument(
-        "key_ripple", "KeyRipple 钢琴", KEYRIPPLE_PT_main_panel,
+        "key_ripple", T("KeyRipple 钢琴"), KEYRIPPLE_PT_main_panel,
         rename_operator="music_doll.key_ripple_rename_performer",
         duplicate_operator="music_doll.key_ripple_duplicate_performer")
 

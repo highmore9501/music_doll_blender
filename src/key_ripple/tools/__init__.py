@@ -7,7 +7,9 @@
 
 import bpy  # type: ignore
 
+from ...common import i18n
 from ...common.tools import ToolDef
+from ...common.i18n import T
 
 from . import make_shape_keys
 from . import export_to_unreal
@@ -15,14 +17,14 @@ from . import export_to_unreal
 
 def _draw_make_shape_keys(layout, scene):
     """为钢琴键创建 shape keys 工具的参数区（无参数，仅说明）"""
-    layout.label(text="为选中钢琴键创建 Basis + pressed shape keys")
+    layout.label(text=T("为选中钢琴键创建 Basis + pressed shape keys"))
 
 
 # 该乐器独有的工具列表（下拉 = 公共工具 + 本列表）
 INSTRUMENT_TOOLS: list[ToolDef] = [
     ToolDef(
         id="key_ripple_make_shape_keys",
-        label="为钢琴键创建 Shape Keys",
+        label=T("为钢琴键创建 Shape Keys"),
         operator="music_doll.tool_key_ripple_make_shape_keys",
         icon="SHAPEKEY_DATA",
         draw=_draw_make_shape_keys,

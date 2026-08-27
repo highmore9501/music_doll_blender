@@ -20,6 +20,10 @@ from bpy.props import (  # type: ignore
 from bpy.types import PropertyGroup, Operator  # type: ignore
 
 from .. import ui_utils
+from .. import i18n
+
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 
 
 # ── 场景属性名（md_bcm_ 前缀，避免与独立插件冲突）───────────────
@@ -36,13 +40,13 @@ SCENE_SHOW = "md_bcm_show_bone_mapping"
 class BoneControllerMappingItem(PropertyGroup):
     """骨骼-控制器映射项"""
     bone_name: StringProperty(
-        name="骨骼",
-        description="选中的骨骼名称",
+        name=T("骨骼"),
+        description=T("选中的骨骼名称"),
         default=""
     )
     controller_name: StringProperty(
-        name="控制器",
-        description="对应的控制器物体名称",
+        name=T("控制器"),
+        description=T("对应的控制器物体名称"),
         default=""
     )
 
@@ -195,7 +199,7 @@ def draw_bone_controller_mapping_panel(layout, scene, prefix="md_bcm_"):
              icon="TRIA_DOWN" if getattr(
                  scene, show_prop, False) else "TRIA_RIGHT",
              icon_only=True, emboss=False)
-    row.label(text="骨骼/控制器映射", icon='BONE_DATA')
+    row.label(text=T("骨骼/控制器映射"), icon='BONE_DATA')
 
     if not getattr(scene, show_prop, False):
         return
@@ -205,22 +209,22 @@ def draw_bone_controller_mapping_panel(layout, scene, prefix="md_bcm_"):
     # 使用提示（骨骼自动取当前演奏者的目标骨骼，无需手动选择）
     hint = mapping_box.column(align=True)
     hint.label(
-        text="提示：自动使用当前演奏者的目标骨骼；添加映射（骨骼 → 控制器）后同步/导出",
+        text=T("提示：自动使用当前演奏者的目标骨骼；添加映射（骨骼 → 控制器）后同步/导出"),
         icon="INFO")
 
     # 当前演奏者骨骼（公共场景指针，无手动选择器）
     skel = getattr(scene, ui_utils.SCENE_TARGET_SKELETON, None)
     if skel is None or skel.type != 'ARMATURE':
         hint.label(
-            text="警告：请先在「角色选择器」中选中演奏者并设置目标骨骼",
+            text=T("警告：请先在「角色选择器」中选中演奏者并设置目标骨骼"),
             icon="ERROR")
 
     # 操作按钮行
     btn_row = mapping_box.row(align=True)
     btn_row.operator("music_doll.tool_bcm_add_mapping_entry",
-                     text="添加", icon='ADD')
+                     text=T("添加"), icon='ADD')
     btn_row.operator("music_doll.tool_bcm_sync_controllers",
-                     text="同步", icon='FILE_REFRESH')
+                     text=T("同步"), icon='FILE_REFRESH')
 
     # 文件路径和操作
     file_prop = f"{prefix}mapping_file_path"
@@ -229,16 +233,16 @@ def draw_bone_controller_mapping_panel(layout, scene, prefix="md_bcm_"):
     file_row.operator("music_doll.tool_bcm_browse_file",
                       text="", icon='FILEBROWSER')
     file_row.operator("music_doll.tool_bcm_export_mapping",
-                      text="导出", icon='EXPORT')
+                      text=T("导出"), icon='EXPORT')
     file_row.operator("music_doll.tool_bcm_import_mapping",
-                      text="导入", icon='IMPORT')
+                      text=T("导入"), icon='IMPORT')
 
     # 映射表区域
     mapping_prop = f"{prefix}bone_controller_mapping"
     mapping_collection = getattr(scene, mapping_prop, None)
 
     if not mapping_collection:
-        mapping_box.label(text="未初始化映射集合", icon='ERROR')
+        mapping_box.label(text=T("未初始化映射集合"), icon='ERROR')
         return
 
     for i, item in enumerate(mapping_collection):
@@ -328,13 +332,13 @@ class MUSICDOLL_OT_tool_bcm_export_mapping(Operator):
         file_path = getattr(scene, SCENE_FILE_PATH, "")
 
         if not file_path:
-            self.report({'ERROR'}, "请先在路径框中填写或浏览选择文件路径")
+            self.report({'ERROR'}, T("请先在路径框中填写或浏览选择文件路径"))
             return {'CANCELLED'}
 
         try:
             export_mapping_to_json(
                 getattr(scene, SCENE_MAPPING), file_path)
-            self.report({'INFO'}, f"映射已导出：{file_path}")
+            self.report({'INFO'}, T("映射已导出：") + file_path)
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"导出失败：{e}")
@@ -352,13 +356,13 @@ class MUSICDOLL_OT_tool_bcm_import_mapping(Operator):
         file_path = getattr(scene, SCENE_FILE_PATH, "")
 
         if not file_path:
-            self.report({'ERROR'}, "请先在路径框中填写或浏览选择文件路径")
+            self.report({'ERROR'}, T("请先在路径框中填写或浏览选择文件路径"))
             return {'CANCELLED'}
 
         try:
             import_mapping_from_json(
                 file_path, getattr(scene, SCENE_MAPPING))
-            self.report({'INFO'}, f"映射已导入：{file_path}")
+            self.report({'INFO'}, T("映射已导入：") + file_path)
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"导入失败：{e}")
@@ -377,7 +381,7 @@ class MUSICDOLL_OT_tool_bcm_sync_controllers(Operator):
         try:
             skel = ui_utils.get_target_skeleton(context)
             sync_controllers_to_bones(skel, getattr(scene, SCENE_MAPPING))
-            self.report({'INFO'}, "控制器同步完成")
+            self.report({'INFO'}, T("控制器同步完成"))
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"同步失败：{e}")
@@ -405,23 +409,31 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
+    # 动态设置 bl_label（国际化）
+    bl_label_set(MUSICDOLL_OT_tool_bcm_add_mapping_entry, "添加映射项")
+    bl_label_set(MUSICDOLL_OT_tool_bcm_remove_mapping_entry, "删除映射项")
+    bl_label_set(MUSICDOLL_OT_tool_bcm_browse_file, "浏览文件")
+    bl_label_set(MUSICDOLL_OT_tool_bcm_export_mapping, "导出映射")
+    bl_label_set(MUSICDOLL_OT_tool_bcm_import_mapping, "导入映射")
+    bl_label_set(MUSICDOLL_OT_tool_bcm_sync_controllers, "同步控制器")
+
     # 场景属性（幂等：已存在则跳过，避免脚本重载报错）
     if not hasattr(bpy.types.Scene, SCENE_MAPPING):
         setattr(bpy.types.Scene, SCENE_MAPPING, CollectionProperty(
-            name="骨骼控制器映射",
-            description="骨骼与控制器的映射关系列表",
+            name=T("骨骼控制器映射"),
+            description=T("骨骼与控制器的映射关系列表"),
             type=BoneControllerMappingItem
         ))
     if not hasattr(bpy.types.Scene, SCENE_FILE_PATH):
         setattr(bpy.types.Scene, SCENE_FILE_PATH, StringProperty(
-            name="映射文件路径",
-            description="JSON映射文件的保存/加载路径",
+            name=T("映射文件路径"),
+            description=T("映射文件的保存/加载路径"),
             subtype='FILE_PATH'
         ))
     if not hasattr(bpy.types.Scene, SCENE_SHOW):
         setattr(bpy.types.Scene, SCENE_SHOW, BoolProperty(
-            name="显示骨骼映射",
-            description="展开/折叠骨骼控制器映射模块",
+            name=T("显示骨骼映射"),
+            description=T("展开/折叠骨骼控制器映射模块"),
             default=False
         ))
 

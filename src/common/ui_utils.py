@@ -19,6 +19,10 @@ from bpy.props import EnumProperty, StringProperty  # type: ignore
 from . import performer_utils
 from . import instrument_base
 from .tools import ToolDef, find_tool
+from . import i18n
+
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 
 
 # ── 场景公共属性（由 register_scene_props 注册）────────────────
@@ -107,7 +111,7 @@ def get_performer_items(self, context):
     - Blender 5.0 要求 EnumProperty 的 items 回调签名固定为 (self, context)；
     - 跳过非 ASCII / bytes 名字，避免把坏字节塞进枚举（中文编码 bug）。
     """
-    items = [("", "无", "")]
+    items = [("", T("无"), "")]
     for p in performer_utils.list_performers(context):
         name = p.name
         if not name or not isinstance(name, str) or not name.isascii():
@@ -224,7 +228,7 @@ def unregister_instrument(instrument_id: str) -> None:
 
 def get_instrument_items(self, context):
     """角色生成器的乐器下拉项：只列已注册乐器（2 参数回调，Blender 5.0 强制）。"""
-    items = [("", "（选择乐器）", "")]
+    items = [("", T("（选择乐器）"), "")]
     for iid, info in INSTRUMENT_UI.items():
         items.append((iid, info["label"], iid))
     return items
@@ -244,8 +248,8 @@ def draw_performer_selector(layout, context):
     """块1：角色选择器（角色下拉；默认选项为空）。"""
     scene = context.scene
     box = layout.box()
-    box.label(text="角色选择器", icon="ARMATURE_DATA")
-    box.prop(scene, SCENE_ACTIVE_PERFORMER, text="当前角色")
+    box.label(text=T("角色选择器"), icon="ARMATURE_DATA")
+    box.prop(scene, SCENE_ACTIVE_PERFORMER, text=T("当前角色"))
 
 
 def draw_performer_generator(layout, context):
@@ -254,10 +258,10 @@ def draw_performer_generator(layout, context):
     box = layout.box()
     row = box.row()
     _fold_header(row, scene, SCENE_SHOW_PERFORMER_GENERATOR,
-                 "角色生成器", "ADD")
+                 T("角色生成器"), "ADD")
     if not getattr(scene, SCENE_SHOW_PERFORMER_GENERATOR, False):
         return
-    box.operator("music_doll.create_performer", text="新建角色")
+    box.operator("music_doll.create_performer", text=T("新建角色"))
 
 
 def draw_performer_basic_info(layout, context, performer=None):
@@ -269,15 +273,15 @@ def draw_performer_basic_info(layout, context, performer=None):
     if performer is None:
         performer = get_active_performer(scene)
     box = layout.box()
-    box.label(text="角色基础属性", icon="INFO")
+    box.label(text=T("角色基础属性"), icon="INFO")
     col = box.column(align=True)
     if performer is not None:
-        col.label(text=f"名字: {performer.name}")
-        col.label(text=f"乐器: {performer.instrument}")
+        col.label(text=f"{T('名字')}: {performer.name}")
+        col.label(text=f"{T('乐器')}: {performer.instrument}")
     col = box.column(align=True)
-    col.prop(scene, SCENE_TARGET_SKELETON, text="目标骨骼")
-    col.prop(scene, SCENE_TARGET_INSTRUMENT, text="目标乐器")
-    col.prop(scene, SCENE_INFO_PATH, text="人物信息路径")
+    col.prop(scene, SCENE_TARGET_SKELETON, text=T("目标骨骼"))
+    col.prop(scene, SCENE_TARGET_INSTRUMENT, text=T("目标乐器"))
+    col.prop(scene, SCENE_INFO_PATH, text=T("人物信息路径"))
 
 
 def draw_performer_ops(layout, context):
@@ -288,7 +292,7 @@ def draw_performer_ops(layout, context):
     scene = context.scene
     box = layout.box()
     row = box.row()
-    _fold_header(row, scene, SCENE_SHOW_PERFORMER_OPS, "角色操作", "TOOL_SETTINGS")
+    _fold_header(row, scene, SCENE_SHOW_PERFORMER_OPS, T("角色操作"), "TOOL_SETTINGS")
     if not getattr(scene, SCENE_SHOW_PERFORMER_OPS, False):
         return
     # 角色基础属性（折叠后不再独立常显，统一归入本面板）
@@ -297,9 +301,9 @@ def draw_performer_ops(layout, context):
     info = INSTRUMENT_UI.get(active_instrument(context), {})
     col = box.column(align=True)
     if info.get("duplicate_operator"):
-        col.operator(info["duplicate_operator"], text="复制当前角色")
+        col.operator(info["duplicate_operator"], text=T("复制当前角色"))
     if info.get("rename_operator"):
-        col.operator(info["rename_operator"], text="重命名当前角色")
+        col.operator(info["rename_operator"], text=T("重命名当前角色"))
 
 
 # ── 工具界面（工具下拉菜单）───────────────────────────────────
@@ -333,7 +337,7 @@ class MUSICDOLL_MT_tool_menu(bpy.types.Menu):
         tools = _CURRENT_TOOL_UI.get("tools", [])
         active = _CURRENT_TOOL_UI.get("active", "")
         if not tools:
-            layout.label(text="（无可用工具）", icon="INFO")
+            layout.label(text=T("（无可用工具）"), icon="INFO")
             return
         for t in tools:
             label = f"✓ {t.label}" if t.id == active else t.label
@@ -356,7 +360,7 @@ def draw_tools(layout, scene, tools=None):
     row.prop(scene, SCENE_SHOW_TOOLS,
              icon="TRIA_DOWN" if getattr(scene, SCENE_SHOW_TOOLS, False)
              else "TRIA_RIGHT", icon_only=True, emboss=False)
-    row.label(text="工具", icon="TOOL_SETTINGS")
+    row.label(text=T("工具"), icon="TOOL_SETTINGS")
 
     if not getattr(scene, SCENE_SHOW_TOOLS, False):
         return
@@ -405,56 +409,56 @@ def register_scene_props():
 
     if not hasattr(bpy.types.Scene, SCENE_ACTIVE_PERFORMER):
         setattr(bpy.types.Scene, SCENE_ACTIVE_PERFORMER, EnumProperty(
-            name="当前演奏者",
-            description="当前操作的演奏者（扫描 Performers 根）",
+            name=T("当前演奏者"),
+            description=T("当前操作的演奏者（扫描 Performers 根）"),
             items=get_performer_items,
             update=on_active_performer_update,
             default=0,
         ))
     if not hasattr(bpy.types.Scene, SCENE_TARGET_SKELETON):
         setattr(bpy.types.Scene, SCENE_TARGET_SKELETON, PointerProperty(
-            name="目标骨骼",
-            description="存储状态数据与演奏者设置的目标角色骨骼（Armature）",
+            name=T("目标骨骼"),
+            description=T("存储状态数据与演奏者设置的目标角色骨骼（Armature）"),
             type=bpy.types.Object,
             poll=_armature_poll,
             update=on_target_skeleton_update,
         ))
     if not hasattr(bpy.types.Scene, SCENE_TARGET_INSTRUMENT):
         setattr(bpy.types.Scene, SCENE_TARGET_INSTRUMENT, PointerProperty(
-            name="目标乐器",
-            description="当前演奏者的乐器物体（动画作用域）",
+            name=T("目标乐器"),
+            description=T("当前演奏者的乐器物体（动画作用域）"),
             type=bpy.types.Object,
             poll=_mesh_empty_poll,
         ))
     if not hasattr(bpy.types.Scene, SCENE_INFO_PATH):
         setattr(bpy.types.Scene, SCENE_INFO_PATH, StringProperty(
-            name="人物信息路径",
-            description="人物信息保存路径（导入/导出）",
+            name=T("人物信息路径"),
+            description=T("人物信息保存路径（导入/导出）"),
             default="", subtype="FILE_PATH",
             update=on_info_path_update,
         ))
     if not hasattr(bpy.types.Scene, SCENE_SHOW_TOOLS):
         setattr(bpy.types.Scene, SCENE_SHOW_TOOLS, BoolProperty(
-            name="显示工具",
-            description="展开/折叠工具区",
+            name=T("显示工具"),
+            description=T("展开/折叠工具区"),
             default=False,
         ))
     if not hasattr(bpy.types.Scene, SCENE_ACTIVE_TOOL):
         setattr(bpy.types.Scene, SCENE_ACTIVE_TOOL, StringProperty(
-            name="当前工具",
-            description="当前选中的工具（空 = 未选择）",
+            name=T("当前工具"),
+            description=T("当前选中的工具（空 = 未选择）"),
             default="",
         ))
     if not hasattr(bpy.types.Scene, SCENE_SHOW_PERFORMER_GENERATOR):
         setattr(bpy.types.Scene, SCENE_SHOW_PERFORMER_GENERATOR, BoolProperty(
-            name="显示角色生成器",
-            description="展开/折叠角色生成器区",
+            name=T("显示角色生成器"),
+            description=T("展开/折叠角色生成器区"),
             default=False,
         ))
     if not hasattr(bpy.types.Scene, SCENE_SHOW_PERFORMER_OPS):
         setattr(bpy.types.Scene, SCENE_SHOW_PERFORMER_OPS, BoolProperty(
-            name="显示角色操作",
-            description="展开/折叠角色操作区（重命名/复制）",
+            name=T("显示角色操作"),
+            description=T("展开/折叠角色操作区（重命名/复制）"),
             default=False,
         ))
 
@@ -465,13 +469,17 @@ def register_scene_props():
     # 必须用 RNA 名，否则重载时重复 register_class 会抛 "already registered"。
     if not hasattr(bpy.types, "MUSIC_DOLL_OT_create_performer"):
         bpy.utils.register_class(MUSICDOLL_OT_create_performer)
+        bl_label_set(MUSICDOLL_OT_create_performer, "新建角色")
     if not hasattr(bpy.types, "MUSICDOLL_PT_main_panel"):
         bpy.utils.register_class(MUSICDOLL_PT_main_panel)
+        bl_label_set(MUSICDOLL_PT_main_panel, "MusicDoll")
     # 工具下拉菜单相关类（RNA 名判断同上：set_active_tool 的 RNA 名带下划线）
     if not hasattr(bpy.types, "MUSIC_DOLL_OT_set_active_tool"):
         bpy.utils.register_class(MUSICDOLL_OT_set_active_tool)
+        bl_label_set(MUSICDOLL_OT_set_active_tool, "选择工具")
     if not hasattr(bpy.types, "MUSICDOLL_MT_tool_menu"):
         bpy.utils.register_class(MUSICDOLL_MT_tool_menu)
+        bl_label_set(MUSICDOLL_MT_tool_menu, "工具")
 
 
 def unregister_scene_props():
@@ -539,10 +547,10 @@ class MUSICDOLL_OT_create_performer(Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     name: StringProperty(
-        name="名字", description="角色名字（仅英文字母和数字，如 Ayaka / Player01）", default="")
+        name=T("名字"), description=T("角色名字（仅英文字母和数字，如 Ayaka / Player01）"), default="")
     # Blender 5.0：items 为回调函数时 default 必须是整数索引（0 = 「（选择乐器）」占位项）
     instrument: EnumProperty(
-        name="乐器", description="角色所属乐器（只列已注册乐器）",
+        name=T("乐器"), description=T("角色所属乐器（只列已注册乐器）"),
         items=get_instrument_items, default=0,
     )
 
@@ -572,24 +580,24 @@ class MUSICDOLL_OT_create_performer(Operator):
         layout = self.layout
         layout.prop(self, "name")
         layout.prop(self, "instrument")
-        layout.prop(scene, SCENE_TARGET_SKELETON, text="演奏者骨骼")
-        layout.prop(scene, SCENE_TARGET_INSTRUMENT, text="乐器物体")
+        layout.prop(scene, SCENE_TARGET_SKELETON, text=T("演奏者骨骼"))
+        layout.prop(scene, SCENE_TARGET_INSTRUMENT, text=T("乐器物体"))
 
     def execute(self, context):
         scene = context.scene
         name = (self.name or "").strip()
         if not name:
-            self.report({'ERROR'}, "请输入名字")
+            self.report({'ERROR'}, T("请输入名字"))
             return {'CANCELLED'}
         if not (name.isascii() and name.isalnum() and name[0].isalpha()):
             self.report(
-                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+                {'ERROR'}, T("名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文"))
             return {'CANCELLED'}
         if performer_utils.has_performer(name):
-            self.report({'ERROR'}, f"已存在名字 {name}，请换一个")
+            self.report({'ERROR'}, T("已存在名字 %s，请换一个") % name)
             return {'CANCELLED'}
         if not self.instrument:
-            self.report({'ERROR'}, "请选择乐器")
+            self.report({'ERROR'}, T("请选择乐器"))
             return {'CANCELLED'}
 
         target_skeleton = getattr(scene, SCENE_TARGET_SKELETON, None)
@@ -608,5 +616,5 @@ class MUSICDOLL_OT_create_performer(Operator):
             pass
 
         self.report(
-            {'INFO'}, f"已新建角色 {name}，乐器={self.instrument}")
+            {'INFO'}, T("已新建角色 %s，乐器=%s") % (name, self.instrument))
         return {'FINISHED'}

@@ -23,6 +23,9 @@ from bpy.props import (  # type: ignore
 from ..common import ui_utils
 from ..common import performer_utils
 from ..common.tools import COMMON_TOOLS
+from ..common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 
 from .config import StringFlowConfig
 from .enums import HandType, LeftHandPositionType, RightHandPositionType
@@ -112,28 +115,27 @@ class StringFlowProperties(PropertyGroup):
         # 乐器类型（小提琴/中提琴/大提琴；写入 .violinist 的 config.instrument，
         # Rust 端据此选择琴弦音高与品格范围配置）
         "instrument_type": EnumProperty(
-            name="乐器类型",
-            description="选择乐器类型（小提琴/中提琴/大提琴），"
-                        "写入 .violinist 的 config.instrument，Rust 端据此确定琴弦音高与品格范围",
+            name=T("乐器类型"),
+            description=T("乐器类型"),
             items=[
-                ('violin', "小提琴", "Violin（空弦 E4=76 / A3=69 / D3=62 / G3=55）"),
-                ('viola', "中提琴", "Viola（空弦 A3=69 / D3=62 / G3=55 / C3=48）"),
-                ('cello', "大提琴", "Cello（空弦 A2=45 / D2=38 / G2=31 / C2=24）"),
+                ('violin', T("小提琴"), T("Violin（空弦 E4=76 / A3=69 / D3=62 / G3=55）")),
+                ('viola', T("中提琴"), T("Viola（空弦 A3=69 / D3=62 / G3=55 / C3=48）")),
+                ('cello', T("大提琴"), T("Cello（空弦 A2=45 / D2=38 / G2=31 / C2=24）")),
             ],
             default='violin',
         ),
 
         # 初始化参数
         "one_hand_finger_number": IntProperty(
-            name="Finger Number",
-            description="Number of fingers per hand（可调，外星人多指预留）",
+            name=T("Finger Number"),
+            description=T("Number of fingers per hand（可调，外星人多指预留）"),
             default=4,
             min=1,
             max=10,
         ),
         "string_number": IntProperty(
-            name="String Number",
-            description="Number of strings（小提琴固定 4 根）",
+            name=T("String Number"),
+            description=T("Number of strings（小提琴固定 4 根）"),
             default=4,
             min=4,
             max=4,
@@ -141,54 +143,54 @@ class StringFlowProperties(PropertyGroup):
 
         # 左手状态
         "left_hand_position_type": EnumProperty(
-            name="Left Hand Position Type",
-            description="Position type for left hand",
+            name=T("Left Hand Position Type"),
+            description=T("Position type for left hand"),
             items=[
-                ('NORMAL', "Normal", "Normal position"),
-                ('INNER', "Inner", "Inner position"),
-                ('OUTER', "Outer", "Outer position"),
+                ('NORMAL', T("Normal"), T("Normal position")),
+                ('INNER', T("Inner"), T("Inner position")),
+                ('OUTER', T("Outer"), T("Outer position")),
             ],
             default='NORMAL',
         ),
         "left_hand_string_index": EnumProperty(
-            name="Left Hand String",
-            description="String index for left hand",
+            name=T("Left Hand String"),
+            description=T("String index for left hand"),
             items=[
-                ('0', "String 0", "String 0"),
-                ('3', "String 3", "String 3"),
+                ('0', T("String 0"), T("String 0")),
+                ('3', T("String 3"), T("String 3")),
             ],
             default='0',
         ),
         "left_hand_fret_index": EnumProperty(
-            name="Left Hand Fret",
-            description="Fret index for left hand",
+            name=T("Left Hand Fret"),
+            description=T("Fret index for left hand"),
             items=[
-                ('1', "Fret 1", "Fret 1"),
-                ('9', "Fret 9", "Fret 9"),
-                ('12', "Fret 12", "Fret 12"),
+                ('1', T("Fret 1"), T("Fret 1")),
+                ('9', T("Fret 9"), T("Fret 9")),
+                ('12', T("Fret 12"), T("Fret 12")),
             ],
             default='1',
         ),
 
         # 右手状态
         "right_hand_position_type": EnumProperty(
-            name="Right Hand Position Type",
-            description="Position type for right hand",
+            name=T("Right Hand Position Type"),
+            description=T("Position type for right hand"),
             items=[
-                ('NEAR', "Near", "Near position"),
-                ('FAR', "Far", "Far position"),
-                ('PIZZICATO', "Pizzicato", "Pizzicato position"),
+                ('NEAR', T("Near"), T("Near position")),
+                ('FAR', T("Far"), T("Far position")),
+                ('PIZZICATO', T("Pizzicato"), T("Pizzicato position")),
             ],
             default='NEAR',
         ),
         "right_hand_string_index": EnumProperty(
-            name="Right Hand String",
-            description="String index for right hand",
+            name=T("Right Hand String"),
+            description=T("String index for right hand"),
             items=[
-                ('0', "String 0", "String 0"),
-                ('1', "String 1", "String 1"),
-                ('2', "String 2", "String 2"),
-                ('3', "String 3", "String 3"),
+                ('0', T("String 0"), T("String 0")),
+                ('1', T("String 1"), T("String 1")),
+                ('2', T("String 2"), T("String 2")),
+                ('3', T("String 3"), T("String 3")),
             ],
             default='0',
         ),
@@ -196,8 +198,8 @@ class StringFlowProperties(PropertyGroup):
         # .string_flow 动画配置路径（乐器面板唯一 FILE_PATH；
         # 乐器物体/人物信息路径由角色模块「角色操作」面板统一设置）
         "string_flow_file_path": StringProperty(
-            name="String Flow File",
-            description="Path to .string_flow file（Rust 生成的动画配置文件）",
+            name=T("String Flow File"),
+            description=T("Path to .string_flow file（Rust 生成的动画配置文件）"),
             default="",
             subtype='FILE_PATH',
         ),
@@ -208,8 +210,8 @@ class StringFlowProperties(PropertyGroup):
 
 class STRINGFLOW_OT_check_status(Operator):
     bl_idname = "music_doll.string_flow_check_status"
-    bl_label = "Check Objects Status"
-    bl_description = "Check the status of all StringFlow objects"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("Check Objects Status")
 
     def execute(self, context):
         config = _get_string_flow_config(
@@ -220,8 +222,8 @@ class STRINGFLOW_OT_check_status(Operator):
 
 class STRINGFLOW_OT_setup_objects(Operator):
     bl_idname = "music_doll.string_flow_setup_objects"
-    bl_label = "Setup All Objects"
-    bl_description = "Create all StringFlow controllers and position markers"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("Setup All Objects")
 
     def execute(self, context):
         scene = context.scene
@@ -232,9 +234,9 @@ class STRINGFLOW_OT_setup_objects(Operator):
             instrument=_get_active_instrument(context))
         if not config.setup_all_objects():
             self.report(
-                {'ERROR'}, "设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）")
+                {'ERROR'}, T("设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）"))
             return {'CANCELLED'}
-        self.report({'INFO'}, "All objects have been setup")
+        self.report({'INFO'}, T("All objects have been setup"))
         return {'FINISHED'}
 
 
@@ -242,15 +244,15 @@ class STRINGFLOW_OT_save_state(Operator):
     """保存左右手状态到骨骼（左手：H_L/HP_L/T_L + 全部手指；右手：H_R/HP_R/T_R
     + 全部手指 + 触弦点 + 弓）"""
     bl_idname = "music_doll.string_flow_save_state"
-    bl_label = "Save State"
-    bl_description = "Save current hand states to skeleton (all fingers)"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("Save State")
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         props = context.scene.stringflow_props
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
         config = _get_string_flow_config(
             props, suffix=_get_active_suffix(context), skeleton=skel)
@@ -273,15 +275,15 @@ class STRINGFLOW_OT_save_state(Operator):
 class STRINGFLOW_OT_load_state(Operator):
     """从骨骼加载左右手状态到控制器（全部手指）"""
     bl_idname = "music_doll.string_flow_load_state"
-    bl_label = "Load State"
-    bl_description = "Load hand states from skeleton to controllers (all fingers)"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("Load State")
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         props = context.scene.stringflow_props
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
         config = _get_string_flow_config(
             props, suffix=_get_active_suffix(context), skeleton=skel)
@@ -302,18 +304,18 @@ class STRINGFLOW_OT_load_state(Operator):
 
 class STRINGFLOW_OT_export_info(Operator):
     bl_idname = "music_doll.string_flow_export_info"
-    bl_label = "Export Recorder Info"
-    bl_description = "Export all recorder information to .violinist JSON file"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("Recorder Info Export")
 
     def execute(self, context):
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
 
         file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
         if not file_path:
-            self.report({'ERROR'}, "请先在「角色操作」面板设置人物信息路径")
+            self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
         # 确保文件扩展名为 .violinist
         if not file_path.endswith('.violinist'):
@@ -329,18 +331,18 @@ class STRINGFLOW_OT_export_info(Operator):
 
 class STRINGFLOW_OT_import_info(Operator):
     bl_idname = "music_doll.string_flow_import_info"
-    bl_label = "Import Recorder Info"
-    bl_description = "Import all recorder information from .violinist JSON file"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("Recorder Info Import")
 
     def execute(self, context):
         skel = _get_active_skeleton(context)
         if skel is None:
-            self.report({'ERROR'}, "请先选择目标骨骼")
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
 
         file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
         if not file_path:
-            self.report({'ERROR'}, "请先在「角色操作」面板设置人物信息路径")
+            self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
         if not file_path.endswith('.violinist'):
             self.report(
@@ -360,8 +362,8 @@ class STRINGFLOW_OT_import_info(Operator):
 
 class STRINGFLOW_OT_generate_left_hand_animation(Operator):
     bl_idname = "music_doll.string_flow_generate_left_hand_animation"
-    bl_label = "Generate Left Hand Animation"
-    bl_description = "Generate left hand animation from .string_flow file"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("左手动画")
 
     def execute(self, context):
         scene = context.scene
@@ -371,7 +373,7 @@ class STRINGFLOW_OT_generate_left_hand_animation(Operator):
             skeleton=_get_active_skeleton(context))
         path = _resolve_anim_path(scene, "left_hand_animation_file")
         if not path:
-            self.report({'ERROR'}, "请选择 .string_flow 文件（且包含 left_hand_animation_file）")
+            self.report({'ERROR'}, T("请选择 .string_flow 文件（且包含 left_hand_animation_file）"))
             return {'CANCELLED'}
         if not os.path.exists(path):
             self.report({'ERROR'}, f"左手动画文件不存在: {path}")
@@ -387,8 +389,8 @@ class STRINGFLOW_OT_generate_left_hand_animation(Operator):
 
 class STRINGFLOW_OT_generate_right_hand_animation(Operator):
     bl_idname = "music_doll.string_flow_generate_right_hand_animation"
-    bl_label = "Generate Right Hand Animation"
-    bl_description = "Generate right hand animation from .string_flow file"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("右手动画")
 
     def execute(self, context):
         scene = context.scene
@@ -398,7 +400,7 @@ class STRINGFLOW_OT_generate_right_hand_animation(Operator):
             skeleton=_get_active_skeleton(context))
         path = _resolve_anim_path(scene, "right_hand_animation_file")
         if not path:
-            self.report({'ERROR'}, "请选择 .string_flow 文件（且包含 right_hand_animation_file）")
+            self.report({'ERROR'}, T("请选择 .string_flow 文件（且包含 right_hand_animation_file）"))
             return {'CANCELLED'}
         if not os.path.exists(path):
             self.report({'ERROR'}, f"右手动画文件不存在: {path}")
@@ -414,15 +416,15 @@ class STRINGFLOW_OT_generate_right_hand_animation(Operator):
 
 class STRINGFLOW_OT_generate_string_animation(Operator):
     bl_idname = "music_doll.string_flow_generate_string_animation"
-    bl_label = "Generate String Animation"
-    bl_description = "Generate string animation from .string_flow file"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("弦动画")
 
     def execute(self, context):
         scene = context.scene
         suffix = _get_active_suffix(context)
         path = _resolve_anim_path(scene, "string_animation_file")
         if not path:
-            self.report({'ERROR'}, "请选择 .string_flow 文件（且包含 string_animation_file）")
+            self.report({'ERROR'}, T("请选择 .string_flow 文件（且包含 string_animation_file）"))
             return {'CANCELLED'}
         if not os.path.exists(path):
             self.report({'ERROR'}, f"弦动画文件不存在: {path}")
@@ -452,8 +454,8 @@ class STRINGFLOW_OT_generate_string_animation(Operator):
 
 class STRINGFLOW_OT_generate_all_animation(Operator):
     bl_idname = "music_doll.string_flow_generate_all_animation"
-    bl_label = "Generate All Animation"
-    bl_description = "Generate all animation (left hand, right hand and string) from .string_flow file"
+    bl_label = ""  # set via bl_label_set in register()
+    bl_description = T("一键生成全部动画")
 
     def execute(self, context):
         scene = context.scene
@@ -495,17 +497,17 @@ class STRINGFLOW_OT_generate_all_animation(Operator):
             self.report(
                 {'INFO'}, f"Generated {success_count} animations with {warning_count} warnings")
             return {'FINISHED'}
-        self.report({'ERROR'}, "No animations were generated successfully")
+        self.report({'ERROR'}, T("No animations were generated successfully"))
         return {'CANCELLED'}
 
 
 class STRINGFLOW_OT_duplicate_performer(Operator):
     """复制当前角色，生成一个新角色（输入新名字）"""
     bl_idname = "music_doll.string_flow_duplicate_performer"
-    bl_label = "复制角色"
+    bl_label = ""  # set via bl_label_set in register()
     bl_options = {'REGISTER', 'UNDO'}
 
-    new_name: StringProperty(default="", name="新名字")
+    new_name: StringProperty(default="", name=T("新名字"))
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -518,32 +520,32 @@ class STRINGFLOW_OT_duplicate_performer(Operator):
         scene = context.scene
         suffix = _get_active_suffix(context)
         if not suffix:
-            self.report({'ERROR'}, "请先在下拉框选中要复制的角色")
+            self.report({'ERROR'}, T("请先在下拉框选中要复制的角色"))
             return {'CANCELLED'}
         src = performer_utils.get_performer(suffix)
         if src is None:
             self.report(
-                {'ERROR'}, f"找不到已登记的角色 {suffix}（请先初始化该角色）")
+                {'ERROR'}, T("找不到已登记的角色 %s（请先初始化该角色）") % suffix)
             return {'CANCELLED'}
         new_name = (self.new_name or "").strip()
         if not new_name:
-            self.report({'ERROR'}, "请输入新名字")
+            self.report({'ERROR'}, T("请输入新名字"))
             return {'CANCELLED'}
         if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
             self.report(
-                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+                {'ERROR'}, T("名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文"))
             return {'CANCELLED'}
         if performer_utils.has_performer(new_name):
-            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            self.report({'ERROR'}, T("已存在名字 %s，请换一个") % new_name)
             return {'CANCELLED'}
 
         try:
             dup = performer_utils.duplicate_collection_tree(src.collection)
         except Exception as e:
-            self.report({'ERROR'}, f"复制集合失败: {str(e)}")
+            self.report({'ERROR'}, T("复制集合失败: %s") % str(e))
             return {'CANCELLED'}
         if dup is None:
-            self.report({'ERROR'}, "复制集合失败（未能生成副本）")
+            self.report({'ERROR'}, T("复制集合失败（未能生成副本）"))
             return {'CANCELLED'}
 
         # 补上源名字/乐器元信息，让 resuffix 知道要替换什么
@@ -566,17 +568,17 @@ class STRINGFLOW_OT_duplicate_performer(Operator):
             self.report(
                 {'WARNING'}, f"复制完成，但整理演奏者结构失败: {str(e)}")
 
-        self.report({'INFO'}, f"已复制角色为 {new_name}")
+        self.report({'INFO'}, T("已复制角色为 %s") % new_name)
         return {'FINISHED'}
 
 
 class STRINGFLOW_OT_rename_performer(Operator):
     """重命名当前角色：原地修改名字（名字即命名空间后缀），不生成新角色"""
     bl_idname = "music_doll.string_flow_rename_performer"
-    bl_label = "重命名当前角色"
+    bl_label = ""  # set via bl_label_set in register()
     bl_options = {'REGISTER', 'UNDO'}
 
-    new_name: StringProperty(default="", name="新名字")
+    new_name: StringProperty(default="", name=T("新名字"))
 
     def invoke(self, context, event):
         src = ui_utils.get_rename_target(context)
@@ -593,21 +595,21 @@ class STRINGFLOW_OT_rename_performer(Operator):
         src = ui_utils.get_rename_target(context)
         if src is None:
             self.report(
-                {'ERROR'}, "找不到当前角色（请先在下拉框选中，或指定其骨骼/乐器）")
+                {'ERROR'}, T("找不到当前角色（请先在下拉框选中，或指定其骨骼/乐器）"))
             return {'CANCELLED'}
         new_name = (self.new_name or "").strip()
         if not new_name:
-            self.report({'ERROR'}, "请输入新名字")
+            self.report({'ERROR'}, T("请输入新名字"))
             return {'CANCELLED'}
         if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
             self.report(
-                {'ERROR'}, "名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文")
+                {'ERROR'}, T("名字只能使用英文字母和数字（如 Ayaka / Player01），不能包含中文"))
             return {'CANCELLED'}
         if new_name == src.name:
-            self.report({'ERROR'}, f"新名字与当前相同（{new_name}），无需重命名")
+            self.report({'ERROR'}, T("新名字与当前相同（%s），无需重命名") % new_name)
             return {'CANCELLED'}
         if performer_utils.has_performer(new_name):
-            self.report({'ERROR'}, f"已存在名字 {new_name}，请换一个")
+            self.report({'ERROR'}, T("已存在名字 %s，请换一个") % new_name)
             return {'CANCELLED'}
 
         try:
@@ -635,7 +637,7 @@ class STRINGFLOW_OT_rename_performer(Operator):
         except Exception:
             pass
 
-        self.report({'INFO'}, f"已将角色重命名为 {new_name}")
+        self.report({'INFO'}, T("已将角色重命名为 %s") % new_name)
         return {'FINISHED'}
 
 
@@ -643,7 +645,7 @@ class STRINGFLOW_OT_rename_performer(Operator):
 
 class STRINGFLOW_PT_main_panel(Panel):
     """StringFlow 乐器子面板（挂在 MusicDoll 统一主面板下，按乐器类型显示）"""
-    bl_label = "StringFlow"
+    bl_label = ""  # set via bl_label_set in register()
     bl_idname = "STRINGFLOW_PT_main_panel"
     bl_parent_id = "MUSICDOLL_PT_main_panel"
     bl_space_type = 'VIEW_3D'
@@ -662,12 +664,12 @@ class STRINGFLOW_PT_main_panel(Panel):
         # 0. 乐器类型选择（放在工具区上方，对齐 FretDance 的乐器选择；
         #    决定 .violinist 的 config.instrument，Rust 端据此选择音高/品格配置）
         box = layout.box()
-        box.label(text="乐器类型", icon='OUTLINER_OB_ARMATURE')
+        box.label(text=T("乐器类型"), icon='OUTLINER_OB_ARMATURE')
         box.prop(props, "instrument_type")
 
         # 1. 初始化模块
         box = layout.box()
-        box.label(text="初始化", icon='TOOL_SETTINGS')
+        box.label(text=T("初始化"), icon='TOOL_SETTINGS')
         col = box.column(align=True)
         col.prop(props, "one_hand_finger_number")
         col.prop(props, "string_number")
@@ -680,20 +682,20 @@ class STRINGFLOW_PT_main_panel(Panel):
 
         # 3. 左手状态选择
         box = layout.box()
-        box.label(text="Left Hand State", icon='TRIA_LEFT')
+        box.label(text=T("Left Hand State"), icon='TRIA_LEFT')
         box.prop(props, "left_hand_position_type")
         box.prop(props, "left_hand_string_index")
         box.prop(props, "left_hand_fret_index")
 
         # 4. 右手状态选择
         box = layout.box()
-        box.label(text="Right Hand State", icon='TRIA_RIGHT')
+        box.label(text=T("Right Hand State"), icon='TRIA_RIGHT')
         box.prop(props, "right_hand_position_type")
         box.prop(props, "right_hand_string_index")
 
         # 5. 状态传输模块
         box = layout.box()
-        box.label(text="Hand State Transfer", icon='FILE_REFRESH')
+        box.label(text=T("Hand State Transfer"), icon='FILE_REFRESH')
         row = box.row(align=True)
         row.operator("music_doll.string_flow_save_state",
                      text="Set", icon='IMPORT')
@@ -702,30 +704,30 @@ class STRINGFLOW_PT_main_panel(Panel):
 
         # 6. 导入/导出模块（人物信息路径由角色模块统一设置）
         box = layout.box()
-        box.label(text="Recorder Info I/O", icon='FILE')
+        box.label(text=T("Recorder Info I/O"), icon='FILE')
         row = box.row(align=True)
         row.operator("music_doll.string_flow_export_info",
-                     text="导出", icon='EXPORT')
+                     text=T("导出"), icon='EXPORT')
         row.operator("music_doll.string_flow_import_info",
-                     text="导入", icon='IMPORT')
+                     text=T("导入"), icon='IMPORT')
         box.operator("music_doll.string_flow_export_to_unreal",
-                     text="导出到 Unreal", icon='EXPORT')
+                     text=T("导出到 Unreal"), icon='EXPORT')
 
         # 7. 动画生成模块
         box = layout.box()
-        box.label(text="生成动画", icon='PLAY')
+        box.label(text=T("生成动画"), icon='PLAY')
         box.prop(props, "string_flow_file_path", text="")
         row = box.row(align=True)
         row.operator("music_doll.string_flow_generate_left_hand_animation",
-                     text="左手动画")
+                     text=T("左手动画"))
         row.operator("music_doll.string_flow_generate_right_hand_animation",
-                     text="右手动画")
+                     text=T("右手动画"))
         row = box.row(align=True)
         row.operator("music_doll.string_flow_generate_string_animation",
-                     text="弦动画")
+                     text=T("弦动画"))
         row = box.row()
         row.operator("music_doll.string_flow_generate_all_animation",
-                     text="一键生成全部动画", icon='PLAY')
+                     text=T("一键生成全部动画"), icon='PLAY')
 
 
 # ── 注册/注销 ──────────────────────────────────────────────────
@@ -736,18 +738,31 @@ def register():
         type=StringFlowProperties)
 
     bpy.utils.register_class(STRINGFLOW_OT_check_status)
+    bl_label_set(STRINGFLOW_OT_check_status, "Check Objects Status")
     bpy.utils.register_class(STRINGFLOW_OT_setup_objects)
+    bl_label_set(STRINGFLOW_OT_setup_objects, "Setup All Objects")
     bpy.utils.register_class(STRINGFLOW_OT_save_state)
+    bl_label_set(STRINGFLOW_OT_save_state, "Save State")
     bpy.utils.register_class(STRINGFLOW_OT_load_state)
+    bl_label_set(STRINGFLOW_OT_load_state, "Load State")
     bpy.utils.register_class(STRINGFLOW_OT_export_info)
+    bl_label_set(STRINGFLOW_OT_export_info, "Recorder Info Export")
     bpy.utils.register_class(STRINGFLOW_OT_import_info)
+    bl_label_set(STRINGFLOW_OT_import_info, "Recorder Info Import")
     bpy.utils.register_class(STRINGFLOW_OT_generate_left_hand_animation)
+    bl_label_set(STRINGFLOW_OT_generate_left_hand_animation, "左手动画")
     bpy.utils.register_class(STRINGFLOW_OT_generate_right_hand_animation)
+    bl_label_set(STRINGFLOW_OT_generate_right_hand_animation, "右手动画")
     bpy.utils.register_class(STRINGFLOW_OT_generate_string_animation)
+    bl_label_set(STRINGFLOW_OT_generate_string_animation, "弦动画")
     bpy.utils.register_class(STRINGFLOW_OT_generate_all_animation)
+    bl_label_set(STRINGFLOW_OT_generate_all_animation, "一键生成全部动画")
     bpy.utils.register_class(STRINGFLOW_OT_duplicate_performer)
+    bl_label_set(STRINGFLOW_OT_duplicate_performer, "复制角色")
     bpy.utils.register_class(STRINGFLOW_OT_rename_performer)
+    bl_label_set(STRINGFLOW_OT_rename_performer, "重命名当前角色")
     bpy.utils.register_class(STRINGFLOW_PT_main_panel)
+    bl_label_set(STRINGFLOW_PT_main_panel, "StringFlow")
 
     # 注册本乐器工具模块（执行算子）
     from .tools import register as register_tools
@@ -755,7 +770,7 @@ def register():
 
     # 登记本乐器 UI（角色生成器下拉 + 角色操作器接入）
     ui_utils.register_instrument(
-        "string_flow", "StringFlow 小提琴", STRINGFLOW_PT_main_panel,
+        "string_flow", T("StringFlow 提琴"), STRINGFLOW_PT_main_panel,
         rename_operator="music_doll.string_flow_rename_performer",
         duplicate_operator="music_doll.string_flow_duplicate_performer")
 

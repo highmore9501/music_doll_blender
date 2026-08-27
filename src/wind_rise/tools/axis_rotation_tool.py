@@ -13,6 +13,10 @@ from bpy.props import FloatProperty, PointerProperty  # type: ignore
 from bpy.types import Operator, PropertyGroup  # type: ignore
 from mathutils import Matrix, Vector  # type: ignore
 
+from ...common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
+
 
 # ── 顶点位置缓存（世界空间）──────────────────────────────────
 
@@ -101,18 +105,18 @@ def _move_update(self, context):
 
 
 class WindRiseAxisRotProperties(PropertyGroup):
-    object1: PointerProperty(name="物体1", type=bpy.types.Object)
-    object2: PointerProperty(name="物体2（旋转轴终点）", type=bpy.types.Object)
+    object1: PointerProperty(name=T("物体1"), type=bpy.types.Object)
+    object2: PointerProperty(name=T("物体2（旋转轴终点）"), type=bpy.types.Object)
     angle: FloatProperty(
-        name="角度", default=0.0, min=-180.0, max=180.0,
+        name=T("角度"), default=0.0, min=-180.0, max=180.0,
         step=1, precision=2, update=_angle_update)
 
 
 class WindRiseAxisMoveProperties(PropertyGroup):
-    object1: PointerProperty(name="物体1", type=bpy.types.Object)
-    object2: PointerProperty(name="物体2（移动方向终点）", type=bpy.types.Object)
+    object1: PointerProperty(name=T("物体1"), type=bpy.types.Object)
+    object2: PointerProperty(name=T("物体2（移动方向终点）"), type=bpy.types.Object)
     distance: FloatProperty(
-        name="距离", default=0.0, min=-10.0, max=10.0,
+        name=T("距离"), default=0.0, min=-10.0, max=10.0,
         step=1, precision=3, update=_move_update)
 
 
@@ -120,7 +124,6 @@ class WindRiseAxisMoveProperties(PropertyGroup):
 
 class WR_OT_reset_axis_rotation(Operator):
     bl_idname = "music_doll.tool_wind_rise_reset_axis_rot"
-    bl_label = "重置旋转"
 
     def execute(self, context):
         props = context.scene.windrise_axis_rot_props
@@ -134,7 +137,6 @@ class WR_OT_reset_axis_rotation(Operator):
 
 class WR_OT_reset_axis_move(Operator):
     bl_idname = "music_doll.tool_wind_rise_reset_axis_move"
-    bl_label = "重置移动"
 
     def execute(self, context):
         props = context.scene.windrise_axis_move_props
@@ -151,21 +153,22 @@ class WR_OT_reset_axis_move(Operator):
 def draw_axis_rotation_panel(layout) -> None:
     props = bpy.context.scene.windrise_axis_rot_props
     col = layout.column(align=True)
-    col.prop(props, "object1", text="物体1")
-    col.prop(props, "object2", text="物体2")
+    col.prop(props, "object1", text=T("物体1"))
+    col.prop(props, "object2", text=T("物体2"))
     layout.separator()
     layout.prop(props, "angle", slider=True)
-    layout.operator("music_doll.tool_wind_rise_reset_axis_rot", text="重置")
+    layout.operator("music_doll.tool_wind_rise_reset_axis_rot", text=T("重置旋转"))
 
 
 def draw_axis_move_panel(layout) -> None:
     props = bpy.context.scene.windrise_axis_move_props
     col = layout.column(align=True)
-    col.prop(props, "object1", text="物体1")
-    col.prop(props, "object2", text="物体2")
+    col.prop(props, "object1", text=T("物体1"))
+    col.prop(props, "object2", text=T("物体2"))
     layout.separator()
     layout.prop(props, "distance", slider=True)
-    layout.operator("music_doll.tool_wind_rise_reset_axis_move", text="重置")
+    layout.operator(
+        "music_doll.tool_wind_rise_reset_axis_move", text=T("重置移动"))
 
 
 # ── 注册 ─────────────────────────────────────────────────────
@@ -179,6 +182,8 @@ _CLASSES = (
 
 
 def register():
+    bl_label_set(WR_OT_reset_axis_rotation, "重置旋转")
+    bl_label_set(WR_OT_reset_axis_move, "重置移动")
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     if not hasattr(bpy.types.Scene, "windrise_axis_rot_props"):

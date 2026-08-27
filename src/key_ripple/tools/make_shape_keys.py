@@ -8,6 +8,9 @@ import bpy  # type: ignore
 from math import radians
 import mathutils  # type: ignore
 
+from ...common import i18n
+T = i18n.T
+
 
 def create_shape_keys_for_selected():
     """为选中物体的每个按键创建 Basis + pressed shape key"""
@@ -15,7 +18,7 @@ def create_shape_keys_for_selected():
     selected_objects = context.selected_objects
 
     if not selected_objects:
-        raise Exception("没有选中任何物体")
+        raise Exception(T("没有选中任何物体"))
 
     view_3d = None
     for area in context.screen.areas:
@@ -24,7 +27,7 @@ def create_shape_keys_for_selected():
             break
 
     if not view_3d:
-        raise Exception("请在3D视图中运行此脚本")
+        raise Exception(T("请在3D视图中运行此脚本"))
 
     original_selection = [obj for obj in context.selected_objects]
     original_active = context.view_layer.objects.active
@@ -34,7 +37,7 @@ def create_shape_keys_for_selected():
 
     for obj in selected_objects:
         if obj.type != 'MESH':
-            print(f"跳过非网格物体: {obj.name}")
+            print(T("跳过非网格物体: %s") % obj.name)
             continue
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -85,7 +88,7 @@ def create_shape_keys_for_selected():
         # 6. 将Pressed形状键的权重设置回0，恢复到Basis状态
         obj.data.shape_keys.key_blocks[-1].value = 0.0
 
-        print(f"已为 {obj.name} 创建形状键: Basis 和 {pressed_key_name}")
+        print(T("已为 %s 创建形状键: Basis 和 %s") % (obj.name, pressed_key_name))
 
     # 恢复原始选中状态
     bpy.ops.object.select_all(action='DESELECT')
@@ -100,20 +103,22 @@ class MUSICDOLL_OT_tool_key_ripple_make_shape_keys(bpy.types.Operator):
     """为钢琴键创建 shape keys"""
     bl_idname = "music_doll.tool_key_ripple_make_shape_keys"
     bl_label = "创建钢琴键 Shape Keys"
-    bl_description = "为所有选中钢琴键创建 Basis 与 pressed shape keys"
+    bl_description = T("为所有选中钢琴键创建 Basis 与 pressed shape keys")
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         try:
             create_shape_keys_for_selected()
-            self.report({'INFO'}, "钢琴键 shape keys 创建完成")
+            self.report({'INFO'}, T("钢琴键 shape keys 创建完成"))
         except Exception as e:
-            self.report({'ERROR'}, f"创建失败: {str(e)}")
+            self.report({'ERROR'}, T("创建失败: %s") % str(e))
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 def register():
+    i18n.bl_label_set(
+        MUSICDOLL_OT_tool_key_ripple_make_shape_keys, "创建钢琴键 Shape Keys")
     bpy.utils.register_class(MUSICDOLL_OT_tool_key_ripple_make_shape_keys)
 
 

@@ -4,14 +4,17 @@
 弦创建、移动与 shape key 生成。提供纯函数 create_string_with_shape_keys() 与
 执行算子 music_doll.tool_fret_dance_create_string。
 """
+from ...common import ui_utils
+from ...common import performer_utils
 import re
 
 import bpy  # type: ignore
 import bmesh  # type: ignore
 import mathutils  # type: ignore
 
-from ...common import performer_utils
-from ...common import ui_utils
+from ...common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 
 
 def move_string(offset, direction_vector=None, ratio=1.0, suffix=""):
@@ -283,7 +286,7 @@ def create_string_with_shape_keys(number, offset_ratio, suffix=""):
     """创建指定编号的弦并生成 shape keys"""
     sel = bpy.context.selected_objects
     if len(sel) != 2:
-        raise Exception('请先选中两个对象（起点→终点）再运行脚本！')
+        raise Exception(T('请先选中两个对象（起点→终点）再运行脚本！'))
 
     start, end = sel[0], sel[1]
 
@@ -369,7 +372,6 @@ def create_string_with_shape_keys(number, offset_ratio, suffix=""):
 class MUSICDOLL_OT_tool_fret_dance_create_string(bpy.types.Operator):
     """生成弦（含 shape key）"""
     bl_idname = "music_doll.tool_fret_dance_create_string"
-    bl_label = "生成弦"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -385,7 +387,7 @@ class MUSICDOLL_OT_tool_fret_dance_create_string(bpy.types.Operator):
                 scene.fret_dance_string_amplitude / 1000,
                 suffix=suffix)
             self.report(
-                {'INFO'}, f"Successfully created string {scene.fret_dance_string_number}")
+                {'INFO'}, T("已成功创建弦 %s") % scene.fret_dance_string_number)
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, str(e))
@@ -393,6 +395,7 @@ class MUSICDOLL_OT_tool_fret_dance_create_string(bpy.types.Operator):
 
 
 def register():
+    bl_label_set(MUSICDOLL_OT_tool_fret_dance_create_string, "生成弦")
     bpy.utils.register_class(MUSICDOLL_OT_tool_fret_dance_create_string)
 
 

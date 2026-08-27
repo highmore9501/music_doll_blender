@@ -6,15 +6,17 @@
   + 导出到 Unreal（ExportHelper，注册后由面板「导入/导出」区直接调用）。
 """
 
+from . import export_to_unreal
+from . import make_violin_string
 import bpy  # type: ignore
 from bpy.types import Operator  # type: ignore
 from bpy.props import IntProperty, BoolProperty  # type: ignore
 
 from ...common import ui_utils
 from ...common.tools import ToolDef
-
-from . import make_violin_string
-from . import export_to_unreal
+from ...common import i18n
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 
 
 # ── 工具参数区场景属性（幂等注册） ─────────────────────────
@@ -22,16 +24,16 @@ from . import export_to_unreal
 def register_tool_scene_props():
     if not hasattr(bpy.types.Scene, "string_flow_string_index"):
         bpy.types.Scene.string_flow_string_index = IntProperty(
-            name="弦号",
-            description="要生成/处理的弦编号（0-10）",
+            name=T("弦号"),
+            description=T("弦的索引（0-20）"),
             default=0,
             min=0,
             max=10,
         )
     if not hasattr(bpy.types.Scene, "string_flow_flip_normal"):
         bpy.types.Scene.string_flow_flip_normal = BoolProperty(
-            name="翻转法线方向",
-            description="是否将琴弦偏移（弯曲）方向取反（向指板平面另一侧弯，等价于法线方向取反）",
+            name=T("法线取反"),
+            description=T("是否将琴弦偏移（弯曲）方向取反（向指板平面另一侧弯，等价于法线方向取反）"),
             default=True,
         )
 
@@ -52,7 +54,6 @@ def _active_suffix(context) -> str:
 class STRINGFLOW_OT_tool_create_violin_string(Operator):
     """一键创建琴弦：选两个端点对象 → 创建弦 + 自动细分 + 全部 shape keys"""
     bl_idname = "music_doll.tool_string_flow_create_violin_string"
-    bl_label = "一键创建琴弦"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -63,8 +64,7 @@ class STRINGFLOW_OT_tool_create_violin_string(Operator):
                 flip_normal=scene.string_flow_flip_normal,
                 suffix=_active_suffix(context))
             self.report(
-                {'INFO'}, f"琴弦 {int(scene.string_flow_string_index)} 已全部完成！"
-                          f"自动生成了所有shape keys")
+                {'INFO'}, T("一键创建琴弦") + " %d" % int(scene.string_flow_string_index) + " 已全部完成！自动生成了所有shape keys")
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"创建失败: {str(e)}")
@@ -72,9 +72,8 @@ class STRINGFLOW_OT_tool_create_violin_string(Operator):
 
 
 class STRINGFLOW_OT_tool_generate_shape_keys(Operator):
-    """为已细分好的琴弦生成 shape keys"""
+    """生成ShapeKey：为已细分好的琴弦生成 shape keys"""
     bl_idname = "music_doll.tool_string_flow_generate_shape_keys"
-    bl_label = "生成ShapeKey"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -83,10 +82,10 @@ class STRINGFLOW_OT_tool_generate_shape_keys(Operator):
             make_violin_string.generate_shape_keys_for_string(
                 flip_normal=scene.string_flow_flip_normal,
                 suffix=_active_suffix(context))
-            self.report({'INFO'}, "ShapeKey生成完成")
+            self.report({'INFO'}, T("生成弦 Shape Key"))
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"生成失败: {str(e)}")
+            self.report({'ERROR'}, T("生成失败: %s") % str(e))
             return {'CANCELLED'}
 
 
@@ -95,30 +94,30 @@ class STRINGFLOW_OT_tool_generate_shape_keys(Operator):
 def _draw_violin_string(layout, scene):
     """一键创建琴弦工具的参数区（弦号 + 法线取反）"""
     col = layout.column(align=True)
-    col.prop(scene, "string_flow_string_index", text="弦号")
-    col.prop(scene, "string_flow_flip_normal", text="法线取反")
-    layout.label(text="提示：先选中两个端点对象（start / end），再执行", icon="INFO")
+    col.prop(scene, "string_flow_string_index", text=T("弦号"))
+    col.prop(scene, "string_flow_flip_normal", text=T("法线取反"))
+    layout.label(text=T("提示：先选中两个端点对象（start / end），再执行"), icon="INFO")
 
 
 def _draw_generate_shape_keys(layout, scene):
     """生成ShapeKey 工具的参数区（法线取反）"""
     col = layout.column(align=True)
-    col.prop(scene, "string_flow_flip_normal", text="法线取反")
-    layout.label(text="提示：先选中已细分好的琴弦对象，再执行", icon="INFO")
+    col.prop(scene, "string_flow_flip_normal", text=T("法线取反"))
+    layout.label(text=T("提示：先选中已细分好的琴弦对象，再执行"), icon="INFO")
 
 
 # 该乐器独有的工具列表（下拉 = 公共工具 + 本列表）
 INSTRUMENT_TOOLS: list[ToolDef] = [
     ToolDef(
         id="string_flow_create_violin_string",
-        label="一键创建琴弦",
+        label=T("一键创建琴弦"),
         operator="music_doll.tool_string_flow_create_violin_string",
         icon="PLAY",
         draw=_draw_violin_string,
     ),
     ToolDef(
         id="string_flow_generate_shape_keys",
-        label="生成ShapeKey",
+        label=T("生成ShapeKey"),
         operator="music_doll.tool_string_flow_generate_shape_keys",
         icon="SHAPEKEY_DATA",
         draw=_draw_generate_shape_keys,
@@ -131,7 +130,9 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
 def register():
     register_tool_scene_props()
     export_to_unreal.register()
+    bl_label_set(STRINGFLOW_OT_tool_create_violin_string, "一键创建琴弦")
     bpy.utils.register_class(STRINGFLOW_OT_tool_create_violin_string)
+    bl_label_set(STRINGFLOW_OT_tool_generate_shape_keys, "生成ShapeKey")
     bpy.utils.register_class(STRINGFLOW_OT_tool_generate_shape_keys)
 
 

@@ -314,16 +314,20 @@ class MUSICDOLL_OT_tool_fix_finger_bones(bpy.types.Operator):
 
     def execute(self, context):
         try:
+            from .. import i18n
+            T = i18n.T
             modify_finger_bones()
-            self.report({'INFO'}, "手指骨骼修正完成")
+            self.report({'INFO'}, T("手指骨骼修正完成"))
         except Exception as e:
-            self.report({'ERROR'}, f"修正失败: {str(e)}")
+            self.report({'ERROR'}, T("修正失败: ") + str(e))
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 def register():
     bpy.utils.register_class(MUSICDOLL_OT_tool_fix_finger_bones)
+    from .. import i18n
+    i18n.bl_label_set(MUSICDOLL_OT_tool_fix_finger_bones, "修正手指骨骼")
 
 
 def unregister():

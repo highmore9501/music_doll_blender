@@ -11,7 +11,11 @@ from bpy.props import (  # type: ignore
 
 from ..common import ui_utils
 from ..common import performer_utils
+from ..common import i18n
 from ..common.tools import COMMON_TOOLS
+
+T = i18n.T
+bl_label_set = i18n.bl_label_set
 from .config import WindRiseConfig
 from .enums import WIND_INSTRUMENT_TYPE_ITEMS, midi_to_name
 from .state import (
@@ -68,7 +72,7 @@ def _get_note_items(self, context):
     items = []
     for note in range(props.min_note, props.max_note + 1):
         name = f"{midi_to_name(note)} ({note})"
-        items.append((str(note), name, f"MIDI 音高 {note}"))
+        items.append((str(note), name, T("MIDI 音高 %s") % note))
     return items
 
 
@@ -81,47 +85,47 @@ def _mesh_poll(_, obj):
 class WindRiseProperties(PropertyGroup):
     __annotations__ = {
         "lip_mesh": PointerProperty(
-            name="人物Mesh",
-            description="包含嘴唇 Shape Key 的角色网格",
+            name=T("人物Mesh"),
+            description=T("包含嘴唇 Shape Key 的角色网格"),
             type=bpy.types.Object,
             poll=_mesh_poll,
         ),
         "description": StringProperty(
-            name="乐器说明",
-            description="指法说明 / 乐器描述（自由文本）",
+            name=T("乐器说明"),
+            description=T("指法说明 / 乐器描述（自由文本）"),
             default="",
         ),
         "current_note": EnumProperty(
-            name="当前音高",
-            description="当前正在编辑的 MIDI 音符号",
+            name=T("当前音高"),
+            description=T("当前正在编辑的 MIDI 音符号"),
             items=_get_note_items,
         ),
         "new_character_sk": StringProperty(
-            name="新人物 SK",
-            description="从人物 Mesh 选择要添加的 Shape Key",
+            name=T("新人物 SK"),
+            description=T("从人物 Mesh 选择要添加的 Shape Key"),
             default="",
         ),
         "new_instrument_sk": StringProperty(
-            name="新乐器 SK",
-            description="从乐器 Mesh 选择要添加的 Shape Key",
+            name=T("新乐器 SK"),
+            description=T("从乐器 Mesh 选择要添加的 Shape Key"),
             default="",
         ),
         "instrument_type": EnumProperty(
-            name="乐器类型",
-            description="导出到 .wind 的 instrument_type",
+            name=T("乐器类型"),
+            description=T("导出到 .wind 的 instrument_type"),
             items=WIND_INSTRUMENT_TYPE_ITEMS,
             default="chinese_dizi",
         ),
         "custom_instrument_type": StringProperty(
-            name="自定义乐器类型",
-            description="自定义乐器类型名称",
+            name=T("自定义乐器类型"),
+            description=T("自定义乐器类型名称"),
             default="flute",
         ),
-        "min_note": IntProperty(name="最小音高", default=60),
-        "max_note": IntProperty(name="最大音高", default=84),
+        "min_note": IntProperty(name=T("最小音高"), default=60),
+        "max_note": IntProperty(name=T("最大音高"), default=84),
         "wind_rise_animation_file_path": StringProperty(
-            name=".wind_rise 文件",
-            description="动画汇总 .wind_rise 文件路径",
+            name=T(".wind_rise 文件"),
+            description=T("动画汇总 .wind_rise 文件路径"),
             subtype="FILE_PATH",
             default="",
         ),
@@ -132,102 +136,102 @@ class WindRiseProperties(PropertyGroup):
 
 class WR_OT_setup_objects(Operator):
     bl_idname = "music_doll.wind_rise_setup_objects"
-    bl_label = "Setup Objects"
+    bl_label = T("Setup Objects")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         ok = _wr_config(context).setup_all_objects()
         if ok:
-            self.report({"INFO"}, "WindRise 控件已就绪")
+            self.report({"INFO"}, T("WindRise 控件已就绪"))
         else:
-            self.report({"ERROR"}, "请先在「角色生成器」初始化角色")
+            self.report({"ERROR"}, T("请先在「角色生成器」初始化角色"))
         return {"FINISHED"}
 
 
 class WR_OT_save_state(Operator):
     bl_idname = "music_doll.wind_rise_save_state"
-    bl_label = "保存状态"
+    bl_label = T("保存状态")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         props = context.scene.md_wr_props
         skel = _skeleton(context)
         if skel is None:
-            self.report({"ERROR"}, "请先选择目标骨骼")
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
             return {"CANCELLED"}
         try:
             note = int(props.current_note)
             save_note_state(note, _suffix(context), skel,
                             props.lip_mesh, _instrument(context))
-            self.report({"INFO"}, f"音高 {midi_to_name(note)} 保存完成")
+            self.report({"INFO"}, T("音高 %s 保存完成") % midi_to_name(note))
         except Exception as e:
-            self.report({"ERROR"}, f"保存失败: {e}")
+            self.report({"ERROR"}, T("保存失败: %s") % str(e))
             return {"CANCELLED"}
         return {"FINISHED"}
 
 
 class WR_OT_load_state(Operator):
     bl_idname = "music_doll.wind_rise_load_state"
-    bl_label = "加载状态"
+    bl_label = T("加载状态")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         props = context.scene.md_wr_props
         skel = _skeleton(context)
         if skel is None:
-            self.report({"ERROR"}, "请先选择目标骨骼")
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
             return {"CANCELLED"}
         try:
             note = int(props.current_note)
             load_note_state(note, _suffix(context), skel,
                             props.lip_mesh, _instrument(context))
-            self.report({"INFO"}, f"音高 {midi_to_name(note)} 加载完成")
+            self.report({"INFO"}, T("音高 %s 加载完成") % midi_to_name(note))
         except Exception as e:
-            self.report({"ERROR"}, f"加载失败: {e}")
+            self.report({"ERROR"}, T("加载失败: %s") % str(e))
             return {"CANCELLED"}
         return {"FINISHED"}
 
 
 class WR_OT_export_wind(Operator):
     bl_idname = "music_doll.wind_rise_export_wind"
-    bl_label = "导出 .wind"
+    bl_label = T("导出 .wind")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
         if not path:
-            self.report({"ERROR"}, "请先在「角色操作」设置人物信息路径")
+            self.report({"ERROR"}, T("请先在「角色操作」设置人物信息路径"))
             return {"CANCELLED"}
         skel = _skeleton(context)
         if skel is None:
-            self.report({"ERROR"}, "请先选择目标骨骼")
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
             return {"CANCELLED"}
         props = context.scene.md_wr_props
         try:
             out = export_wind(path, skel, props.min_note, props.max_note)
-            self.report({"INFO"}, f"导出完成: {out}")
+            self.report({"INFO"}, T("导出完成: %s") % out)
         except Exception as e:
-            self.report({"ERROR"}, f"导出失败: {e}")
+            self.report({"ERROR"}, T("导出失败: %s") % str(e))
             return {"CANCELLED"}
         return {"FINISHED"}
 
 
 class WR_OT_import_wind(Operator):
     bl_idname = "music_doll.wind_rise_import_wind"
-    bl_label = "导入 .wind"
+    bl_label = T("导入 .wind")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
         if not path:
-            self.report({"ERROR"}, "请先在「角色操作」设置人物信息路径")
+            self.report({"ERROR"}, T("请先在「角色操作」设置人物信息路径"))
             return {"CANCELLED"}
         if not os.path.exists(path):
-            self.report({"ERROR"}, f"文件不存在: {path}")
+            self.report({"ERROR"}, T("文件不存在: %s") % path)
             return {"CANCELLED"}
         skel = _skeleton(context)
         if skel is None:
-            self.report({"ERROR"}, "请先选择目标骨骼")
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
             return {"CANCELLED"}
         try:
             config = import_wind(path, skel)
@@ -245,37 +249,37 @@ class WR_OT_import_wind(Operator):
                 props.max_note = int(config["max_note"])
             if "description" in config:
                 props.description = str(config["description"])
-            self.report({"INFO"}, "导入完成")
+            self.report({"INFO"}, T("导入完成"))
         except Exception as e:
-            self.report({"ERROR"}, f"导入失败: {e}")
+            self.report({"ERROR"}, T("导入失败: %s") % str(e))
             return {"CANCELLED"}
         return {"FINISHED"}
 
 
 class WR_OT_generate_animation(Operator):
     bl_idname = "music_doll.wind_rise_generate_animation"
-    bl_label = "生成动画"
+    bl_label = T("生成动画")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         props = context.scene.md_wr_props
         file_path = props.wind_rise_animation_file_path
         if not file_path:
-            self.report({"ERROR"}, "请先选择 .wind_rise 文件")
+            self.report({"ERROR"}, T("请先选择 .wind_rise 文件"))
             return {"CANCELLED"}
         if not file_path.endswith(".wind_rise"):
-            self.report({"ERROR"}, "选择的文件不是 .wind_rise 文件")
+            self.report({"ERROR"}, T("选择的文件不是 .wind_rise 文件"))
             return {"CANCELLED"}
         if not os.path.exists(file_path):
-            self.report({"ERROR"}, f"文件不存在: {file_path}")
+            self.report({"ERROR"}, T("文件不存在: %s") % file_path)
             return {"CANCELLED"}
         try:
             generate_animation_from_wind_rise(
                 file_path, _suffix(context),
                 props.lip_mesh, _instrument(context))
-            self.report({"INFO"}, "动画生成完成")
+            self.report({"INFO"}, T("动画生成完成"))
         except Exception as e:
-            self.report({"ERROR"}, f"动画生成失败: {e}")
+            self.report({"ERROR"}, T("动画生成失败: %s") % str(e))
             return {"CANCELLED"}
         return {"FINISHED"}
 
@@ -284,18 +288,18 @@ class WR_OT_generate_animation(Operator):
 
 class WR_OT_add_character_sk(Operator):
     bl_idname = "music_doll.wind_rise_add_character_sk"
-    bl_label = "添加"
+    bl_label = T("添加")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         props = context.scene.md_wr_props
         skel = _skeleton(context)
         if skel is None:
-            self.report({"ERROR"}, "请先选择目标骨骼")
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
             return {"CANCELLED"}
         name = props.new_character_sk
         if not name:
-            self.report({"WARNING"}, "请从下拉菜单选择一个 Shape Key")
+            self.report({"WARNING"}, T("请从下拉菜单选择一个 Shape Key"))
             return {"CANCELLED"}
         lst = get_force_shape_keys(skel)
         if name not in lst:
@@ -324,18 +328,18 @@ class WR_OT_remove_character_sk(Operator):
 
 class WR_OT_add_instrument_sk(Operator):
     bl_idname = "music_doll.wind_rise_add_instrument_sk"
-    bl_label = "添加"
+    bl_label = T("添加")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         props = context.scene.md_wr_props
         skel = _skeleton(context)
         if skel is None:
-            self.report({"ERROR"}, "请先选择目标骨骼")
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
             return {"CANCELLED"}
         name = props.new_instrument_sk
         if not name:
-            self.report({"WARNING"}, "请从下拉菜单选择一个 Shape Key")
+            self.report({"WARNING"}, T("请从下拉菜单选择一个 Shape Key"))
             return {"CANCELLED"}
         lst = get_instrument_shape_keys(skel)
         if name not in lst:
@@ -366,9 +370,9 @@ class WR_OT_remove_instrument_sk(Operator):
 
 class WR_OT_rename_performer(Operator):
     bl_idname = "music_doll.wind_rise_rename_performer"
-    bl_label = "重命名当前角色"
+    bl_label = T("重命名当前角色")
     bl_options = {"REGISTER", "UNDO"}
-    new_name: StringProperty(default="", name="新名字")  # type: ignore
+    new_name: StringProperty(default="", name=T("新名字"))  # type: ignore
 
     def invoke(self, context, event):
         src = ui_utils.get_rename_target(context)
@@ -382,40 +386,40 @@ class WR_OT_rename_performer(Operator):
     def execute(self, context):
         src = ui_utils.get_rename_target(context)
         if src is None:
-            self.report({"ERROR"}, "找不到当前角色")
+            self.report({"ERROR"}, T("找不到当前角色"))
             return {"CANCELLED"}
         new_name = self.new_name.strip()
         if not new_name:
-            self.report({"ERROR"}, "请输入新名字")
+            self.report({"ERROR"}, T("请输入新名字"))
             return {"CANCELLED"}
         if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
-            self.report({"ERROR"}, "名字只能用英文字母和数字")
+            self.report({"ERROR"}, T("名字只能用英文字母和数字"))
             return {"CANCELLED"}
         if new_name == src.name:
-            self.report({"ERROR"}, "新名字与当前相同")
+            self.report({"ERROR"}, T("新名字与当前相同"))
             return {"CANCELLED"}
         if performer_utils.has_performer(new_name):
-            self.report({"ERROR"}, f"已存在名字 {new_name}")
+            self.report({"ERROR"}, T("已存在名字 %s") % new_name)
             return {"CANCELLED"}
         try:
             performer_utils.resuffix_performer(
                 src.collection, new_name, new_name=new_name)
         except Exception as e:
-            self.report({"ERROR"}, f"重命名失败：{e}")
+            self.report({"ERROR"}, T("重命名失败：%s") % str(e))
             return {"CANCELLED"}
         try:
             setattr(context.scene, ui_utils.SCENE_ACTIVE_PERFORMER, new_name)
         except Exception:
             pass
-        self.report({"INFO"}, f"已重命名为 {new_name}")
+        self.report({"INFO"}, T("已重命名为 %s") % new_name)
         return {"FINISHED"}
 
 
 class WR_OT_duplicate_performer(Operator):
     bl_idname = "music_doll.wind_rise_duplicate_performer"
-    bl_label = "复制角色"
+    bl_label = T("复制角色")
     bl_options = {"REGISTER", "UNDO"}
-    new_name: StringProperty(default="", name="新名字")  # type: ignore
+    new_name: StringProperty(default="", name=T("新名字"))  # type: ignore
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -426,35 +430,35 @@ class WR_OT_duplicate_performer(Operator):
     def execute(self, context):
         suffix = _suffix(context)
         if not suffix:
-            self.report({"ERROR"}, "请先选中要复制的角色")
+            self.report({"ERROR"}, T("请先选中要复制的角色"))
             return {"CANCELLED"}
         src = performer_utils.get_performer(suffix)
         if src is None:
-            self.report({"ERROR"}, f"找不到角色 {suffix}")
+            self.report({"ERROR"}, T("找不到角色 %s") % suffix)
             return {"CANCELLED"}
         new_name = self.new_name.strip()
         if not new_name:
-            self.report({"ERROR"}, "请输入新名字")
+            self.report({"ERROR"}, T("请输入新名字"))
             return {"CANCELLED"}
         if not (new_name.isascii() and new_name.isalnum() and new_name[0].isalpha()):
-            self.report({"ERROR"}, "名字只能用英文字母和数字")
+            self.report({"ERROR"}, T("名字只能用英文字母和数字"))
             return {"CANCELLED"}
         if performer_utils.has_performer(new_name):
-            self.report({"ERROR"}, f"已存在名字 {new_name}")
+            self.report({"ERROR"}, T("已存在名字 %s") % new_name)
             return {"CANCELLED"}
         try:
             dup = performer_utils.duplicate_collection_tree(src.collection)
         except Exception as e:
-            self.report({"ERROR"}, f"复制失败：{e}")
+            self.report({"ERROR"}, T("复制失败：%s") % str(e))
             return {"CANCELLED"}
         if dup is None:
-            self.report({"ERROR"}, "复制集合失败")
+            self.report({"ERROR"}, T("复制集合失败"))
             return {"CANCELLED"}
         from ..common import instrument_base
         instrument_base.set_coll_attr(dup, "name", src.name)
         instrument_base.set_coll_attr(dup, "instrument", src.instrument)
         performer_utils.resuffix_performer(dup, new_name, new_name=new_name)
-        self.report({"INFO"}, f"已复制为 {new_name}")
+        self.report({"INFO"}, T("已复制为 %s") % new_name)
         return {"FINISHED"}
 
 
@@ -462,7 +466,7 @@ class WR_OT_duplicate_performer(Operator):
 
 class WR_PT_main_panel(Panel):
     """WindRise 乐器子面板"""
-    bl_label = "Wind Rise"
+    bl_label = T("Wind Rise")
     bl_idname = "WINDRISE_PT_main_panel"
     bl_parent_id = "MUSICDOLL_PT_main_panel"
     bl_space_type = "VIEW_3D"
@@ -481,25 +485,25 @@ class WR_PT_main_panel(Panel):
 
         # 1. 初始化
         box = layout.box()
-        box.label(text="初始化", icon="TOOL_SETTINGS")
+        box.label(text=T("初始化"), icon="TOOL_SETTINGS")
         box.operator("music_doll.wind_rise_setup_objects",
-                     text="Setup Objects")
+                     text=T("Setup Objects"))
 
         # 2. 对象选择（人物 Mesh；乐器直接用上一级 MusicDoll 定义的目标乐器）
         box = layout.box()
-        box.label(text="对象选择", icon="OBJECT_DATA")
-        box.prop(props, "lip_mesh", text="人物Mesh")
+        box.label(text=T("对象选择"), icon="OBJECT_DATA")
+        box.prop(props, "lip_mesh", text=T("人物Mesh"))
         inst = _instrument(context)
         if inst:
-            box.label(text=f"乐器: {inst.name}", icon="OBJECT_DATA")
+            box.label(text=f"{T('乐器')}: {inst.name}", icon="OBJECT_DATA")
         else:
-            box.label(text="乐器: （未设置，请在「角色操作」选择目标乐器）",
+            box.label(text=T("乐器: （未设置，请在「角色操作」选择目标乐器）"),
                       icon="ERROR")
 
         # 3. 人物 Shape Key（折叠，默认收起）
         box = layout.box()
         _fold_header(box, scene, SCENE_SHOW_CHARACTER_SK,
-                     "人物 Shape Key（嘴唇）", "SHAPEKEY_DATA")
+                     T("人物 Shape Key（嘴唇）"), "SHAPEKEY_DATA")
         if getattr(scene, SCENE_SHOW_CHARACTER_SK, False):
             self._draw_sk_editor(box, context, skel, props.lip_mesh,
                                  get_force_shape_keys, "new_character_sk",
@@ -509,7 +513,7 @@ class WR_PT_main_panel(Panel):
         # 4. 乐器 Shape Key（折叠，默认收起；目标乐器来自上一级 MusicDoll）
         box = layout.box()
         _fold_header(box, scene, SCENE_SHOW_INSTRUMENT_SK,
-                     "乐器 Shape Key", "SHAPEKEY_DATA")
+                     T("乐器 Shape Key"), "SHAPEKEY_DATA")
         if getattr(scene, SCENE_SHOW_INSTRUMENT_SK, False):
             self._draw_sk_editor(box, context, skel, inst,
                                  get_instrument_shape_keys, "new_instrument_sk",
@@ -518,7 +522,7 @@ class WR_PT_main_panel(Panel):
 
         # 5. 乐器说明
         box = layout.box()
-        box.label(text="乐器说明", icon="INFO")
+        box.label(text=T("乐器说明"), icon="INFO")
         box.prop(props, "description", text="")
 
         # 6. 工具区（公共工具 + WindRise 独有工具，折叠 + 按选中展开）
@@ -526,42 +530,42 @@ class WR_PT_main_panel(Panel):
 
         # 7. 状态管理
         box = layout.box()
-        box.label(text="状态管理", icon="FILE_TICK")
-        box.prop(props, "current_note", text="当前音高")
+        box.label(text=T("状态管理"), icon="FILE_TICK")
+        box.prop(props, "current_note", text=T("当前音高"))
         row = box.row(align=True)
         row.operator("music_doll.wind_rise_save_state",
-                     text="保存状态", icon="EXPORT")
+                     text=T("保存状态"), icon="EXPORT")
         row.operator("music_doll.wind_rise_load_state",
-                     text="加载状态", icon="IMPORT")
+                     text=T("加载状态"), icon="IMPORT")
 
         # 8. 文件（.wind）
         box = layout.box()
-        box.label(text="数据文件 (.wind)", icon="FILE")
-        box.prop(props, "instrument_type", text="乐器类型")
+        box.label(text=T("数据文件 (.wind)"), icon="FILE")
+        box.prop(props, "instrument_type", text=T("乐器类型"))
         if props.instrument_type == "custom":
-            box.prop(props, "custom_instrument_type", text="自定义类型")
+            box.prop(props, "custom_instrument_type", text=T("自定义类型"))
         row = box.row(align=True)
-        row.prop(props, "min_note", text="最小")
-        row.prop(props, "max_note", text="最大")
+        row.prop(props, "min_note", text=T("最小"))
+        row.prop(props, "max_note", text=T("最大"))
         row = box.row(align=True)
         row.operator("music_doll.wind_rise_export_wind",
-                     text="导出 .wind", icon="EXPORT")
+                     text=T("导出 .wind"), icon="EXPORT")
         row.operator("music_doll.wind_rise_import_wind",
-                     text="导入 .wind", icon="IMPORT")
+                     text=T("导入 .wind"), icon="IMPORT")
         box.operator("music_doll.wind_rise_export_to_unreal",
-                     text="导出到 Unreal", icon="EXPORT")
+                     text=T("导出到 Unreal"), icon="EXPORT")
 
         # 9. 生成动画
         box = layout.box()
-        box.label(text="生成动画", icon="PLAY")
+        box.label(text=T("生成动画"), icon="PLAY")
         box.prop(props, "wind_rise_animation_file_path", text="")
         box.operator("music_doll.wind_rise_generate_animation",
-                     text="生成动画", icon="PLAY")
+                     text=T("生成动画"), icon="PLAY")
 
     def _draw_sk_editor(self, box, context, skel, mesh_obj,
                         getter, new_prop_name, add_op, remove_op):
         if not mesh_obj or mesh_obj.type != "MESH" or not mesh_obj.data.shape_keys:
-            box.label(text="请先选择含 Shape Key 的 Mesh", icon="ERROR")
+            box.label(text=T("请先选择含 Shape Key 的 Mesh"), icon="ERROR")
             return
         sk_data = mesh_obj.data.shape_keys
         selected = getter(skel) if skel else []
@@ -574,12 +578,12 @@ class WR_PT_main_panel(Panel):
                 op = row.operator(remove_op, text="", icon="X", emboss=False)
                 op.sk_name = name
         else:
-            box.label(text="（尚未添加 Shape Key）", icon="INFO")
+            box.label(text=T("（尚未添加 Shape Key）"), icon="INFO")
 
         row = box.row(align=True)
         row.prop_search(context.scene.md_wr_props, new_prop_name,
                         sk_data, "key_blocks", text="")
-        row.operator(add_op, text="添加", icon="ADD")
+        row.operator(add_op, text=T("添加"), icon="ADD")
 
 
 # ── 注册 / 注销 ───────────────────────────────────────────────
@@ -606,15 +610,27 @@ def register():
     tools_register()
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
+    # Set bl_label dynamically after registration (i18n)
+    bl_label_set(WR_OT_setup_objects, "Setup Objects")
+    bl_label_set(WR_OT_save_state, "保存状态")
+    bl_label_set(WR_OT_load_state, "加载状态")
+    bl_label_set(WR_OT_export_wind, "导出 .wind")
+    bl_label_set(WR_OT_import_wind, "导入 .wind")
+    bl_label_set(WR_OT_generate_animation, "生成动画")
+    bl_label_set(WR_OT_add_character_sk, "添加")
+    bl_label_set(WR_OT_add_instrument_sk, "添加")
+    bl_label_set(WR_OT_rename_performer, "重命名当前角色")
+    bl_label_set(WR_OT_duplicate_performer, "复制角色")
+    bl_label_set(WR_PT_main_panel, "Wind Rise")
     bpy.types.Scene.md_wr_props = PointerProperty(type=WindRiseProperties)
-    for attr, label in ((SCENE_SHOW_CHARACTER_SK, "显示人物 Shape Key"),
-                        (SCENE_SHOW_INSTRUMENT_SK, "显示乐器 Shape Key")):
+    for attr, label in ((SCENE_SHOW_CHARACTER_SK, T("显示人物 Shape Key")),
+                        (SCENE_SHOW_INSTRUMENT_SK, T("显示乐器 Shape Key"))):
         if not hasattr(bpy.types.Scene, attr):
             setattr(bpy.types.Scene, attr, BoolProperty(
-                name=label, description="展开/折叠 Shape Key 区", default=False))
+                name=label, description=T("展开/折叠 Shape Key 区"), default=False))
     ui_utils.register_instrument(
         "wind_rise",
-        "WindRise 管乐",
+        T("WindRise 吹奏"),
         WR_PT_main_panel,
         rename_operator="music_doll.wind_rise_rename_performer",
         duplicate_operator="music_doll.wind_rise_duplicate_performer",
