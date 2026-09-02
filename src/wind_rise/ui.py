@@ -53,7 +53,10 @@ def _instrument(context):
     return ui_utils.get_target_instrument(context)
 
 
-# 人物 / 乐器 Shape Key 折叠区场景属性名（默认收起）
+# 折叠区场景属性名（默认收起）
+# 初始化区：Setup Objects + 对象选择 + Shape Key 选择 + 乐器说明
+SCENE_SHOW_INITIALIZATION = "md_wr_show_initialization"
+# 初始化区内的 人物 / 乐器 Shape Key 子折叠区
 SCENE_SHOW_CHARACTER_SK = "md_wr_show_character_sk"
 SCENE_SHOW_INSTRUMENT_SK = "md_wr_show_instrument_sk"
 
@@ -483,52 +486,56 @@ class WR_PT_main_panel(Panel):
         props = scene.md_wr_props
         skel = _skeleton(context)
 
-        # 1. 初始化
+        # 1. 初始化（Setup Objects + 对象选择 + Shape Key 选择 + 乐器说明；
+        #    整体可折叠，默认收起——收起时只占一行）
         box = layout.box()
-        box.label(text=T("初始化"), icon="TOOL_SETTINGS")
-        box.operator("music_doll.wind_rise_setup_objects",
-                     text=T("Setup Objects"))
+        _fold_header(box, scene, SCENE_SHOW_INITIALIZATION,
+                     T("初始化"), "TOOL_SETTINGS")
+        if getattr(scene, SCENE_SHOW_INITIALIZATION, False):
+            box.operator("music_doll.wind_rise_setup_objects",
+                         text=T("Setup Objects"))
+            inst = _instrument(context)
 
-        # 2. 对象选择（人物 Mesh；乐器直接用上一级 MusicDoll 定义的目标乐器）
-        box = layout.box()
-        box.label(text=T("对象选择"), icon="OBJECT_DATA")
-        box.prop(props, "lip_mesh", text=T("人物Mesh"))
-        inst = _instrument(context)
-        if inst:
-            box.label(text=f"{T('乐器')}: {inst.name}", icon="OBJECT_DATA")
-        else:
-            box.label(text=T("乐器: （未设置，请在「角色操作」选择目标乐器）"),
-                      icon="ERROR")
+            # 1.1 对象选择（人物 Mesh；乐器直接用上一级 MusicDoll 定义的目标乐器）
+            sub = box.box()
+            sub.label(text=T("对象选择"), icon="OBJECT_DATA")
+            sub.prop(props, "lip_mesh", text=T("人物Mesh"))
+            if inst:
+                sub.label(text=f"{T('乐器')}: {inst.name}", icon="OBJECT_DATA")
+            else:
+                sub.label(text=T("乐器: （未设置，请在「角色操作」选择目标乐器）"),
+                          icon="ERROR")
 
-        # 3. 人物 Shape Key（折叠，默认收起）
-        box = layout.box()
-        _fold_header(box, scene, SCENE_SHOW_CHARACTER_SK,
-                     T("人物 Shape Key（嘴唇）"), "SHAPEKEY_DATA")
-        if getattr(scene, SCENE_SHOW_CHARACTER_SK, False):
-            self._draw_sk_editor(box, context, skel, props.lip_mesh,
-                                 get_force_shape_keys, "new_character_sk",
-                                 "music_doll.wind_rise_add_character_sk",
-                                 "music_doll.wind_rise_remove_character_sk")
+            # 1.2 人物 Shape Key（子折叠，默认收起）
+            sub = box.box()
+            _fold_header(sub, scene, SCENE_SHOW_CHARACTER_SK,
+                         T("人物 Shape Key（嘴唇）"), "SHAPEKEY_DATA")
+            if getattr(scene, SCENE_SHOW_CHARACTER_SK, False):
+                self._draw_sk_editor(sub, context, skel, props.lip_mesh,
+                                     get_force_shape_keys, "new_character_sk",
+                                     "music_doll.wind_rise_add_character_sk",
+                                     "music_doll.wind_rise_remove_character_sk")
 
-        # 4. 乐器 Shape Key（折叠，默认收起；目标乐器来自上一级 MusicDoll）
-        box = layout.box()
-        _fold_header(box, scene, SCENE_SHOW_INSTRUMENT_SK,
-                     T("乐器 Shape Key"), "SHAPEKEY_DATA")
-        if getattr(scene, SCENE_SHOW_INSTRUMENT_SK, False):
-            self._draw_sk_editor(box, context, skel, inst,
-                                 get_instrument_shape_keys, "new_instrument_sk",
-                                 "music_doll.wind_rise_add_instrument_sk",
-                                 "music_doll.wind_rise_remove_instrument_sk")
+            # 1.3 乐器 Shape Key（子折叠，默认收起；目标乐器来自上一级 MusicDoll）
+            sub = box.box()
+            _fold_header(sub, scene, SCENE_SHOW_INSTRUMENT_SK,
+                         T("乐器 Shape Key"), "SHAPEKEY_DATA")
+            if getattr(scene, SCENE_SHOW_INSTRUMENT_SK, False):
+                self._draw_sk_editor(sub, context, skel, inst,
+                                     get_instrument_shape_keys,
+                                     "new_instrument_sk",
+                                     "music_doll.wind_rise_add_instrument_sk",
+                                     "music_doll.wind_rise_remove_instrument_sk")
 
-        # 5. 乐器说明
-        box = layout.box()
-        box.label(text=T("乐器说明"), icon="INFO")
-        box.prop(props, "description", text="")
+            # 1.4 乐器说明
+            sub = box.box()
+            sub.label(text=T("乐器说明"), icon="INFO")
+            sub.prop(props, "description", text="")
 
-        # 6. 工具区（公共工具 + WindRise 独有工具，折叠 + 按选中展开）
+        # 2. 工具区（公共工具 + WindRise 独有工具，折叠 + 按选中展开）
         ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
-        # 7. 状态管理
+        # 3. 状态管理
         box = layout.box()
         box.label(text=T("状态管理"), icon="FILE_TICK")
         box.prop(props, "current_note", text=T("当前音高"))
@@ -538,7 +545,7 @@ class WR_PT_main_panel(Panel):
         row.operator("music_doll.wind_rise_load_state",
                      text=T("加载状态"), icon="IMPORT")
 
-        # 8. 文件（.wind）
+        # 4. 文件（.wind）
         box = layout.box()
         box.label(text=T("数据文件 (.wind)"), icon="FILE")
         box.prop(props, "instrument_type", text=T("乐器类型"))
@@ -555,7 +562,7 @@ class WR_PT_main_panel(Panel):
         box.operator("music_doll.wind_rise_export_to_unreal",
                      text=T("导出到 Unreal"), icon="EXPORT")
 
-        # 9. 生成动画
+        # 5. 生成动画
         box = layout.box()
         box.label(text=T("生成动画"), icon="PLAY")
         box.prop(props, "wind_rise_animation_file_path", text="")
@@ -623,11 +630,16 @@ def register():
     bl_label_set(WR_OT_duplicate_performer, "复制角色")
     bl_label_set(WR_PT_main_panel, "Wind Rise")
     bpy.types.Scene.md_wr_props = PointerProperty(type=WindRiseProperties)
-    for attr, label in ((SCENE_SHOW_CHARACTER_SK, T("显示人物 Shape Key")),
-                        (SCENE_SHOW_INSTRUMENT_SK, T("显示乐器 Shape Key"))):
+    for attr, label, desc in (
+            (SCENE_SHOW_INITIALIZATION, T("显示初始化"),
+             T("展开/折叠初始化区（Setup / 对象选择 / Shape Key / 乐器说明）")),
+            (SCENE_SHOW_CHARACTER_SK, T("显示人物 Shape Key"),
+             T("展开/折叠 Shape Key 区")),
+            (SCENE_SHOW_INSTRUMENT_SK, T("显示乐器 Shape Key"),
+             T("展开/折叠 Shape Key 区"))):
         if not hasattr(bpy.types.Scene, attr):
             setattr(bpy.types.Scene, attr, BoolProperty(
-                name=label, description=T("展开/折叠 Shape Key 区"), default=False))
+                name=label, description=desc, default=False))
     ui_utils.register_instrument(
         "wind_rise",
         T("WindRise 吹奏"),
@@ -641,7 +653,9 @@ def unregister():
     ui_utils.unregister_instrument("wind_rise")
     if hasattr(bpy.types.Scene, "md_wr_props"):
         del bpy.types.Scene.md_wr_props
-    for attr in (SCENE_SHOW_CHARACTER_SK, SCENE_SHOW_INSTRUMENT_SK):
+    for attr in (SCENE_SHOW_INITIALIZATION,
+                 SCENE_SHOW_CHARACTER_SK,
+                 SCENE_SHOW_INSTRUMENT_SK):
         if hasattr(bpy.types.Scene, attr):
             delattr(bpy.types.Scene, attr)
     for cls in reversed(_CLASSES):

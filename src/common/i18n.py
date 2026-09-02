@@ -576,6 +576,10 @@ _DICT: dict[str, dict[str, str]] = {
     "导出到 .wind 的 instrument_type": {
         "zh": "导出到 .wind 的 instrument_type",
         "en": "instrument_type for .wind export"},
+    "显示初始化": {"zh": "显示初始化", "en": "Show Initialization"},
+    "展开/折叠初始化区（Setup / 对象选择 / Shape Key / 乐器说明）": {
+        "zh": "展开/折叠初始化区（Setup / 对象选择 / Shape Key / 乐器说明）",
+        "en": "Expand/collapse initialization area (Setup / object selection / Shape Key / description)"},
     "显示人物 Shape Key": {"zh": "显示人物 Shape Key", "en": "Show Character Shape Key"},
     "显示乐器 Shape Key": {"zh": "显示乐器 Shape Key", "en": "Show Instrument Shape Key"},
     "展开/折叠 Shape Key 区": {"zh": "展开/折叠 Shape Key 区", "en": "Expand/collapse Shape Key area"},
