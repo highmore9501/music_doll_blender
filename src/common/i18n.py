@@ -509,6 +509,8 @@ _DICT: dict[str, dict[str, str]] = {
     "请先选择含 Shape Key 的 Mesh": {"zh": "请先选择含 Shape Key 的 Mesh", "en": "Please select a Mesh with Shape Keys first"},
     "重置旋转": {"zh": "重置旋转", "en": "Reset Rotation"},
     "重置移动": {"zh": "重置移动", "en": "Reset Translation"},
+    "轴旋转工具": {"zh": "轴旋转工具", "en": "Axis Rotation Tool"},
+    "轴移动工具": {"zh": "轴移动工具", "en": "Axis Translation Tool"},
     "物体1": {"zh": "物体1", "en": "Object 1"},
     "物体2": {"zh": "物体2", "en": "Object 2"},
     "角度": {"zh": "角度", "en": "Angle"},
