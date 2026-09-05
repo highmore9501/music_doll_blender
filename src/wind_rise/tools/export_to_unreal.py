@@ -32,8 +32,19 @@ class WR_OT_export_to_unreal(Operator, ExportHelper):
 
         props = context.scene.md_wr_props
         try:
-            export_wind(self.filepath, skel, props.min_note, props.max_note,
-                        for_unreal=True)
+            instrument_type = (
+                props.custom_instrument_type
+                if props.instrument_type == "custom"
+                else props.instrument_type
+            )
+            export_wind(
+                self.filepath,
+                skel,
+                props.min_note,
+                props.max_note,
+                for_unreal=True,
+                instrument_type=instrument_type,
+            )
             self.report({'INFO'}, f"已导出 Unreal 格式 → {self.filepath}")
             return {'FINISHED'}
         except Exception as e:

@@ -31,10 +31,12 @@ def _normalize_wind_path(path: str) -> str:
 
 
 def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
-                for_unreal: bool = False) -> str:
+                for_unreal: bool = False,
+                instrument_type: str | None = None) -> str:
     """从骨骼 JSON 全量读出，写入 .wind 文件。
 
     for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
+    instrument_type 用于写入导出文件的 config.instrument_type。
     """
     _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
     _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
@@ -45,7 +47,18 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
     file_path = _normalize_wind_path(file_path)
 
     data = _get_wind_data(skeleton)
-    config = data.get("config", {})
+    config = dict(data.get("config", {}))
+    if instrument_type is not None:
+        config["instrument_type"] = instrument_type
+    elif "instrument_type" not in config:
+        config["instrument_type"] = ""
+    config["min_note"] = min_note
+    config["max_note"] = max_note
+    config["description"] = config.get("description", "")
+    config["is_unreal"] = for_unreal
+    config["force_shape_keys"] = get_force_shape_keys(skeleton)
+    config["instrument_shape_keys"] = get_instrument_shape_keys(skeleton)
+    config["instrument_mesh_name"] = config.get("instrument_mesh_name", "")
 
     # 保证 note_info 覆盖完整音域（无记录的填空条目）
     saved = {item["note"]: item for item in data.get("note_info", []) if item}
@@ -76,8 +89,18 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
                 "instrument_shape_keys": [],
             })
 
-    export_data = {"config": config,
-                   "is_unreal": for_unreal, "note_info": note_info}
+    export_data = {"config": config, "note_info": note_info}
+
+    # controller_root_offset 的静止补偿值（只保留标准字段 rest_offset，
+    # 兼容旧文件读取 reset_offset）。
+    rest_offset = (
+        data.get("rest_offset")
+        or data.get("reset_offset")
+        or config.get("rest_offset")
+        or config.get("reset_offset")
+    )
+    if rest_offset is not None:
+        export_data["rest_offset"] = rest_offset
 
     # pole_controller：挂在 ext 下的手指 pole 控件局部位置（短名键）
     suffix = performer_utils.suffix_from_object(skeleton) or ""
@@ -96,6 +119,26 @@ def export_wind(file_path: str, skeleton, min_note: int, max_note: int,
         pole_found += 1
     export_data["pole_controller"] = pole_controllers
     print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
+
+    # controller_root_offset 的当前变换值（不写入 note_info，仅作为顶层 offset）
+    root_offset_name = performer_utils.resolve(
+        "controller_root_offset", suffix)
+    root_offset_obj = bpy.data.objects.get(root_offset_name)
+    if root_offset_obj is not None:
+        root_offset = {
+            "location": _pos([
+                root_offset_obj.location.x,
+                root_offset_obj.location.y,
+                root_offset_obj.location.z,
+            ]),
+            "rotation": _rot([
+                root_offset_obj.rotation_quaternion.w,
+                root_offset_obj.rotation_quaternion.x,
+                root_offset_obj.rotation_quaternion.y,
+                root_offset_obj.rotation_quaternion.z,
+            ]),
+        }
+        export_data["rest_offset"] = root_offset
 
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(export_data, f, ensure_ascii=False, indent=2)
@@ -127,10 +170,22 @@ def import_wind(file_path: str, skeleton) -> dict:
     existing_config = existing.get("config", {})
     existing_config.update(config)
 
+    if isinstance(config.get("force_shape_keys"), list):
+        set_force_shape_keys(skeleton, list(config["force_shape_keys"]))
+    if isinstance(config.get("instrument_shape_keys"), list):
+        set_instrument_shape_keys(skeleton, list(
+            config["instrument_shape_keys"]))
+
+    rest_offset = file_data.get("rest_offset") or file_data.get("reset_offset")
+    if rest_offset is not None:
+        existing_config["rest_offset"] = rest_offset
+
     write_data = {
         "config": existing_config,
         "note_info": [item for item in note_info if isinstance(item, dict)],
     }
+    if rest_offset is not None:
+        write_data["rest_offset"] = rest_offset
     _set_wind_data(skeleton, write_data)
 
     # pole_controller：把局部位置应用到对应 pole 控件
@@ -146,5 +201,19 @@ def import_wind(file_path: str, skeleton) -> dict:
         if loc:
             obj.location = loc
             print(f"  ✓ 设置 {full} 位置: {loc}")
+
+    # controller_root_offset：恢复静止补偿值
+    if rest_offset is not None:
+        root_name = performer_utils.resolve("controller_root_offset", suffix)
+        obj = bpy.data.objects.get(root_name)
+        if obj is not None:
+            loc = rest_offset.get("location")
+            rot = rest_offset.get("rotation")
+            if loc is not None:
+                obj.location = loc
+            if isinstance(rot, (list, tuple)) and len(rot) == 4:
+                obj.rotation_mode = "QUATERNION"
+                obj.rotation_quaternion = rot
+                print(f"  ✓ 设置 {root_name} offset: {loc} / {rot}")
 
     return existing_config

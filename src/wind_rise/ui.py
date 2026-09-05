@@ -1,6 +1,17 @@
 # wind_rise/ui.py
 """WindRise 乐器模块 —— 面板与算子"""
 
+from .tools import INSTRUMENT_TOOLS, register as tools_register, unregister as tools_unregister
+from .animation import generate_animation_from_wind_rise
+from .io import export_wind, import_wind
+from .state import (
+    _get_wind_data, _set_wind_data,
+    save_note_state, load_note_state,
+    get_force_shape_keys, set_force_shape_keys,
+    get_instrument_shape_keys, set_instrument_shape_keys,
+)
+from .enums import WIND_INSTRUMENT_TYPE_ITEMS, midi_to_name
+from .config import WindRiseConfig
 import os
 
 import bpy  # type: ignore
@@ -16,16 +27,6 @@ from ..common.tools import COMMON_TOOLS
 
 T = i18n.T
 bl_label_set = i18n.bl_label_set
-from .config import WindRiseConfig
-from .enums import WIND_INSTRUMENT_TYPE_ITEMS, midi_to_name
-from .state import (
-    save_note_state, load_note_state,
-    get_force_shape_keys, set_force_shape_keys,
-    get_instrument_shape_keys, set_instrument_shape_keys,
-)
-from .io import export_wind, import_wind
-from .animation import generate_animation_from_wind_rise
-from .tools import INSTRUMENT_TOOLS, register as tools_register, unregister as tools_unregister
 
 TOOLS = COMMON_TOOLS + INSTRUMENT_TOOLS
 
@@ -195,6 +196,42 @@ class WR_OT_load_state(Operator):
         return {"FINISHED"}
 
 
+class WR_OT_capture_rest_offset(Operator):
+    bl_idname = "music_doll.wind_rise_capture_rest_offset"
+    bl_label = T("capture rest offset")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        skel = _skeleton(context)
+        if skel is None:
+            self.report({"ERROR"}, T("请先选择目标骨骼"))
+            return {"CANCELLED"}
+        suffix = _suffix(context)
+        obj_name = performer_utils.resolve("controller_root_offset", suffix)
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            self.report({"ERROR"}, T(
+                "未找到 controller_root_offset，请先 Setup Objects"))
+            return {"CANCELLED"}
+
+        transform = {
+            "location": [obj.location.x, obj.location.y, obj.location.z],
+            "rotation": [
+                obj.rotation_quaternion.w,
+                obj.rotation_quaternion.x,
+                obj.rotation_quaternion.y,
+                obj.rotation_quaternion.z,
+            ],
+        }
+        data = _get_wind_data(skel)
+        config = data.setdefault("config", {})
+        config["rest_offset"] = transform
+        data["rest_offset"] = transform
+        _set_wind_data(skel, data)
+        self.report({"INFO"}, T("已捕获 controller_root_offset 到 rest_offset"))
+        return {"FINISHED"}
+
+
 class WR_OT_export_wind(Operator):
     bl_idname = "music_doll.wind_rise_export_wind"
     bl_label = T("导出 .wind")
@@ -211,7 +248,18 @@ class WR_OT_export_wind(Operator):
             return {"CANCELLED"}
         props = context.scene.md_wr_props
         try:
-            out = export_wind(path, skel, props.min_note, props.max_note)
+            instrument_type = (
+                props.custom_instrument_type
+                if props.instrument_type == "custom"
+                else props.instrument_type
+            )
+            out = export_wind(
+                path,
+                skel,
+                props.min_note,
+                props.max_note,
+                instrument_type=instrument_type,
+            )
             self.report({"INFO"}, T("导出完成: %s") % out)
         except Exception as e:
             self.report({"ERROR"}, T("导出失败: %s") % str(e))
@@ -555,6 +603,8 @@ class WR_PT_main_panel(Panel):
         row.prop(props, "min_note", text=T("最小"))
         row.prop(props, "max_note", text=T("最大"))
         row = box.row(align=True)
+        row.operator("music_doll.wind_rise_capture_rest_offset",
+                     text=T("capture rest offset"), icon="EMPTY_AXIS")
         row.operator("music_doll.wind_rise_export_wind",
                      text=T("导出 .wind"), icon="EXPORT")
         row.operator("music_doll.wind_rise_import_wind",
@@ -600,6 +650,7 @@ _CLASSES = (
     WR_OT_setup_objects,
     WR_OT_save_state,
     WR_OT_load_state,
+    WR_OT_capture_rest_offset,
     WR_OT_export_wind,
     WR_OT_import_wind,
     WR_OT_generate_animation,
@@ -621,6 +672,7 @@ def register():
     bl_label_set(WR_OT_setup_objects, "Setup Objects")
     bl_label_set(WR_OT_save_state, "保存状态")
     bl_label_set(WR_OT_load_state, "加载状态")
+    bl_label_set(WR_OT_capture_rest_offset, "capture rest offset")
     bl_label_set(WR_OT_export_wind, "导出 .wind")
     bl_label_set(WR_OT_import_wind, "导入 .wind")
     bl_label_set(WR_OT_generate_animation, "生成动画")
