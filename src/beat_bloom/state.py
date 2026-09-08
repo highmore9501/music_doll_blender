@@ -41,6 +41,22 @@ from .enums import LIMB_CONTROLLERS, HAND_LIMBS
 
 STATE_KEY = "beat_bloom_state_data"
 
+LEGACY_STATE_KEY_SUFFIXES = (
+    "_rotation_L",
+    "_rotation_R",
+    "_rotation",
+)
+
+
+def _is_legacy_state_key(key: str) -> bool:
+    """识别旧版拆分旋转键：H_rotation_L / F_rotation_R / H_rotation_Rest_L"""
+    if not isinstance(key, str):
+        return False
+    key = key.strip()
+    if not key:
+        return False
+    return any(key.endswith(suffix) or "_rotation_" in key for suffix in LEGACY_STATE_KEY_SUFFIXES)
+
 
 # ── 骨骼 JSON 读写 ────────────────────────────────────────────
 
@@ -60,6 +76,48 @@ def _set_state(skeleton, data: dict) -> None:
     if skeleton is None:
         return
     skeleton[STATE_KEY] = json.dumps(data, ensure_ascii=False)
+
+
+def cleanup_legacy_state(skeleton) -> int:
+    """清理旧版 split-rotation 残留键，返回实际删除数量。"""
+    if skeleton is None:
+        return 0
+
+    data = _get_state(skeleton)
+    if not data:
+        return 0
+
+    cleaned = 0
+
+    for section_name, section_value in list(data.items()):
+        if not isinstance(section_value, dict):
+            continue
+
+        if section_name == "mapping_helpers":
+            for slot_name, slot_value in list(section_value.items()):
+                if not isinstance(slot_value, dict):
+                    continue
+                for key in list(slot_value.keys()):
+                    if _is_legacy_state_key(str(key)):
+                        del slot_value[key]
+                        cleaned += 1
+            continue
+
+        for state_name, state_value in list(section_value.items()):
+            if not isinstance(state_value, dict):
+                continue
+            for key in list(state_value.keys()):
+                if _is_legacy_state_key(str(key)):
+                    del state_value[key]
+                    cleaned += 1
+            if not state_value:
+                del section_value[state_name]
+
+        if not section_value:
+            del data[section_name]
+
+    _set_state(skeleton, data)
+    return cleaned
 
 
 # ── 控件读写 ──────────────────────────────────────────────────
