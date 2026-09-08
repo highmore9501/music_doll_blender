@@ -286,14 +286,10 @@ class BB_OT_load_mapping(Operator):
         return {'FINISHED'}
 
 
-class BB_OT_export(Operator, ExportHelper):
-    """导出 .drummer 文件（从骨骼 JSON 重组扁平格式）"""
+class BB_OT_export(Operator):
+    """导出 .drummer 文件到当前角色的 info path（默认路径，不弹资源浏览器）"""
     bl_idname = "music_doll.beat_bloom_export"
     bl_options = {'REGISTER', 'UNDO'}
-    filename_ext = ".drummer"
-    __annotations__ = {
-        "filter_glob": StringProperty(default="*.drummer", options={'HIDDEN'})
-    }
 
     def execute(self, context):
         skel = _get_active_skeleton(context)
@@ -304,31 +300,38 @@ class BB_OT_export(Operator, ExportHelper):
         if not dk:
             self.report({'ERROR'}, T("请先加载 Drumkit 配置"))
             return {'CANCELLED'}
-        path = self.filepath
-        if not path.endswith(".drummer"):
-            path += ".drummer"
+
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if not file_path:
+            self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
+            return {'CANCELLED'}
+        if not file_path.endswith(".drummer"):
+            file_path = os.path.splitext(file_path)[0] + ".drummer"
+
         try:
-            export_drummer(path, skel, dk)
-            self.report({'INFO'}, T("已导出 → %s") % path)
+            export_drummer(file_path, skel, dk)
+            self.report({'INFO'}, T("已导出 → %s") % file_path)
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, T("导出失败：%s") % e)
             return {'CANCELLED'}
 
 
-class BB_OT_import(Operator, ImportHelper):
-    """从 .drummer 文件导入到骨骼 JSON"""
+class BB_OT_import(Operator):
+    """从当前角色的 info path 导入 .drummer 文件"""
     bl_idname = "music_doll.beat_bloom_import"
     bl_options = {'REGISTER', 'UNDO'}
-    filename_ext = ".drummer"
-    __annotations__ = {
-        "filter_glob": StringProperty(default="*.drummer", options={'HIDDEN'})
-    }
 
     def execute(self, context):
-        if not self.filepath.endswith(".drummer"):
-            self.report({'ERROR'}, T("请选择 .drummer 文件"))
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if not file_path:
+            self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
+        if not file_path.endswith(".drummer"):
+            self.report({'ERROR'}, T("文件扩展名不正确，请使用 .drummer 文件（当前: %s）") %
+                        os.path.splitext(file_path)[1])
+            return {'CANCELLED'}
+
         skel = _get_active_skeleton(context)
         if skel is None:
             self.report({'ERROR'}, T("请先选择目标骨骼"))
@@ -338,8 +341,8 @@ class BB_OT_import(Operator, ImportHelper):
             self.report({'ERROR'}, T("请先加载 Drumkit 配置"))
             return {'CANCELLED'}
         try:
-            import_drummer(self.filepath, skel, dk)
-            self.report({'INFO'}, T("已导入 ← %s") % self.filepath)
+            import_drummer(file_path, skel, dk)
+            self.report({'INFO'}, T("已导入 ← %s") % file_path)
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, T("导入失败：%s") % e)

@@ -130,9 +130,32 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
         "MAPPING_HELPERS": mapping_helpers_out,
     }
 
-    # pole_controller：挂在 ext 下的手指 pole 控件局部位置（短名键）
+    # OTHER_CONTROLLERS：手指、Look_At、stick 的局部数据（父级下坐标）
     suffix = performer_utils.suffix_from_object(skeleton) or ""
     cfg = BeatBloomConfig(performer_suffix=suffix)
+    other_controllers = {}
+    for short in ["I_L", "M_L", "R_L", "P_L", "I_R", "M_R", "R_R", "P_R", "Look_At"]:
+        obj = cfg.obj(short)
+        if obj is None:
+            continue
+        other_controllers[short] = {
+            "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+        }
+
+    for short in ["stick_L", "stick_R"]:
+        obj = cfg.obj(short)
+        if obj is None:
+            continue
+        quat = obj.rotation_quaternion
+        other_controllers[short] = {
+            "location": _pos([obj.location.x, obj.location.y, obj.location.z]),
+            "rotation_quaternion": _rot([quat.w, quat.x, quat.y, quat.z]),
+        }
+
+    if other_controllers:
+        export_data["OTHER_CONTROLLERS"] = other_controllers
+
+    # pole_controller：挂在 ext 下的手指 pole 控件局部位置（短名键）
     pole_controllers = {}
     pole_shorts = cfg.get_pole_controller_shorts()
     pole_found = 0
@@ -144,7 +167,8 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
             }
             pole_found += 1
         else:
-            print(f"  • pole 控件 {cfg.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
+            print(
+                f"  • pole 控件 {cfg.obj_name(pole_short)} 不存在，跳过（请先 Setup 创建）")
     export_data["pole_controller"] = pole_controllers
     print(f"  • pole 控件：{pole_found}/{len(pole_shorts)} 个")
 
@@ -255,9 +279,31 @@ def import_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
 
     _set_state(skeleton, state_data)
 
-    # pole_controller → 应用局部位置到对应 pole 控件
+    # OTHER_CONTROLLERS → 应用局部位置；stick 额外应用局部旋转
     suffix = performer_utils.suffix_from_object(skeleton) or ""
     cfg = BeatBloomConfig(performer_suffix=suffix)
+    other_controllers = import_data.get("OTHER_CONTROLLERS")
+    if other_controllers is None:
+        other_controllers = import_data.get("OTHER_POSITIONS", {})
+
+    for short, info in other_controllers.items():
+        obj = cfg.obj(short)
+        if obj is None:
+            print(f"  • 其他位置控件 {cfg.obj_name(short)} 不存在，跳过")
+            continue
+        loc = info.get("location")
+        if loc:
+            obj.location = loc
+            print(f"  ✓ 设置 {obj.name} 位置: {loc}")
+
+        if short in ("stick_L", "stick_R"):
+            rot = info.get("rotation_quaternion")
+            if rot and len(rot) == 4:
+                obj.rotation_mode = 'QUATERNION'
+                obj.rotation_quaternion = rot
+                print(f"  ✓ 设置 {obj.name} 旋转: {rot}")
+
+    # pole_controller → 应用局部位置到对应 pole 控件
     pole_data = import_data.get("pole_controller", {})
     for pole_short, pole_info in pole_data.items():
         obj = _resolve_pole_obj(cfg, pole_short)
