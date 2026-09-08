@@ -119,6 +119,50 @@ def _get_component_items(self, context):
     return items or [("__none__", "（无组件）", "")]
 
 
+def _get_component_limb_ctrl_labels(context, component_name: str) -> list[str]:
+    """返回组件对应的主要 limb 控件名（用于 UI 提示）。"""
+    if component_name == "__none__":
+        return []
+    if component_name == "__rest__":
+        return ["H_L", "H_R"]
+
+    dk = _get_drumkit(context)
+    if not dk:
+        return []
+
+    primary_ctrl_map = {
+        "left_hand": "H_L",
+        "right_hand": "H_R",
+        "left_foot": "F_L",
+        "right_foot": "F_R",
+    }
+
+    all_components = dk.get("components", []) + dk.get("special_actions", [])
+    for comp in all_components:
+        if comp.get("name") != component_name:
+            continue
+
+        if "drivable_limbs" in comp:
+            limbs = [d.get("limb")
+                     for d in comp["drivable_limbs"] if isinstance(d, dict)]
+        elif "limbs" in comp:
+            limbs = comp.get("limbs", [])
+        else:
+            limbs = []
+
+        ctrl_labels = []
+        for limb in limbs:
+            if not isinstance(limb, str):
+                continue
+            ctrl = primary_ctrl_map.get(limb)
+            if ctrl:
+                ctrl_labels.append(ctrl)
+
+        return list(dict.fromkeys(ctrl_labels))
+
+    return []
+
+
 # ── 属性组 ────────────────────────────────────────────────────
 
 class BeatBloomProperties(PropertyGroup):
@@ -536,6 +580,11 @@ class BB_PT_main_panel(Panel):
         col = box.column(align=True)
         col.prop(props, "component", text=T("Component"))
         col.prop(props, "state", text=T("State"))
+        limb_ctrl_labels = _get_component_limb_ctrl_labels(
+            context, props.component)
+        if limb_ctrl_labels:
+            col.label(
+                text=f"{T('Limbs')}: {', '.join(limb_ctrl_labels)}", icon='BONE_DATA')
         row = box.row(align=True)
         row.operator("music_doll.beat_bloom_save_state", text=T("Set"))
         row.operator("music_doll.beat_bloom_load_state", text=T("Load"))
