@@ -72,6 +72,14 @@ class KeyRipple:
             "right_hand_pivot_controller": "HP_R",
         }
 
+        # 脚部控制器信息
+        self.foot_controllers = {
+            "left_foot_controller": "F_L",
+            "left_foot_pole": "FP_L",
+            "right_foot_controller": "F_R",
+            "right_foot_pole": "FP_R",
+        }
+
         # 键盘基准点信息
         self.key_board_positions = {
             "black_key_position": "black_key",
@@ -148,6 +156,8 @@ class KeyRipple:
             "Left_Hand_Controllers", controllers_collection)
         right_hand_controller_collection = self.get_or_create_collection(
             "Right_Hand_Controllers", controllers_collection)
+        foot_controller_collection = self.get_or_create_collection(
+            "Foot_Controllers", controllers_collection)
 
         # 创建手指控制器（球形空物体）
         for finger_number, controller_name in self.finger_controllers.items():
@@ -177,6 +187,11 @@ class KeyRipple:
             self.create_or_update_object(
                 self.obj_name(controller_name), "sphere", collection)
 
+        # 创建脚部控制器与 pole target（球形空物体）
+        for controller_name in self.foot_controllers.values():
+            self.create_or_update_object(
+                self.obj_name(controller_name), "sphere", foot_controller_collection)
+
         # 将手指控制器和 ext 控件设置为对应手掌控制器的子级
         for finger_number, controller_name in self.finger_controllers.items():
             if finger_number < self.one_hand_finger_number:
@@ -201,6 +216,8 @@ class KeyRipple:
         # 钢琴固定不动，无需 controller_root_offset）
         controller_root = self.obj("controller_root")
         for name in ["HP_L", "H_L", "HP_R", "H_R"]:
+            self._set_parent(name, controller_root)
+        for name in ["F_L", "FP_L", "F_R", "FP_R"]:
             self._set_parent(name, controller_root)
 
         # 创建键盘基准点，并挂到 controller_root 下（钢琴固定，随 body 整体移动）
