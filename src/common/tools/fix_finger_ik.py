@@ -325,9 +325,10 @@ class MUSICDOLL_OT_tool_fix_finger_bones(bpy.types.Operator):
 
 
 def register():
-    bpy.utils.register_class(MUSICDOLL_OT_tool_fix_finger_bones)
+    # i18n：bl_label_set 必须先于 register_class（注册时 Blender 就把 bl_label 拷走了）
     from .. import i18n
     i18n.bl_label_set(MUSICDOLL_OT_tool_fix_finger_bones, "修正手指骨骼")
+    bpy.utils.register_class(MUSICDOLL_OT_tool_fix_finger_bones)
 
 
 def unregister():

@@ -467,19 +467,22 @@ def register_scene_props():
     # （"music_doll.create_performer" -> MUSIC_DOLL_OT_create_performer，MUSIC_DOLL
     # 带下划线），与 Python 类名 MUSICDOLL_OT_create_performer 不同，hasattr 判断
     # 必须用 RNA 名，否则重载时重复 register_class 会抛 "already registered"。
+    #
+    # i18n：bl_label_set 必须写在 register_class 之前 —— Blender 在注册那一刻就把
+    # bl_label 拷进类型里，注册后再改 UI 不会变（英文界面下弹窗标题仍是中文的根因）。
     if not hasattr(bpy.types, "MUSIC_DOLL_OT_create_performer"):
-        bpy.utils.register_class(MUSICDOLL_OT_create_performer)
         bl_label_set(MUSICDOLL_OT_create_performer, "新建角色")
+        bpy.utils.register_class(MUSICDOLL_OT_create_performer)
     if not hasattr(bpy.types, "MUSICDOLL_PT_main_panel"):
-        bpy.utils.register_class(MUSICDOLL_PT_main_panel)
         bl_label_set(MUSICDOLL_PT_main_panel, "MusicDoll")
+        bpy.utils.register_class(MUSICDOLL_PT_main_panel)
     # 工具下拉菜单相关类（RNA 名判断同上：set_active_tool 的 RNA 名带下划线）
     if not hasattr(bpy.types, "MUSIC_DOLL_OT_set_active_tool"):
-        bpy.utils.register_class(MUSICDOLL_OT_set_active_tool)
         bl_label_set(MUSICDOLL_OT_set_active_tool, "选择工具")
+        bpy.utils.register_class(MUSICDOLL_OT_set_active_tool)
     if not hasattr(bpy.types, "MUSICDOLL_MT_tool_menu"):
-        bpy.utils.register_class(MUSICDOLL_MT_tool_menu)
         bl_label_set(MUSICDOLL_MT_tool_menu, "工具")
+        bpy.utils.register_class(MUSICDOLL_MT_tool_menu)
 
 
 def unregister_scene_props():

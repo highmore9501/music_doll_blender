@@ -737,32 +737,35 @@ def register():
     bpy.types.Scene.stringflow_props = PointerProperty(
         type=StringFlowProperties)
 
-    bpy.utils.register_class(STRINGFLOW_OT_check_status)
+    # i18n：所有 bl_label_set 必须写在这里（register_class 之前）——
+    # Blender 在注册那一刻就把 bl_label 拷进类型，注册后再设 UI 不会变。
     bl_label_set(STRINGFLOW_OT_check_status, "Check Objects Status")
-    bpy.utils.register_class(STRINGFLOW_OT_setup_objects)
     bl_label_set(STRINGFLOW_OT_setup_objects, "Setup All Objects")
-    bpy.utils.register_class(STRINGFLOW_OT_save_state)
     bl_label_set(STRINGFLOW_OT_save_state, "Save State")
-    bpy.utils.register_class(STRINGFLOW_OT_load_state)
     bl_label_set(STRINGFLOW_OT_load_state, "Load State")
-    bpy.utils.register_class(STRINGFLOW_OT_export_info)
     bl_label_set(STRINGFLOW_OT_export_info, "Recorder Info Export")
-    bpy.utils.register_class(STRINGFLOW_OT_import_info)
     bl_label_set(STRINGFLOW_OT_import_info, "Recorder Info Import")
-    bpy.utils.register_class(STRINGFLOW_OT_generate_left_hand_animation)
     bl_label_set(STRINGFLOW_OT_generate_left_hand_animation, "左手动画")
-    bpy.utils.register_class(STRINGFLOW_OT_generate_right_hand_animation)
     bl_label_set(STRINGFLOW_OT_generate_right_hand_animation, "右手动画")
-    bpy.utils.register_class(STRINGFLOW_OT_generate_string_animation)
     bl_label_set(STRINGFLOW_OT_generate_string_animation, "弦动画")
-    bpy.utils.register_class(STRINGFLOW_OT_generate_all_animation)
     bl_label_set(STRINGFLOW_OT_generate_all_animation, "一键生成全部动画")
-    bpy.utils.register_class(STRINGFLOW_OT_duplicate_performer)
     bl_label_set(STRINGFLOW_OT_duplicate_performer, "复制角色")
-    bpy.utils.register_class(STRINGFLOW_OT_rename_performer)
     bl_label_set(STRINGFLOW_OT_rename_performer, "重命名当前角色")
-    bpy.utils.register_class(STRINGFLOW_PT_main_panel)
     bl_label_set(STRINGFLOW_PT_main_panel, "StringFlow")
+
+    bpy.utils.register_class(STRINGFLOW_OT_check_status)
+    bpy.utils.register_class(STRINGFLOW_OT_setup_objects)
+    bpy.utils.register_class(STRINGFLOW_OT_save_state)
+    bpy.utils.register_class(STRINGFLOW_OT_load_state)
+    bpy.utils.register_class(STRINGFLOW_OT_export_info)
+    bpy.utils.register_class(STRINGFLOW_OT_import_info)
+    bpy.utils.register_class(STRINGFLOW_OT_generate_left_hand_animation)
+    bpy.utils.register_class(STRINGFLOW_OT_generate_right_hand_animation)
+    bpy.utils.register_class(STRINGFLOW_OT_generate_string_animation)
+    bpy.utils.register_class(STRINGFLOW_OT_generate_all_animation)
+    bpy.utils.register_class(STRINGFLOW_OT_duplicate_performer)
+    bpy.utils.register_class(STRINGFLOW_OT_rename_performer)
+    bpy.utils.register_class(STRINGFLOW_PT_main_panel)
 
     # 注册本乐器工具模块（执行算子）
     from .tools import register as register_tools

@@ -666,9 +666,8 @@ _CLASSES = (
 
 def register():
     tools_register()
-    for cls in _CLASSES:
-        bpy.utils.register_class(cls)
-    # Set bl_label dynamically after registration (i18n)
+    # i18n：bl_label_set 必须写在 register_class 之前 —— Blender 在注册那一刻就把
+    # bl_label 拷进类型，注册后再设则 UI 上仍是类体里写死的中文。
     bl_label_set(WR_OT_setup_objects, "Setup Objects")
     bl_label_set(WR_OT_save_state, "保存状态")
     bl_label_set(WR_OT_load_state, "加载状态")
@@ -681,6 +680,8 @@ def register():
     bl_label_set(WR_OT_rename_performer, "重命名当前角色")
     bl_label_set(WR_OT_duplicate_performer, "复制角色")
     bl_label_set(WR_PT_main_panel, "Wind Rise")
+    for cls in _CLASSES:
+        bpy.utils.register_class(cls)
     bpy.types.Scene.md_wr_props = PointerProperty(type=WindRiseProperties)
     for attr, label, desc in (
             (SCENE_SHOW_INITIALIZATION, T("显示初始化"),

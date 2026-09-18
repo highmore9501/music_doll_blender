@@ -405,17 +405,18 @@ classes = (
 
 def register():
     """注册本工具的类与场景属性（幂等：脚本重载时不会重复注册）。"""
-    # 先注册 PropertyGroup，再注册其余类（CollectionProperty 依赖它）
-    for cls in classes:
-        bpy.utils.register_class(cls)
-
-    # 动态设置 bl_label（国际化）
+    # 动态设置 bl_label（国际化）—— 必须在 register_class 之前，
+    # 否则 Blender 已把旧 bl_label 拷进类型，UI 上切不到英文。
     bl_label_set(MUSICDOLL_OT_tool_bcm_add_mapping_entry, "添加映射项")
     bl_label_set(MUSICDOLL_OT_tool_bcm_remove_mapping_entry, "删除映射项")
     bl_label_set(MUSICDOLL_OT_tool_bcm_browse_file, "浏览文件")
     bl_label_set(MUSICDOLL_OT_tool_bcm_export_mapping, "导出映射")
     bl_label_set(MUSICDOLL_OT_tool_bcm_import_mapping, "导入映射")
     bl_label_set(MUSICDOLL_OT_tool_bcm_sync_controllers, "同步控制器")
+
+    # PropertyGroup 与其余类（CollectionProperty 依赖前者，顺序不能反）
+    for cls in classes:
+        bpy.utils.register_class(cls)
 
     # 场景属性（幂等：已存在则跳过，避免脚本重载报错）
     if not hasattr(bpy.types.Scene, SCENE_MAPPING):

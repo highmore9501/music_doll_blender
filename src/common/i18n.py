@@ -1,45 +1,90 @@
 # common/i18n.py
 """双语国际化框架 —— 根据 Blender 界面语言自动切换中文/英文。
 
-- get_lang(): 返回 'zh' 或 'en'（带模块级缓存）
+- get_lang(): 返回 'zh' 或 'en'（缓存，locale 变化时自动失效）
 - T(key): 翻译函数，根据当前语言返回对应文本
 - reset_lang(): 重置语言缓存（调试用）
 - bl_label_set(cls, key): 动态设置 bl_label（用于 register() 中）
+
+界面语言的正确读取方式（Blender 5.0 实测，旧实现两处都读错了）：
+- `bpy.context.preferences.system` **没有** `language` 属性（PreferencesSystem
+  只放音频/缓存/脚本等设置），界面语言在 `bpy.context.preferences.view.language`；
+- `bpy.app.translations_context` **不存在**（实际是 `bpy.app.translations.locale`
+  属性和 `bpy.app.translations.context()` 上下文管理器），旧代码的
+  `getattr(..., None)` 拿到 None 后短路，于是永远返回 'en'；
+- `bpy.app.translations.locale` 是「已解析」的真实语言，能处理界面语言设为
+  "Automatic / DEFAULT"（跟随系统）的情况，所以优先读它。
 """
 
 import bpy  # type: ignore
 
 
+def _read_locale() -> str:
+    """读取 Blender 当前界面语言代码（如 'zh_HANS' / 'zh_Hans' / 'en_US'）。
+
+    读不到时返回 ''。
+    """
+    # 1) 首选：已解析的实际语言（'DEFAULT' /= 跟随系统 时也能给出真实语言）
+    try:
+        loc = getattr(bpy.app.translations, "locale", "") or ""
+    except Exception:
+        loc = ""
+    if loc and loc.upper() != "DEFAULT":
+        return loc
+    # 2) 回退：用户首选项里的界面语言（可能是 'DEFAULT' = 跟随系统）
+    try:
+        loc = getattr(bpy.context.preferences.view, "language", "") or ""
+    except Exception:
+        loc = ""
+    return loc
+
+
+def _translation_enabled() -> bool:
+    """用户首选项 > 界面 > 翻译 > 界面（use_translate_interface）。
+
+    关掉时 Blender 自身界面就是英文，插件也跟着英文，保持一致。
+    """
+    try:
+        return bool(bpy.context.preferences.view.use_translate_interface)
+    except Exception:
+        return True
+
+
 def _get_language() -> str:
     """检测 Blender 当前界面语言，返回 'zh' 或 'en'。"""
-    try:
-        lang = getattr(bpy.context.preferences.system, 'language', '') or ''
-    except Exception:
-        lang = ''
-    if not lang:
-        # 回退：bpy.app.translations_context
-        ctx = getattr(bpy.app, 'translations_context', None)
-        if ctx and ctx[0]:
-            lang = ctx[0]
-    return 'zh' if lang.startswith('zh') else 'en'
+    if not _translation_enabled():
+        return "en"
+    loc = _read_locale().lower()
+    if not loc or loc == "default":
+        return "en"
+    return "zh" if loc.startswith("zh") else "en"
 
 
-# 模块级缓存
+# 模块级缓存：记录生成缓存时的 locale，语言一变就重新判定
 _lang_cache: str | None = None
+_locale_cache: str = ""
 
 
 def get_lang() -> str:
-    """获取当前语言代码（'zh' 或 'en'），结果缓存。"""
-    global _lang_cache
-    if _lang_cache is None:
+    """获取当前语言代码（'zh' 或 'en'）。
+
+    带缓存，但 locale 变化时自动失效 —— 所以在 Blender 里改界面语言后，
+    面板 draw() 内的 T() 立即生效（register() 中用 bl_label_set 固定的
+    bl_label 仍需重载插件/重启 Blender 才会变）。
+    """
+    global _lang_cache, _locale_cache
+    loc = _read_locale()
+    if _lang_cache is None or loc != _locale_cache:
+        _locale_cache = loc
         _lang_cache = _get_language()
     return _lang_cache
 
 
 def reset_lang():
     """重置语言缓存（调试用）。"""
-    global _lang_cache
+    global _lang_cache, _locale_cache
     _lang_cache = None
+    _locale_cache = ""
 
 
 def T(key: str) -> str:
@@ -55,11 +100,22 @@ def T(key: str) -> str:
 
 
 def bl_label_set(cls, key: str) -> None:
-    """在 register() 中动态设置 bl_label，确保注册时是翻译后的文本。
+    """设置翻译后的 bl_label —— **必须写在 bpy.utils.register_class(cls) 之前**。
 
-    用法：
-        bpy.utils.register_class(MyPanel)
-        bl_label_set(MyPanel, "原始标签")
+    Blender 在 `register_class()` 那一刻就把 bl_label 拷进算子/面板/菜单的类型里；
+    注册之后再改 `cls.bl_label` 只改到 Python 类属性，UI 上显示的仍是注册时的旧文本
+    （`bpy.ops.xxx.get_rna_type().name` 可以验证）。
+
+    顺序写反的典型症状：中文 Blender 下看不出问题，切到英文后某些按钮、弹窗标题
+    仍然是中文 —— 用的正是类体里写死的中文 bl_label。
+
+    正确用法::
+
+        bl_label_set(MyPanel, "原始标签")   # ← 先设
+        bpy.utils.register_class(MyPanel)   # ← 后注册
+
+    另一种等价写法是把 `bl_label = T("原始标签")` 直接写在类体里
+    （类体在 import 时求值，早于 register_class），见 key_ripple/ui.py。
     """
     cls.bl_label = T(key)
 
@@ -740,4 +796,73 @@ _DICT: dict[str, dict[str, str]] = {
     "设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）": {
         "zh": "设置失败：未找到角色 addons 目录，请先在「角色选择器」新建角色（初始化角色）",
         "en": "Setup failed: character addons directory not found, please create a new performer in Performer Selector first"},
+
+    # ═══════════════════════════════════════════════════════════
+    # 补漏（2026-08）：界面上看得见的标签/按钮
+    # ───────────────────────────────────────────────────────────
+    # 这些键原先漏在字典外，T() 会原样返回 key —— 于是"中文键"在英文界面下
+    # 显示中文、"英文键"在中文界面下显示英文。凡界面控件（bl_label /
+    # bl_label_set / text=）都必须在这里有对应条目。
+    # 命名沿用已有词条：Recorder Info → 记录器信息、人物信息 → Performer Info。
+    "当前演奏者": {"zh": "当前演奏者", "en": "Current Performer"},
+    "添加映射项": {"zh": "添加映射项", "en": "Add Mapping Entry"},
+    "导出映射": {"zh": "导出映射", "en": "Export Mapping"},
+    "导入映射": {"zh": "导入映射", "en": "Import Mapping"},
+    "同步控制器": {"zh": "同步控制器", "en": "Sync Controllers"},
+    "清理残留 state": {"zh": "清理残留 state", "en": "Clean Legacy State"},
+    "导出人物信息": {"zh": "导出人物信息", "en": "Export Performer Info"},
+    "导入人物信息": {"zh": "导入人物信息", "en": "Import Performer Info"},
+    "生成弦": {"zh": "生成弦", "en": "Create String"},
+
+    "Set": {"zh": "设置", "en": "Set"},
+    "Load": {"zh": "加载", "en": "Load"},
+    "Save": {"zh": "保存", "en": "Save"},
+    "Load Foot Rest": {"zh": "加载脚部休息位置", "en": "Load Foot Rest"},
+    "Execute BeatBloom Animation": {"zh": "执行 BeatBloom 动画", "en": "Execute BeatBloom Animation"},
+    "Export Recorder Info": {"zh": "导出记录器信息", "en": "Export Recorder Info"},
+    "Import Recorder Info": {"zh": "导入记录器信息", "en": "Import Recorder Info"},
+    "Select Animation Config": {"zh": "选择动画配置", "en": "Select Animation Config"},
+    "Generate Left Hand Animation": {"zh": "生成左手动画", "en": "Generate Left Hand Animation"},
+    "Generate Right Hand Animation": {"zh": "生成右手动画", "en": "Generate Right Hand Animation"},
+    "Generate String Animation": {"zh": "生成弦动画", "en": "Generate String Animation"},
+    "Generate Controller Root Animation": {
+        "zh": "生成控制器根动画", "en": "Generate Controller Root Animation"},
+    "Generate All Animations": {"zh": "一键生成全部动画", "en": "Generate All Animations"},
+    "capture rest offset": {"zh": "捕获 rest 偏移", "en": "capture rest offset"},
+
+    # ── 补漏：面板小标题 / 属性名 / 说明文字 ──
+    "倾斜状态": {"zh": "倾斜状态", "en": "Tilt State"},
+    "姿势": {"zh": "姿势", "en": "Pose"},
+    "动画报告": {"zh": "动画报告", "en": "Animation Report"},
+    "弦振动动画": {"zh": "弦振动动画", "en": "String Vibration Animation"},
+    "映射文件路径": {"zh": "映射文件路径", "en": "Mapping File Path"},
+    "选中的骨骼名称": {"zh": "选中的骨骼名称", "en": "Selected bone name"},
+    "对应的控制器物体名称": {"zh": "对应的控制器物体名称", "en": "Corresponding controller object name"},
+    "骨骼与控制器的映射关系列表": {
+        "zh": "骨骼与控制器的映射关系列表",
+        "en": "List of bone-to-controller mappings"},
+    "说明：清理旧版 H_rotation_* / F_rotation_* 残留键": {
+        "zh": "说明：清理旧版 H_rotation_* / F_rotation_* 残留键",
+        "en": "Note: cleans up legacy H_rotation_* / F_rotation_* leftover keys"},
+    "只保留新格式：H_L / H_R / F_L / F_R": {
+        "zh": "只保留新格式：H_L / H_R / F_L / F_R",
+        "en": "Keeps only the new format: H_L / H_R / F_L / F_R"},
+    "这个操作不会修改当前的新状态结构": {
+        "zh": "这个操作不会修改当前的新状态结构",
+        "en": "This operation does not modify the current state structure"},
+
+    "Animation Generation": {"zh": "动画生成", "en": "Animation Generation"},
+    "Avatar I/O": {"zh": "头像 I/O", "en": "Avatar I/O"},
+    "Drum component": {"zh": "鼓组件", "en": "Drum component"},
+    "Export": {"zh": "导出", "en": "Export"},
+    "Import": {"zh": "导入", "en": "Import"},
+    "Instrument": {"zh": "乐器", "en": "Instrument"},
+    "Position": {"zh": "位置", "en": "Position"},
+    "Select base position": {"zh": "选择基准位置", "en": "Select base position"},
+    "Select instrument type": {"zh": "选择乐器类型", "en": "Select instrument type"},
+    "Select left hand state": {"zh": "选择左手状态", "en": "Select left hand state"},
+    "Select right hand state": {"zh": "选择右手状态", "en": "Select right hand state"},
+    "String Amplitude": {"zh": "弦振幅", "en": "String Amplitude"},
+    "Use Vibrato Bar": {"zh": "使用颤音摇杆", "en": "Use Vibrato Bar"},
+    "MusicDoll": {"zh": "MusicDoll", "en": "MusicDoll"},
 }
