@@ -9,6 +9,7 @@ import bpy  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
+from ..common import ext_utils
 from .enums import Instruments
 
 
@@ -223,7 +224,11 @@ class BlenderObjectManager:
     # ── ext 辅助控件与 pole ───────────────────────────────────
 
     def add_finger_ext_and_poles(self):
-        """为所有手指创建 ext 辅助控件与 pole，pole 挂 ext 下"""
+        """为所有手指创建 ext 辅助控件与 pole，pole 挂对应 ext 下
+
+        例外：电吉他右手食指的 ext 就是大拇指的 `ext_T_R`（两指几乎重合，运行时不
+        驱动 ext_I_R），所以**不创建** ext_I_R，`I_R_pole` 直接挂到 `ext_T_R` 下。
+        """
         print("\n添加手指 ext 辅助控件与 pole...")
         main_collection = self._get_addons_collection()
         controllers_collection = self.get_or_create_collection(
@@ -233,14 +238,29 @@ class BlenderObjectManager:
         right_col = self.get_or_create_collection(
             "Right_Hand_Controllers", controllers_collection)
 
+        is_electric_guitar = self.instruments == Instruments.ELECTRIC_GUITAR
         for hand, collection in [("L", left_col), ("R", right_col)]:
             for finger_name in [f"T_{hand}", f"I_{hand}", f"M_{hand}", f"R_{hand}", f"P_{hand}"]:
+                # 电吉他右手食指：借大拇指的 ext_T_R，不创建自己的 ext 控件（只建 pole）
+                borrows_thumb_ext = is_electric_guitar and finger_name == "I_R"
+
                 ext_name = self.obj_name(f"ext_{finger_name}")
-                ext_obj = self.create_or_update_object(
-                    ext_name, "sphere", collection, scale=0.7)
-                finger_obj = self.obj(finger_name)
-                if finger_obj and finger_obj.parent and ext_obj.parent != finger_obj.parent:
-                    ext_obj.parent = finger_obj.parent
+                ext_obj = None
+                if not borrows_thumb_ext:
+                    ext_obj = self.create_or_update_object(
+                        ext_name, "sphere", collection, scale=0.7)
+                    finger_obj = self.obj(finger_name)
+                    if finger_obj and finger_obj.parent and ext_obj.parent != finger_obj.parent:
+                        ext_obj.parent = finger_obj.parent
+
+                # pole 宿主：借大拇指 ext 时挂 ext_T_R，其余挂自己的 ext
+                if borrows_thumb_ext:
+                    pole_host = self.obj("ext_T_R")
+                    pole_host_name = self.obj_name("ext_T_R")
+                else:
+                    pole_host = ext_obj
+                    pole_host_name = ext_name
+
                 if finger_name.startswith("T_"):
                     pole_name = self.obj_name(f"TP_{hand}")
                 else:
@@ -249,78 +269,45 @@ class BlenderObjectManager:
                 pole_obj = self.create_or_update_object(
                     pole_name, "circle", collection)
                 if pole_obj:
-                    if pole_obj.parent != ext_obj:
-                        pole_obj.parent = ext_obj
+                    if pole_host is None:
+                        print(f"  • 找不到 {pole_host_name}，{pole_name} 暂不设置父级")
+                    elif pole_obj.parent != pole_host:
+                        pole_obj.parent = pole_host
                     pole_obj.location = (0, 0, 1.0)
-                    print(f"  ✓ {pole_name} → {ext_name}")
+                    print(f"  ✓ {pole_name} → {pole_host_name}")
 
         print("  ✓ 手指 ext 辅助控件与 pole 创建完成")
 
     # ── ext 驱动 ──────────────────────────────────────────────
 
     def add_ext_drivers(self):
-        """为每个手指的 ext 辅助控件添加 location 驱动"""
+        """为每个手指的 ext 辅助控件添加位置驱动 +「+X 轴指向手掌」约束
+
+        位置基准按 Electric Guitar 的层级分别显式声明（不看场景层级猜）：
+
+        - 左手五指挂 H_L 下、右手（指弹 / bass）五指挂 H_R 下 → 手掌即父级，`2 × 手指`；
+        - 右手（电吉他）中 / 无名 / 小指挂 H_R 下 → 手掌即父级，`2 × 手指`；
+        - 右手（电吉他）拇指与手掌同挂在 controller_root_offset 下 → 手掌不是父级，
+          需要减去手掌：`2 × 手指 − 手掌`；
+        - 右手（电吉他）食指是**例外**：它与实际演奏用的大拇指几乎重合，运行时直接
+          借用大拇指的 `ext_T_R`，所以既不创建 ext_I_R（见 add_finger_ext_and_poles），
+          也不给它挂 driver / 约束；这里只清掉旧版本场景可能残留的 ext_I_R 驱动 / 约束。
+        """
         print("\n添加手指 ext 控制器驱动...")
-        for finger_name in ["T_L", "I_L", "M_L", "R_L", "P_L"]:
-            self._add_ext_driver(finger_name, None)
-
-        if self.instruments == Instruments.ELECTRIC_GUITAR:
-            self._add_ext_driver("T_R", "H_R")
-            for finger_name in ["I_R", "M_R", "R_R", "P_R"]:
-                self._add_ext_driver(finger_name, None)
-        else:
-            for finger_name in ["T_R", "I_R", "M_R", "R_R", "P_R"]:
-                self._add_ext_driver(finger_name, None)
+        is_electric_guitar = self.instruments == Instruments.ELECTRIC_GUITAR
+        for hand in ["L", "R"]:
+            for finger in ["T", "I", "M", "R", "P"]:
+                if hand == "R" and is_electric_guitar and finger == "I":
+                    # 电吉他食指：例外，不驱动 ext（复用大拇指 ext_T_R），清残留
+                    ext_utils.clear_ext_driver(self, hand, finger)
+                elif hand == "R" and is_electric_guitar and finger == "T":
+                    # 电吉他拇指：与手掌平级（同挂 controller_root_offset）→ 减手掌
+                    ext_utils.add_ext_driver(
+                        self, hand, finger, palm=f"H_{hand}", hand_is_parent=False)
+                else:
+                    # 其余手指（含指弹 / bass 的右手五指）都挂手掌下 → 手掌即原点
+                    ext_utils.add_ext_driver(self, hand, finger, hand_is_parent=True)
         print("  ✓ 手指 ext 控制器驱动设置完成")
-
-    def _add_ext_driver(self, finger_name, palm_name):
-        """为单个手指的 ext 辅助控件添加 location 驱动"""
-        ext_name = self.obj_name(f"ext_{finger_name}")
-        if self.obj_name(finger_name) not in bpy.data.objects:
-            print(f"  • 手指控制器 {finger_name} 不存在，跳过驱动")
-            return
-        if ext_name not in bpy.data.objects:
-            print(f"  • ext 控件 {ext_name} 不存在，跳过驱动")
-            return
-
-        ext_obj = bpy.data.objects[ext_name]
-        palm_obj = bpy.data.objects.get(
-            self.obj_name(palm_name)) if palm_name else None
-
-        # 清除已有的 location 驱动（保证可重复运行）
-        if ext_obj.animation_data and ext_obj.animation_data.drivers:
-            for axis_index in range(3):
-                fcurve = ext_obj.animation_data.drivers.find(
-                    "location", index=axis_index)
-                if fcurve:
-                    ext_obj.animation_data.drivers.remove(fcurve)
-
-        for axis_index, axis_char in enumerate(['X', 'Y', 'Z']):
-            driver = ext_obj.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
-
-            var_f = driver.variables.new()
-            var_f.name = "finger"
-            var_f.type = 'TRANSFORMS'
-            target_f = var_f.targets[0]
-            target_f.id = bpy.data.objects[self.obj_name(finger_name)]
-            target_f.transform_type = f'LOC_{axis_char}'
-            target_f.transform_space = 'LOCAL_SPACE'
-
-            if palm_obj is not None:
-                var_p = driver.variables.new()
-                var_p.name = "palm"
-                var_p.type = 'TRANSFORMS'
-                target_p = var_p.targets[0]
-                target_p.id = palm_obj
-                target_p.transform_type = f'LOC_{axis_char}'
-                target_p.transform_space = 'LOCAL_SPACE'
-                driver.expression = "2 * finger - palm"
-            else:
-                driver.expression = "2 * finger"
-
-        print(
-            f"  ✓ 已为 {ext_name} 添加驱动: ext = 2*{finger_name} - {palm_name}")
 
     def get_ext_controller_names(self):
         """生成所有 ext 辅助控件名称（含演奏者后缀）"""

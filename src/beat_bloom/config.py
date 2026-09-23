@@ -16,12 +16,16 @@ import bpy  # type: ignore
 
 from ..common import performer_utils as _pu
 from ..common import object_utils
+from ..common import ext_utils
 
 from .enums import LIMB_CONTROLLERS
 
 
 # 骨骼自定义属性键
 DRUMKIT_KEY = "beat_bloom_drumkit_config"
+
+# 五指短名主体（手指 / ext / pole 命名共用）
+FINGER_BASES = ["T", "I", "M", "R", "P"]
 
 
 class BeatBloomConfig:
@@ -103,7 +107,7 @@ class BeatBloomConfig:
 
     def finger_shorts_for_hand(self, hand: str) -> list[str]:
         """手缩写（L/R）→ 该手 5 个手指控制器短名，如 'L' → ['T_L','I_L','M_L','R_L','P_L']"""
-        return [f"{base}_{hand}" for base in ["T", "I", "M", "R", "P"]]
+        return [f"{base}_{hand}" for base in FINGER_BASES]
 
     def ext_short(self, finger_short: str) -> str:
         """手指短名 → ext 辅助控件短名：'T_L' → 'ext_T_L'"""
@@ -411,48 +415,15 @@ class BeatBloomConfig:
         print("  ✓ 脚部 pole target 创建完成")
 
     def add_ext_drivers(self) -> None:
-        """为每个手指的 ext 辅助控件添加 location 驱动（幂等）"""
+        """为每个手指的 ext 辅助控件添加位置驱动 +「+X 轴指向手掌」约束（幂等）
+
+        手指与 ext 都挂在手掌下（手掌就是手指的父级）→ 位置驱动 `ext = 2 × 手指`。
+        """
         print("\n添加手指 ext 控制器驱动...")
         for hand in ["L", "R"]:
-            for finger_short in self.finger_shorts_for_hand(hand):
-                self._add_ext_driver(finger_short)
+            for finger in FINGER_BASES:
+                ext_utils.add_ext_driver(self, hand, finger, hand_is_parent=True)
         print("  ✓ 手指 ext 控制器驱动设置完成")
-
-    def _add_ext_driver(self, finger_short: str) -> None:
-        """为单个手指的 ext 辅助控件添加 location 驱动：ext = 2 * finger（LOCAL_SPACE）"""
-        ext_short = self.ext_short(finger_short)
-        ext_obj = self.obj(ext_short)
-        finger_obj = self.obj(finger_short)
-        if finger_obj is None:
-            print(f"  • 手指控制器 {finger_short} 不存在，跳过驱动")
-            return
-        if ext_obj is None:
-            print(f"  • ext 控件 {ext_short} 不存在，跳过驱动")
-            return
-
-        # 清除已有的 location 驱动（保证可重复运行）
-        if ext_obj.animation_data and ext_obj.animation_data.drivers:
-            for axis_index in range(3):
-                fcurve = ext_obj.animation_data.drivers.find(
-                    "location", index=axis_index)
-                if fcurve:
-                    ext_obj.animation_data.drivers.remove(fcurve)
-
-        for axis_index, axis_char in enumerate(['X', 'Y', 'Z']):
-            driver = ext_obj.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
-
-            var_f = driver.variables.new()
-            var_f.name = "finger"
-            var_f.type = 'TRANSFORMS'
-            target_f = var_f.targets[0]
-            target_f.id = finger_obj
-            target_f.transform_type = f'LOC_{axis_char}'
-            target_f.transform_space = 'LOCAL_SPACE'
-            driver.expression = "2 * finger"
-
-        print(
-            f"  ✓ 已为 {self.obj_name(ext_short)} 添加驱动: ext = 2*{finger_short}")
 
     def _organize_performer_root(self) -> None:
         """把 BeatBloom 的 controller_root 挂到音乐人根对象 BB_<suffix> 上。"""

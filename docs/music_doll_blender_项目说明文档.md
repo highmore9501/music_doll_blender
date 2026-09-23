@@ -88,6 +88,7 @@ music_doll_blender/
 │   │   ├── performer_utils.py    # 演奏者命名空间（核心）
 │   │   ├── instrument_base.py    # 统一属性键 / 乐器缩写前缀映射
 │   │   ├── object_utils.py       # 集合/物体幂等创建
+│   │   ├── ext_utils.py          # ext 辅助控件通用构建（位置驱动 + 指向手掌约束）
 │   │   ├── state_io.py           # 状态存取（对象↔字典 / 骨骼自定义属性）
 │   │   ├── io_utils.py           # JSON 读写 / Unreal 坐标转换
 │   │   ├── animation_utils.py    # 动画通用工具（fcurve / shape key / driver）
@@ -288,7 +289,21 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 - `parent_to(parent_obj, child_obj)`：挂父子（保持世界位置不变）；
 - `zero_local_transform(obj)` / `parent_and_zero_local(parent, child)` / `copy_transform_from(src, dst)`：transform 工具。
 
-### 4.4 state_io.py —— 状态存取
+### 4.4 ext_utils.py —— ext 辅助控件通用构建
+
+职责：所有乐器共用的 ext 辅助控件逻辑——位置驱动（把 ext 放在「手掌 → 手指」的延长线上）+ 朝向约束（Damped Track 锁 `+X` 轴恒指向手掌）。各乐器模块**只提供命名解析 `obj_name(short)`**，其余全部由公共方法完成。
+
+- 命名约定（与 Unreal 端一致）：手指短名 `<finger>_<hand>`、手掌 `H_<hand>`、ext `ext_<finger>_<hand>`（数字手指名的乐器传 `'0'`~`'N'`）；
+- `add_ext_driver(config, hand, finger, palm, hand_is_parent)`：位置基准与朝向目标都由调用方**显式声明，不按场景层级推断**（父级只是 ext 的坐标空间，不等于手掌）：
+  - `hand_is_parent=True`：手掌就是该手指的父级 → 手掌即 ext 局部空间原点，`ext = 2 × 手指`；
+  - `hand_is_parent=False` + `palm='H_<hand>'`：手指与手掌同挂在某个父级下 → `ext = 2 × 手指 − 手掌`；
+  - `palm=None`：该手指不做手掌减法（FretDance 电吉他食指挂在大拇指 `T_R` 下，局部空间不一致，只能以自己父级的原点为基准）→ `ext = 2 × 手指`；
+  - 朝向约束目标恒为该手的**手掌控制器** `H_<hand>`——绝不从父级推导（电吉他食指的父级是大拇指，不是手掌）；
+  - 先清后建：location 驱动（XYZ 各一条、变量取 LOCAL_SPACE）与 `DAMPED_TRACK` 约束都先清再建，重复 Setup / 复制 / 重命名后重建都不叠加；
+- `clear_ext_location_drivers(ext_obj)` / `ensure_damped_track(obj, target_obj, track_axis='TRACK_X')`：拆出来的两个可复用步骤（约束名 `Damped_Track_Palm`，按类型先清后建）；
+- `clear_ext_driver(config, hand, finger)`：该手指**不用** ext 控件时改调它（FretDance 电吉他右手食指与实际演奏用的大拇指几乎重合，运行时直接借用大拇指的 `ext_T_R`）——清掉位置驱动与 `DAMPED_TRACK`、不新建，保证切换乐器类型（电吉他 ↔ 指弹）/ 重复 Setup 后不留残留。
+
+### 4.5 state_io.py —— 状态存取
 
 职责：所有乐器共用的状态存取（对应各乐器插件的 state_transfer / state_manager）。
 
@@ -298,7 +313,7 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 - `get_bone_attr` / `set_bone_attr`：任意标量/字符串属性读写；
 - `load_settings` / `save_settings`：演奏者通用设置存骨骼 JSON 键 `md_settings`（可被乐器模块覆盖或沿用）。
 
-### 4.5 io_utils.py —— JSON 读写 / Unreal 坐标转换
+### 4.6 io_utils.py —— JSON 读写 / Unreal 坐标转换
 
 职责：所有乐器共用的 JSON 文件读写、扩展名处理、嵌套字典工具，以及 **Blender ↔ Unreal 坐标转换**。
 
@@ -310,7 +325,7 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 
 > 各乐器"导出到 Unreal"按钮即 `for_unreal=True` 调用这两函数（坐标转换细节与 ×100 缩放的说明见第 8.2 节）。
 
-### 4.6 animation_utils.py —— 动画通用工具
+### 4.7 animation_utils.py —— 动画通用工具
 
 职责：所有乐器共用的动画写入与清理（对应各乐器插件的 make_animation 里的通用部分）。
 
@@ -322,7 +337,7 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 - `clear_all_keyframe(collection_names, exclude_names, suffix)`：清除关键帧（按演奏者后缀过滤，多演奏者隔离）；
 - `clear_all_keyframe_preserve_drivers(...)`：**清除关键帧但保留驱动器**（备份 → 清空 → 恢复），用于需要保留目标物体上驱动器的场景——迁移指南明确要求清动画时用此函数，逐对象 `animation_data_clear()` 会毁掉 ext / Middle_Hand 的 driver。
 
-### 4.7 ui_utils.py —— 统一 UI / 主面板
+### 4.8 ui_utils.py —— 统一 UI / 主面板
 
 职责：对应 Unreal MusicDollUI 的演奏者选择器。提供统一主面板与全部公共 UI 组件。
 
@@ -362,7 +377,7 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 
 **角色生成器算子 `MUSICDOLL_OT_create_performer`**：`music_doll.create_performer`。Blender 5.0 的 Operator 不支持 PointerProperty，因此骨骼/乐器物体复用场景级指针属性（在弹窗里直接编辑）。名字校验：仅 ASCII 字母数字且字母开头（拒绝中文）。
 
-### 4.8 common/tools/ —— 公共工具
+### 4.9 common/tools/ —— 公共工具
 
 **ToolDef**（dataclass）：工具的元信息（id / label / operator / icon / 可选 draw 参数区）。`find_tool(tools, tool_id)` 按 id 查找。
 
@@ -479,7 +494,7 @@ class ToolDef:
 - 左手：手掌 `H_L`、IK 枢轴 `HP_L`、拇指 `T_L`（归手掌类，不参与演奏）、手指 `I_L`/`M_L`/`R_L`/`P_L`；
 - 右手：手掌 `H_R`、IK 枢轴 `HP_R`、拇指 `T_R` + 四指 `I_R`/`M_R`/`R_R`/`P_R`（右手大拇指参与演奏）；
 - 指板位置标记：`Fret_P0` ~ `Fret_P4`（物理物体，用户可移动）；
-- 控制器层级 → `controller_root_offset` → `controller_root`；手指 IK/pole、ext driver（有 palm 时 `2×手指 − 手掌`，无 palm 时 `2×手指`，LOCAL_SPACE，先清后建幂等）。
+- 控制器层级 → `controller_root_offset` → `controller_root`；手指 IK/pole、ext 由 `common.ext_utils.add_ext_driver` 统一处理（`hand_is_parent=True` 时 `2×手指`；电吉他拇指与手掌平级 → `hand_is_parent=False` + `palm='H_R'`，用 `2×手指 − 手掌`；LOCAL_SPACE，先清后建幂等），并加 Damped Track 约束锁 `+X` 轴恒指向手掌 `H_L`/`H_R`。**电吉他右手食指是例外**：与实际演奏用的大拇指几乎重合，运行时直接借用大拇指的 `ext_T_R`——**不创建** `ext_I_R`（旧场景残留的驱动 / 约束由 `clear_ext_driver` 清掉），`I_R_pole`（名字不变、局部偏移 `(0,0,1)`）挂到 `ext_T_R` 下，与 `TP_R` 同级。
 
 **状态模型**（存骨骼 `fret_dance_controller_data`）：
 
@@ -507,7 +522,7 @@ class ToolDef:
 **控制器布局**：
 
 - 手指控制器：`0_L`~`(N-1)_L` + `N_R`~`(2N-1)_R`（`one_hand_finger_number` 每手手指数，默认 5）；
-- 手掌/枢轴：`H_L` / `HP_L` / `H_R` / `HP_R`；ext（`2×手指` driver）+ pole；`Mid_Hand`（世界中点 driver）、`Head_Control`；
+- 手掌/枢轴：`H_L` / `HP_L` / `H_R` / `HP_R`；ext（`2×手指` driver + Damped Track 约束锁 `+X` 轴指向同侧手掌）+ pole；`Mid_Hand`（世界中点 driver）、`Head_Control`；
 - 键盘基准点：`black_key` / `highest_white_key` / `lowest_white_key` / `lowest_white_key_end` / `normal_hand_expand_position` / `wide_expand_hand_position`（物理 Empty）。
 
 **状态模型**（存骨骼 `key_ripple_state_data`，JSON 数组）：
@@ -534,7 +549,7 @@ class ToolDef:
 
 **控制器布局**：
 
-- 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称）+ 各手指 `*_pole` 极向量 + `ext_*`（`ext = 2×手指` driver，LOCAL_SPACE）；
+- 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称）+ 各手指 `*_pole` 极向量 + `ext_*`（`ext = 2×手指` driver，LOCAL_SPACE；另加 Damped Track 约束锁 `+X` 轴指向手掌）；
 - 双脚：`F_L` / `F_R` + `F_L_pole` / `F_R_pole`；
 - 特殊朝向：`Middle_Hand`（H_L/H_R 世界中点 driver，WORLD_SPACE）、`Look_At`（挂 Middle_Hand）、`Head_Control`（世界对象 + TrackTo Look_At）；
 - 双线性辅助：`Middle_Hand_A~D` / `Head_Control_A~D`（四态驱动，`bilinear_map` 注册进 `bpy.app.driver_namespace`）；
@@ -565,7 +580,7 @@ class ToolDef:
 **控制器布局**：
 
 - 基础控件 9 个：手掌 `H_L`/`H_R`、IK Pivot `HP_L`/`HP_R`、脚部 `F_L`/`F_R`、特殊朝向 `Middle_Hand`（实时计算中点）/`Look_At`（挂 Middle_Hand）/`Head_Control`（TrackTo）；
-- 辅助控件（仅创建/驱动，**不参与 save/load/export/import 数据传递**）：左右手五指 `T/I/M/R/P_L/R` + ext（挂手掌）+ 各手指 pole（拇指 `TP_L/TP_R`，其余 `<手指>_pole`）、左右脚 pole `FP_L`/`FP_R`。
+- 辅助控件（仅创建/驱动，**不参与 save/load/export/import 数据传递**）：左右手五指 `T/I/M/R/P_L/R` + ext（挂手掌，`2×手指` driver + Damped Track 约束锁 `+X` 轴指向手掌）+ 各手指 pole（拇指 `TP_L/TP_R`，其余 `<手指>_pole`）、左右脚 pole `FP_L`/`FP_R`。
 
 **状态模型**（存骨骼 `beat_bloom_state_data`，`beat_bloom_drumkit_config` 存鼓组配置）：
 
@@ -591,7 +606,7 @@ class ToolDef:
 **控制器布局**：
 
 - 身体：`Head`、`Shoulder_Harp`（挂 harp_pivot）；
-- 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称），**手指挂 H_L/H_R**（与 wind_rise 不同）、ext（`2×手指`，LOCAL_SPACE）+ pole；
+- 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称），**手指挂 H_L/H_R**（与 wind_rise 不同）、ext（`2×手指`，LOCAL_SPACE；另加 Damped Track 约束锁 `+X` 轴指向手掌）+ pole；
 - 脚部：`F_L`/`F_R` + `FP_L`/`FP_R`；
 - 视线辅助：`Mid_Hand`（世界中点 driver，不挂 controller_root）、`Look_At`（挂 Mid_Hand）；
 - 竖琴支点：`harp_pivot`（挂 controller_root）；
@@ -623,7 +638,7 @@ class ToolDef:
 **控制器布局**：
 
 - 骨架：`controller_root`（挂演奏者根）→ `controller_root_offset`（乐器绑在此）；
-- 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称），**手指挂 controller_root_offset**、ext（`2×手指`，LOCAL_SPACE）+ pole；
+- 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称），**手指挂 controller_root_offset**、ext（`2×手指`，LOCAL_SPACE；另加 Damped Track 约束锁 `+X` 轴指向手掌）+ pole；
 - 脚部：`F_L`/`F_R` + `FP_L`/`FP_R`（挂演奏者根）；
 - 头部：`Head_Control`（挂 controller_root）；呼吸：`Breath_Control`（挂演奏者根，存根）；
 - 无弦/键位置标记 → 无需 Recorders 集合。
@@ -653,7 +668,7 @@ class ToolDef:
 - 其他控制器：`String_Touch_Point`（触弦点）、`Bow_Controller`（琴弓）；
 - 脚部 IK / pole（仅创建，**不参与任何数据传递与计算**，与 controller_root 同级：**不挂 controller_root**，挂演奏者根/保持世界对象）：`F_L`/`F_R` + `FP_L`/`FP_R`（pole 空环）；
 - ext / pole：`ext_{手指}`、`{手指}_pole`（空环）；
-- **ext 约束**（driver，先清后建幂等）：左手 `ext = 2×手指`（H_L 局部空间，手指/手掌同为 H_L 子级，手掌即原点）；右手 `ext = 2×手指 − 手掌`（Bow_Controller 局部空间，手指与手掌 H_R 同为弓子级，确保 ext 位于"手掌→手指"延长线上；注释注明已取代早期两个 Copy Location 世界坐标约束的方案）；
+- **ext 约束**（driver + Damped Track，均先清后建幂等）：左手 `ext = 2×手指`（H_L 局部空间，手指/手掌同为 H_L 子级，手掌即原点）；右手 `ext = 2×手指 − 手掌`（Bow_Controller 局部空间，手指与手掌 H_R 同为弓子级，确保 ext 位于"手掌→手指"延长线上；注释注明已取代早期两个 Copy Location 世界坐标约束的方案）；两侧 ext 都再加 Damped Track 约束，让 ext 的 `+X` 轴恒指向手掌 H_L / H_R（挂 ext 下的 pole 因此恒在手指轴的垂直方向上）；
 - 物理位置标记（17 个，挂 controller_root）：`position_s{i}_f0/f12`、`mid_s{i}` / `f9_s{i}`（driver 中点）、`middle_fret_board_position`（**三点定平面第三点**，Rust 端与琴弦工具共用）。
 
 **状态模型**（存骨骼 `string_flow_state_data`）：
@@ -743,7 +758,8 @@ class ToolDef:
 7. **坐标空间陷阱**：父级化后 `.location` 变局部坐标——中点类 driver 用 WORLD_SPACE，同父级相对量（`ext = 2×手指`）用 LOCAL_SPACE；
 8. **Blender 5.0 特性**：`bpy.types.Collection` 无 `.parent`（通过遍历反查父子）；Operator 不支持 PointerProperty（复用场景级指针属性）；EnumProperty items 回调 default 用整数索引；注册保护用 RNA 名（`MUSIC_DOLL_OT_create_performer` 带下划线）；
 9. **中文编码 bug**：Blender 5.0 场景枚举可能残留坏字节抛 UnicodeDecodeError，读取时捕获并自愈；枚举项跳过非 ASCII 名字；
-10. **弃用工具不迁移**：MMD 相关（mmd2blender）、Daz Rig、波形生成、着色器脚本等未出现在插件界面上的工具一律不迁移。
+10. **弃用工具不迁移**：MMD 相关（mmd2blender）、Daz Rig、波形生成、着色器脚本等未出现在插件界面上的工具一律不迁移；
+11. **ext 辅助控件的固定姿态**：位置由 `common.ext_utils.add_ext_driver(config, hand, finger, palm, hand_is_parent)` 统一添加的 driver 放在「手掌 → 手指」延长线上（`2 × 手指` 或 `2 × 手指 − 手掌`，由调用方显式声明的 `hand_is_parent` / `palm` 决定——**不按层级推断**，电吉他食指的父级是大拇指而非手掌）；朝向由同一函数添加的 Damped Track 约束锁成「`+X` 轴恒指向手掌 `H_<hand>`」。各乐器只在自己的 `add_ext_drivers` 里按手指清单调用它（Setup / 复制 / 重命名收尾重建都走这条路，自动带上新后缀目标）；某手指不用 ext 控件时（FretDance 电吉他食指，运行时借用大拇指的 `ext_T_R`）改调 `clear_ext_driver`，不挂 driver / 约束。挂 ext 下的 pole（局部 `(0, 0, 1)`）因此恒位于手指轴的垂直方向，IK 极向量不会退化到手指轴上；约束只锁指向轴，绕轴滚转仍由用户旋转 ext 决定。
 
 ### 10.2 迁移工程约定（新增乐器时）
 

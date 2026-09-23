@@ -5,6 +5,7 @@ import bpy  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
+from ..common import ext_utils
 from ..common import instrument_base
 from .enums import (
     HANDS,
@@ -187,52 +188,16 @@ class WindRiseConfig:
     # ── ext driver ────────────────────────────────────────────
 
     def add_ext_drivers(self):
-        """为所有 ext 辅助控件添加 2×手指-手掌 的位置驱动（LOCAL_SPACE，幂等）。"""
+        """为所有 ext 辅助控件添加位置驱动 +「+X 轴指向手掌」约束（幂等）
+
+        手指与手掌 H_L/H_R 同为 controller_root_offset 子级（手掌不是手指的父级）
+        → 位置驱动 `ext = 2 × 手指 − 手掌`；朝向由 Damped Track 约束锁成
+        「+X 轴指向同侧手掌」。
+        """
         for hand in HANDS:
-            palm_short = f"H_{hand}"
-            palm_obj = self.obj(palm_short)
             for base in FINGER_CONTROLLER_BASES:
-                finger_short = f"{base}_{hand}"
-                self._add_single_ext_driver(finger_short, palm_obj)
-
-    def _add_single_ext_driver(self, finger_short: str, palm_obj) -> None:
-        ext_short = f"ext_{finger_short}"
-        finger_obj = self.obj(finger_short)
-        ext_obj = self.obj(ext_short)
-        if finger_obj is None or ext_obj is None:
-            return
-
-        # 先清除已有的 location driver（幂等）
-        if ext_obj.animation_data and ext_obj.animation_data.drivers:
-            for axis_index in range(3):
-                fc = ext_obj.animation_data.drivers.find(
-                    "location", index=axis_index)
-                if fc:
-                    ext_obj.animation_data.drivers.remove(fc)
-
-        for axis_index, axis_char in enumerate(["X", "Y", "Z"]):
-            driver = ext_obj.driver_add("location", axis_index).driver
-            driver.type = "SCRIPTED"
-
-            var_f = driver.variables.new()
-            var_f.name = "finger"
-            var_f.type = "TRANSFORMS"
-            target_f = var_f.targets[0]
-            target_f.id = finger_obj
-            target_f.transform_type = f"LOC_{axis_char}"
-            target_f.transform_space = "LOCAL_SPACE"
-
-            if palm_obj is not None:
-                var_p = driver.variables.new()
-                var_p.name = "palm"
-                var_p.type = "TRANSFORMS"
-                target_p = var_p.targets[0]
-                target_p.id = palm_obj
-                target_p.transform_type = f"LOC_{axis_char}"
-                target_p.transform_space = "LOCAL_SPACE"
-                driver.expression = "2 * finger - palm"
-            else:
-                driver.expression = "2 * finger"
+                ext_utils.add_ext_driver(self, hand, base, palm=f"H_{hand}",
+                                         hand_is_parent=False)
 
     # ── setup_all_objects ─────────────────────────────────────
 

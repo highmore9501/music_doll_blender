@@ -27,6 +27,7 @@ import bpy  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
+from ..common import ext_utils
 
 from .enums import ObjectType, LeftHandPositionType, RightHandPositionType, CheckResult
 
@@ -322,127 +323,29 @@ class StringFlowConfig:
                 print(f"  ✓ {pole_name} → {ext_name}")
 
     def add_ext_drivers(self) -> None:
-        """左手 ext driver（2×手指，H_L 局部空间）+ 右手 ext driver（2×手指−手掌，Bow 局部空间）"""
+        """为左右手 ext 辅助控件添加位置驱动 +「+X 轴指向手掌」约束（幂等）
+
+        - 左手：手指挂 H_L 下（手掌就是手指的父级）→ `ext = 2 × 手指`；
+        - 右手：手指与手掌 H_R 同为 Bow_Controller 子级（手掌不是父级）
+          → `ext = 2 × 手指 − 手掌`，确保 ext 位于"手掌 → 手指"的延长线上
+          （取代 v0.4 的两个 Copy Location 世界坐标约束）；
+        两侧朝向都由 Damped Track 约束锁成「+X 轴指向手掌 H_L / H_R」。
+        """
         print("\n添加手指 ext 控制器驱动...")
 
-        # 左手：手指为手掌子级，ext 在 H_L 局部空间 = 2 * 手指（driver）
+        # 左手：手指为 H_L 子级，手掌即 H_L 局部空间的原点
         for finger_number in range(1, self.one_hand_finger_number + 1):
-            self._add_ext_driver(f"{finger_number}_L")
-        self._add_ext_driver("T_L")
+            ext_utils.add_ext_driver(self, "L", str(finger_number),
+                                     hand_is_parent=True)
+        ext_utils.add_ext_driver(self, "L", "T", hand_is_parent=True)
 
-        # 右手：手指/手掌同为 Bow 子级，ext 在 Bow 局部空间 = 2 * 手指 - 手掌（driver）
+        # 右手：手指/手掌同为 Bow_Controller 子级，要减去手掌位置
         for finger_number in range(1, self.one_hand_finger_number + 1):
-            self._add_ext_driver_right(f"{finger_number}_R")
-        self._add_ext_driver_right("T_R")
+            ext_utils.add_ext_driver(self, "R", str(finger_number),
+                                     palm="H_R", hand_is_parent=False)
+        ext_utils.add_ext_driver(self, "R", "T", palm="H_R", hand_is_parent=False)
 
         print("  ✓ 手指 ext 控制器驱动设置完成")
-
-    def _add_ext_driver(self, finger_name: str) -> None:
-        """为单个左手手指的 ext 辅助控件添加 location 驱动（先清后建，幂等）。
-
-        左手：手指为 H_L 子级，ext 与手指同级（也挂 H_L 下），
-        在 H_L 局部空间里手掌即原点，表达式 ext = 2 * 手指（局部坐标）。
-        """
-        ext_full = self.obj_name(f"ext_{finger_name}")
-        finger_full = self.obj_name(finger_name)
-
-        if finger_full not in bpy.data.objects:
-            print(f"  • 手指控制器 {finger_full} 不存在，跳过驱动")
-            return
-        if ext_full not in bpy.data.objects:
-            print(f"  • ext 控件 {ext_full} 不存在，跳过驱动")
-            return
-
-        ext_obj = bpy.data.objects[ext_full]
-
-        # 清除已有的 location 驱动（保证可重复运行）
-        if ext_obj.animation_data and ext_obj.animation_data.drivers:
-            for axis_index in range(3):
-                fcurve = ext_obj.animation_data.drivers.find(
-                    "location", index=axis_index)
-                if fcurve:
-                    ext_obj.animation_data.drivers.remove(fcurve)
-
-        # 为 XYZ 三个轴分别添加驱动
-        for axis_index, axis_char in enumerate(['X', 'Y', 'Z']):
-            driver = ext_obj.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
-
-            var_f = driver.variables.new()
-            var_f.name = "finger"
-            var_f.type = 'TRANSFORMS'
-            target_f = var_f.targets[0]
-            target_f.id = bpy.data.objects[finger_full]
-            target_f.transform_type = f'LOC_{axis_char}'
-            target_f.transform_space = 'LOCAL_SPACE'
-
-            # 左手：手指为 H_L 子级，ext 在 H_L 局部空间里手掌即原点
-            driver.expression = "2 * finger"
-
-        print(f"  ✓ 已为 {ext_full} 添加驱动: 2 * {finger_full}（H_L 局部空间）")
-
-    def _add_ext_driver_right(self, finger_name: str) -> None:
-        """为单个右手手指的 ext 辅助控件添加 location 驱动（先清后建，幂等）。
-
-        右手：手指与手掌 H_R 同为 Bow_Controller 子级，ext 与手指同级（也挂
-        Bow_Controller 下），在 Bow 局部空间里 ext = 2 * 手指 - 手掌（局部坐标
-        driver），确保 ext 位于"手掌 → 手指"的延长线上（与左手 2*finger 同构，
-        仅多一个手掌变量；取代 v0.4 的两个 Copy Location 世界坐标约束）。
-        """
-        ext_full = self.obj_name(f"ext_{finger_name}")
-        finger_full = self.obj_name(finger_name)
-        palm_full = self.obj_name("H_R")
-
-        if finger_full not in bpy.data.objects:
-            print(f"  • 手指控制器 {finger_full} 不存在，跳过驱动")
-            return
-        if ext_full not in bpy.data.objects:
-            print(f"  • ext 控件 {ext_full} 不存在，跳过驱动")
-            return
-        if palm_full not in bpy.data.objects:
-            print(f"  • 手掌控制器 {palm_full} 不存在，跳过驱动")
-            return
-
-        ext_obj = bpy.data.objects[ext_full]
-
-        # 清除已有的约束与 location 驱动（保证可重复运行）
-        for c in list(ext_obj.constraints):
-            ext_obj.constraints.remove(c)
-        if ext_obj.animation_data and ext_obj.animation_data.drivers:
-            for axis_index in range(3):
-                fcurve = ext_obj.animation_data.drivers.find(
-                    "location", index=axis_index)
-                if fcurve:
-                    ext_obj.animation_data.drivers.remove(fcurve)
-
-        # 为 XYZ 三个轴分别添加驱动
-        for axis_index, axis_char in enumerate(['X', 'Y', 'Z']):
-            driver = ext_obj.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
-
-            # 手指位置变量（Bow 局部空间）
-            var_f = driver.variables.new()
-            var_f.name = "finger"
-            var_f.type = 'TRANSFORMS'
-            target_f = var_f.targets[0]
-            target_f.id = bpy.data.objects[finger_full]
-            target_f.transform_type = f'LOC_{axis_char}'
-            target_f.transform_space = 'LOCAL_SPACE'
-
-            # 手掌位置变量（Bow 局部空间）
-            var_p = driver.variables.new()
-            var_p.name = "palm"
-            var_p.type = 'TRANSFORMS'
-            target_p = var_p.targets[0]
-            target_p.id = bpy.data.objects[palm_full]
-            target_p.transform_type = f'LOC_{axis_char}'
-            target_p.transform_space = 'LOCAL_SPACE'
-
-            # 右手：手指/手掌同为 Bow 子级，ext 在 Bow 局部空间 = 2*finger - palm
-            driver.expression = "2 * finger - palm"
-
-        print(
-            f"  ✓ 已为 {ext_full} 添加驱动: 2 * {finger_full} - {palm_full}（Bow 局部空间）")
 
     def get_ext_controller_names(self) -> list:
         """生成所有 ext 辅助控件名称（与手指同级）"""

@@ -20,6 +20,7 @@ from mathutils import Vector  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
+from ..common import ext_utils
 
 from .enums import (
     LeftHandAction, RightHandAction, HandPosition, ObjectType, CheckResult,
@@ -348,49 +349,16 @@ class ZhengConfig:
     # ── ext 驱动 ────────────────────────────────────────────
 
     def add_ext_drivers(self) -> None:
-        """为每个手指的 ext 辅助控件添加 driver（ext.local = 2 * 手指.local）"""
+        """为每个手指的 ext 辅助控件添加位置驱动 +「+X 轴指向手掌」约束（幂等）
+
+        手指与 ext 都挂在同侧手掌下（手掌就是手指的父级）→ 位置驱动 `2 × 手指`，
+        朝向由 Damped Track 约束锁成「+X 轴指向同侧手掌」。
+        """
         print("\n添加手指 ext 控制器驱动...")
-        left_fingers = ["T_L", "I_L", "M_L", "R_L", "P_L"]
-        right_fingers = ["T_R", "I_R", "M_R", "R_R", "P_R"]
-        for finger_name in left_fingers + right_fingers:
-            self._add_ext_driver(finger_name)
+        for hand in ["L", "R"]:
+            for finger in ["T", "I", "M", "R", "P"]:
+                ext_utils.add_ext_driver(self, hand, finger, hand_is_parent=True)
         print("  ✓ 手指 ext 控制器驱动设置完成")
-
-    def _add_ext_driver(self, finger_name: str) -> None:
-        """为单个手指的 ext 辅助控件添加 location 驱动"""
-        ext_name = self.obj_name(f"ext_{finger_name}")
-        full_ctrl = self.obj_name(finger_name)
-
-        if full_ctrl not in bpy.data.objects:
-            print(f"  • 手指控制器 {full_ctrl} 不存在，跳过驱动")
-            return
-        if ext_name not in bpy.data.objects:
-            print(f"  • ext 控件 {ext_name} 不存在，跳过驱动")
-            return
-
-        ext_obj = bpy.data.objects[ext_name]
-
-        # 清除已有的 location 驱动（保证可重复运行）
-        if ext_obj.animation_data and ext_obj.animation_data.drivers:
-            for axis_index in range(3):
-                fcurve = ext_obj.animation_data.drivers.find(
-                    "location", index=axis_index)
-                if fcurve:
-                    ext_obj.animation_data.drivers.remove(fcurve)
-
-        for axis_index, axis_char in enumerate(['X', 'Y', 'Z']):
-            driver = ext_obj.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
-            var_f = driver.variables.new()
-            var_f.name = "finger"
-            var_f.type = 'TRANSFORMS'
-            target_f = var_f.targets[0]
-            target_f.id = bpy.data.objects[full_ctrl]
-            target_f.transform_type = f'LOC_{axis_char}'
-            target_f.transform_space = 'LOCAL_SPACE'
-            driver.expression = "2 * finger"
-
-        print(f"  ✓ 已为 {ext_name} 添加驱动: 2 * {full_ctrl}")
 
     # ── 记录器创建 ──────────────────────────────────────────
 

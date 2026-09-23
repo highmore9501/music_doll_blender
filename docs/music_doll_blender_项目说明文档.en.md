@@ -88,6 +88,7 @@ music_doll_blender/
 │   │   ├── performer_utils.py    # Performer namespace (core)
 │   │   ├── instrument_base.py    # Unified attribute keys / instrument prefix mapping
 │   │   ├── object_utils.py       # Idempotent collection/object creation
+│   │   ├── ext_utils.py          # Shared ext helper controls (location driver + palm-aim constraint)
 │   │   ├── state_io.py           # State storage (object↔dict / bone custom properties)
 │   │   ├── io_utils.py           # JSON I/O / Unreal coordinate conversion
 │   │   ├── animation_utils.py    # Animation utilities (fcurve / shape key / driver)
@@ -288,7 +289,21 @@ Responsibility: collection creation, object create/update, object moving shared 
 - `parent_to(parent_obj, child_obj)`: parents (keeping world position);
 - `zero_local_transform(obj)` / `parent_and_zero_local(parent, child)` / `copy_transform_from(src, dst)`: transform utilities.
 
-### 4.4 state_io.py — state storage
+### 4.4 ext_utils.py — shared ext helper controls
+
+Responsibility: the ext helper-control logic shared by every instrument — the location driver (which puts ext on the "palm → finger" extension line) plus the orientation constraint (a Damped Track locking the `+X` axis toward the palm). Each instrument module only supplies name resolution `obj_name(short)`; everything else lives here.
+
+- Naming convention (matching the Unreal side): finger short name `<finger>_<hand>`, palm `H_<hand>`, ext `ext_<finger>_<hand>` (numeric-finger instruments pass `'0'`~`'N'`);
+- `add_ext_driver(config, hand, finger, palm, hand_is_parent)`: both the position basis and the aim target are **declared explicitly by the caller and never inferred from the scene hierarchy** (a parent is just ext's coordinate space, not the palm):
+  - `hand_is_parent=True`: the palm is the finger's parent → the palm is the origin of ext's local space, `ext = 2 × finger`;
+  - `hand_is_parent=False` + `palm='H_<hand>'`: finger and palm are siblings under some parent → `ext = 2 × finger − palm`;
+  - `palm=None`: this finger does no palm subtraction (the FretDance electric-guitar index finger hangs under the thumb `T_R`; the local spaces differ, so its own parent's origin is the only usable basis) → `ext = 2 × finger`;
+  - the constraint target is always that hand's **palm controller** `H_<hand>` — never derived from the parent (the electric-guitar index finger's parent is the thumb, not the palm);
+  - cleared-then-rebuilt: both the location drivers (one per XYZ axis, variables in LOCAL_SPACE) and the `DAMPED_TRACK` constraint are cleared before being rebuilt, so repeated setup / duplicate / rename rebuilds never stack up;
+- `clear_ext_location_drivers(ext_obj)` / `ensure_damped_track(obj, target_obj, track_axis='TRACK_X')`: the two reusable steps (constraint name `Damped_Track_Palm`, removed by type before rebuilding);
+- `clear_ext_driver(config, hand, finger)`: used when a finger does **not** use its ext control at all (the FretDance electric-guitar right index finger is almost coincident with the playing thumb and borrows the thumb's `ext_T_R` at runtime) — removes the location driver and the `DAMPED_TRACK` constraint without adding anything, so switching instrument type (electric guitar ↔ fingerstyle) or re-running setup leaves no leftovers.
+
+### 4.5 state_io.py — state storage
 
 Responsibility: state storage shared by all instruments (the equivalent of each add-on's state_transfer / state_manager).
 
@@ -298,7 +313,7 @@ Responsibility: state storage shared by all instruments (the equivalent of each 
 - `get_bone_attr` / `set_bone_attr`: any scalar/string attribute read/write;
 - `load_settings` / `save_settings`: shared performer settings stored under the skeleton JSON key `md_settings` (instruments may override or reuse).
 
-### 4.5 io_utils.py — JSON I/O / Unreal coordinate conversion
+### 4.6 io_utils.py — JSON I/O / Unreal coordinate conversion
 
 Responsibility: JSON file read/write, extension handling, nested-dict utilities shared by all instruments, and the **Blender ↔ Unreal coordinate conversion**.
 
@@ -310,7 +325,7 @@ Responsibility: JSON file read/write, extension handling, nested-dict utilities 
 
 > Each instrument's "Export to Unreal" button calls these functions with `for_unreal=True` (see §8.2 for coordinate conversion details and the ×100 scale note).
 
-### 4.6 animation_utils.py — animation utilities
+### 4.7 animation_utils.py — animation utilities
 
 Responsibility: animation writing and clearing shared by all instruments (the common part of each add-on's make_animation).
 
@@ -322,7 +337,7 @@ Responsibility: animation writing and clearing shared by all instruments (the co
 - `clear_all_keyframe(collection_names, exclude_names, suffix)`: clear keyframes (filtered by performer suffix for multi-performer isolation);
 - `clear_all_keyframe_preserve_drivers(...)`: **clear keyframes but preserve drivers** (backup → clear → restore), for scenes that need to keep drivers on target objects — the migration guide explicitly requires this when clearing animation, since per-object `animation_data_clear()` destroys ext / Middle_Hand drivers.
 
-### 4.7 ui_utils.py — unified UI / main panel
+### 4.8 ui_utils.py — unified UI / main panel
 
 Responsibility: the Unreal MusicDollUI performer-selector equivalent. Provides the unified main panel and all shared UI components.
 
@@ -362,7 +377,7 @@ Responsibility: the Unreal MusicDollUI performer-selector equivalent. Provides t
 
 **Performer generator operator `MUSICDOLL_OT_create_performer`**: `music_doll.create_performer`. Because Blender 5.0 operators do not support PointerProperty, the skeleton/instrument objects reuse the scene-level pointer properties (edited directly in the dialog). Name validation: ASCII alphanumeric starting with a letter (CJK rejected).
 
-### 4.8 common/tools/ — shared tools
+### 4.9 common/tools/ — shared tools
 
 **ToolDef** (dataclass): a tool's metadata (id / label / operator / icon / optional draw parameter area). `find_tool(tools, tool_id)` looks up by id.
 
@@ -479,7 +494,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 - Left hand: palm `H_L`, IK pivot `HP_L`, thumb `T_L` (grouped with the palm; not used for playing), fingers `I_L`/`M_L`/`R_L`/`P_L`;
 - Right hand: palm `H_R`, IK pivot `HP_R`, thumb `T_R` + fingers `I_R`/`M_R`/`R_R`/`P_R` (the right thumb does play);
 - Fret-position markers: `Fret_P0`–`Fret_P4` (physical objects, user-movable);
-- Hierarchy: controllers → `controller_root_offset` → `controller_root`; finger IK/poles, ext driver (`2×finger − palm` when a palm is present, `2×finger` otherwise; LOCAL_SPACE; cleared-then-rebuilt idempotently).
+- Hierarchy: controllers → `controller_root_offset` → `controller_root`; finger IK/poles, ext handled uniformly by `common.ext_utils.add_ext_driver` (`2×finger` when `hand_is_parent=True`; the electric-guitar thumb is a sibling of the palm → `hand_is_parent=False` + `palm='H_R'`, i.e. `2×finger − palm`; LOCAL_SPACE; cleared-then-rebuilt idempotently), plus a Damped Track constraint locking the ext `+X` axis toward the palm `H_L`/`H_R`. **The electric-guitar right index finger is the exception**: it is almost coincident with the playing thumb and borrows the thumb's `ext_T_R` at runtime — `ext_I_R` is **not created** (drivers/constraints left over in older scenes are removed by `clear_ext_driver`), and `I_R_pole` (name unchanged, local offset `(0,0,1)`) is parented under `ext_T_R`, a sibling of `TP_R`.
 
 **State model** (stored on the skeleton, key `fret_dance_controller_data`):
 
@@ -507,7 +522,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 **Controller layout**:
 
 - Finger controllers: `0_L`–`(N-1)_L` + `N_R`–`(2N-1)_R` (`one_hand_finger_number` fingers per hand, default 5);
-- Palm/pivots: `H_L` / `HP_L` / `H_R` / `HP_R`; ext (`2×finger` driver) + poles; `Mid_Hand` (world-midpoint driver), `Head_Control`;
+- Palm/pivots: `H_L` / `HP_L` / `H_R` / `HP_R`; ext (`2×finger` driver + Damped Track constraint locking `+X` toward the same-side palm) + poles; `Mid_Hand` (world-midpoint driver), `Head_Control`;
 - Keyboard reference points: `black_key` / `highest_white_key` / `lowest_white_key` / `lowest_white_key_end` / `normal_hand_expand_position` / `wide_expand_hand_position` (physical Empties).
 
 **State model** (stored on the skeleton, key `key_ripple_state_data`, a JSON array):
@@ -534,7 +549,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 
 **Controller layout**:
 
-- 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric) + per-finger `*_pole` poles + `ext_*` (`ext = 2×finger` driver, LOCAL_SPACE);
+- 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric) + per-finger `*_pole` poles + `ext_*` (`ext = 2×finger` driver, LOCAL_SPACE; plus a Damped Track constraint locking `+X` toward the palm);
 - Feet: `F_L` / `F_R` + `F_L_pole` / `F_R_pole`;
 - Special orientation: `Middle_Hand` (world-midpoint driver of H_L/H_R, WORLD_SPACE), `Look_At` (parented to Middle_Hand), `Head_Control` (world object + TrackTo Look_At);
 - Bilinear helpers: `Middle_Hand_A~D` / `Head_Control_A~D` (four-state drivers; `bilinear_map` registered into `bpy.app.driver_namespace`);
@@ -565,7 +580,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 **Controller layout**:
 
 - 9 base controls: palms `H_L`/`H_R`, IK pivots `HP_L`/`HP_R`, feet `F_L`/`F_R`, special orientation `Middle_Hand` (real-time midpoint)/`Look_At` (parented to Middle_Hand)/`Head_Control` (TrackTo);
-- Helper controls (created/driven only, **not participating in save/load/export/import data flow**): five fingers per hand `T/I/M/R/P_L/R` + ext (parented to palm) + per-finger poles (thumb `TP_L/TP_R`, others `<finger>_pole`), foot poles `FP_L`/`FP_R`.
+- Helper controls (created/driven only, **not participating in save/load/export/import data flow**): five fingers per hand `T/I/M/R/P_L/R` + ext (parented to palm, `2×finger` driver + Damped Track constraint locking `+X` toward the palm) + per-finger poles (thumb `TP_L/TP_R`, others `<finger>_pole`), foot poles `FP_L`/`FP_R`.
 
 **State model** (stored on the skeleton, key `beat_bloom_state_data`; `beat_bloom_drumkit_config` holds the drumkit config):
 
@@ -591,7 +606,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 **Controller layout**:
 
 - Body: `Head`, `Shoulder_Harp` (parented to harp_pivot);
-- 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric), **fingers parented to H_L/H_R** (unlike wind_rise), ext (`2×finger`, LOCAL_SPACE) + poles;
+- 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric), **fingers parented to H_L/H_R** (unlike wind_rise), ext (`2×finger`, LOCAL_SPACE; plus a Damped Track constraint locking `+X` toward the palm) + poles;
 - Feet: `F_L`/`F_R` + `FP_L`/`FP_R`;
 - Sight helpers: `Mid_Hand` (world-midpoint driver, not parented to controller_root), `Look_At` (parented to Mid_Hand);
 - Harp pivot: `harp_pivot` (parented to controller_root);
@@ -623,7 +638,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 **Controller layout**:
 
 - Hierarchy: `controller_root` (parented to the performer root) → `controller_root_offset` (the instrument binds here);
-- 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric), **fingers parented to controller_root_offset**, ext (`2×finger`, LOCAL_SPACE) + poles;
+- 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric), **fingers parented to controller_root_offset**, ext (`2×finger`, LOCAL_SPACE; plus a Damped Track constraint locking `+X` toward the palm) + poles;
 - Feet: `F_L`/`F_R` + `FP_L`/`FP_R` (parented to the performer root);
 - Head: `Head_Control` (parented to controller_root); breathing: `Breath_Control` (parented to the performer root, a stub);
 - No string/key position markers → no Recorders collection needed.
@@ -653,7 +668,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 - Other controllers: `String_Touch_Point`, `Bow_Controller`;
 - Feet IK / poles (creation only, **not part of any data transfer or computation**, at the same level as `controller_root` — **not parented to it**, but to the performer root / kept as world objects): `F_L`/`F_R` + `FP_L`/`FP_R` (poles are empty rings);
 - ext / poles: `ext_{finger}`, `{finger}_pole` (empty rings);
-- **ext constraints** (drivers, cleared-then-rebuilt idempotently): left hand `ext = 2×finger` (H_L local space — finger and palm are both H_L children, so the palm is the origin); right hand `ext = 2×finger − palm` (Bow_Controller local space — finger and palm H_R are both bow children, keeping ext on the "palm → finger" extension line; the code comments note this replaced the earlier two-Copy-Location-world-constraint scheme);
+- **ext constraints** (driver + Damped Track, both cleared-then-rebuilt idempotently): left hand `ext = 2×finger` (H_L local space — finger and palm are both H_L children, so the palm is the origin); right hand `ext = 2×finger − palm` (Bow_Controller local space — finger and palm H_R are both bow children, keeping ext on the "palm → finger" extension line; the code comments note this replaced the earlier two-Copy-Location-world-constraint scheme); both sides additionally get a Damped Track constraint so the ext `+X` axis always points at the palm `H_L` / `H_R` (poles parented under ext therefore always sit perpendicular to the finger axis);
 - Physical position markers (17, parented to controller_root): `position_s{i}_f0/f12`, `mid_s{i}` / `f9_s{i}` (midpoint drivers), `middle_fret_board_position` (**the third point of the three-point plane**, shared by the Rust side and the string tool).
 
 **State model** (stored on the skeleton, key `string_flow_state_data`):
@@ -743,7 +758,8 @@ After modifying the source, reinstall; if the add-on is already enabled, **disab
 7. **Coordinate-space traps**: after parenting, `.location` becomes local — midpoint-type drivers use WORLD_SPACE, same-parent relative quantities (`ext = 2×finger`) use LOCAL_SPACE;
 8. **Blender 5.0 specifics**: `bpy.types.Collection` has no `.parent` (reverse-lookup instead); operators do not support PointerProperty (reuse scene-level pointer properties); EnumProperty items callbacks need an integer default index; registration guards must use the RNA name (`MUSIC_DOLL_OT_create_performer`, with an underscore);
 9. **CJK encoding bug**: Blender 5.0 scene enums may carry corrupted bytes and raise UnicodeDecodeError; reads catch it and self-heal; enum items skip non-ASCII names;
-10. **Deprecated tools are not migrated**: MMD-related (mmd2blender), Daz Rig, wave generation, shader scripts, etc. that never appeared in the add-on UI are not migrated.
+10. **Deprecated tools are not migrated**: MMD-related (mmd2blender), Daz Rig, wave generation, shader scripts, etc. that never appeared in the add-on UI are not migrated;
+11. **Fixed pose of the ext helper controls**: position comes from the driver added by `common.ext_utils.add_ext_driver(config, hand, finger, palm, hand_is_parent)`, which puts ext on the "palm → finger" extension line (`2 × finger` or `2 × finger − palm`, decided by the explicitly declared `hand_is_parent` / `palm` — **never inferred from the hierarchy**, since the electric-guitar index finger's parent is the thumb, not the palm); orientation comes from the Damped Track constraint added by the same function, locking the `+X` axis toward the palm `H_<hand>`. Each instrument just calls it from its own `add_ext_drivers` for its finger list (setup, duplicate and rename rebuilds all go through that path, so new-suffix targets are picked up automatically); a finger that does not use its ext control (the FretDance electric-guitar index finger, which borrows the thumb's `ext_T_R`) calls `clear_ext_driver` instead — no driver, no constraint. The pole parented under ext (local `(0, 0, 1)`) therefore always stays perpendicular to the finger axis and the IK pole vector never degenerates onto it; the constraint only locks the aiming axis, so the roll around it is still controlled by rotating ext.
 
 ### 10.2 Migration-engineering conventions (when adding an instrument)
 

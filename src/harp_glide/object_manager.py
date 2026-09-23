@@ -5,6 +5,7 @@ import bpy  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
+from ..common import ext_utils
 from .config import HarpConfig
 
 
@@ -171,36 +172,13 @@ class HarpObjectManager(HarpConfig):
         self._setup_mid_hand_driver()
 
     def _setup_ext_drivers(self) -> None:
-        """ext = 2 × 手指（LOCAL_SPACE），先清后建"""
-        for s in self.left_finger_shorts + self.right_finger_shorts:
-            self._add_ext_driver(s)
+        """ext 位置驱动（2 × 手指）+「+X 轴指向手掌」约束（先清后建，幂等）
 
-    def _add_ext_driver(self, finger_short: str) -> None:
-        finger_name = self.obj_name(finger_short)
-        ext_name = self.obj_name(f"ext_{finger_short}")
-        finger_obj = bpy.data.objects.get(finger_name)
-        ext_obj = bpy.data.objects.get(ext_name)
-        if not finger_obj or not ext_obj:
-            return
-
-        # 先清除已有的 location driver
-        if ext_obj.animation_data:
-            for axis in range(3):
-                fc = ext_obj.animation_data.drivers.find(
-                    "location", index=axis)
-                if fc:
-                    ext_obj.animation_data.drivers.remove(fc)
-
-        for axis_idx, axis_char in enumerate(["X", "Y", "Z"]):
-            drv = ext_obj.driver_add("location", axis_idx).driver
-            drv.type = "SCRIPTED"
-            var = drv.variables.new()
-            var.name = "finger"
-            var.type = "TRANSFORMS"
-            var.targets[0].id = finger_obj
-            var.targets[0].transform_type = f"LOC_{axis_char}"
-            var.targets[0].transform_space = "LOCAL_SPACE"
-            drv.expression = "finger * 2.0"
+        手指与 ext 都挂在同侧手掌下（手掌就是手指的父级）→ `ext = 2 × 手指`。
+        """
+        for hand in ("L", "R"):
+            for finger in self.finger_bases:
+                ext_utils.add_ext_driver(self, hand, finger, hand_is_parent=True)
 
     def _setup_mid_hand_driver(self) -> None:
         """Mid_Hand = (H_L + H_R) / 2（WORLD_SPACE），先清后建"""

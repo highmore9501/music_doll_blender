@@ -9,6 +9,7 @@ import bpy  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
+from ..common import ext_utils
 
 
 class HandType(Enum):
@@ -368,45 +369,17 @@ class KeyRipple:
                     print(f"  • {pole_target_name} 已存在且绑定正确，跳过")
 
     def add_ext_drivers(self):
-        """为每个手指的 ext 辅助控件添加 driver（ext.local = 2 * 手指.local）"""
+        """为每个手指的 ext 辅助控件添加位置驱动 +「+X 轴指向手掌」约束（幂等）
+
+        手指与 ext 都挂在同侧手掌下（手掌就是手指的父级）→ 位置驱动 `2 × 手指`，
+        朝向由 Damped Track 约束锁成「+X 轴指向同侧手掌」。
+        """
         print("\n添加手指 ext 控制器驱动...")
 
-        for finger_number, controller_name in self.finger_controllers.items():
-            ext_name = self.obj_name(f"ext_{controller_name}")
-            full_ctrl = self.obj_name(controller_name)
-
-            if full_ctrl not in bpy.data.objects:
-                print(f"  • 手指控制器 {full_ctrl} 不存在，跳过驱动")
-                continue
-            if ext_name not in bpy.data.objects:
-                print(f"  • ext 控件 {ext_name} 不存在，跳过驱动")
-                continue
-
-            ext_obj = bpy.data.objects[ext_name]
-
-            if ext_obj.animation_data and ext_obj.animation_data.drivers:
-                for axis_index in range(3):
-                    fcurve = ext_obj.animation_data.drivers.find(
-                        "location", index=axis_index)
-                    if fcurve:
-                        ext_obj.animation_data.drivers.remove(fcurve)
-
-            for axis_index, axis_char in enumerate(['X', 'Y', 'Z']):
-                driver = ext_obj.driver_add("location", axis_index).driver
-                driver.type = 'SCRIPTED'
-
-                var_f = driver.variables.new()
-                var_f.name = "finger"
-                var_f.type = 'TRANSFORMS'
-                target_f = var_f.targets[0]
-                target_f.id = bpy.data.objects[full_ctrl]
-                target_f.transform_type = f'LOC_{axis_char}'
-                target_f.transform_space = 'LOCAL_SPACE'
-
-                driver.expression = "2 * finger"
-
-            print(
-                f"  ✓ 已为 {ext_name} 添加驱动: 2 * {full_ctrl}")
+        for finger_number in self.finger_controllers:
+            hand = ("L" if finger_number < self.one_hand_finger_number else "R")
+            ext_utils.add_ext_driver(self, hand, str(finger_number),
+                                     hand_is_parent=True)
 
     def setup_all_objects(self):
         """一次性设置所有控制器和记录器（幂等）。

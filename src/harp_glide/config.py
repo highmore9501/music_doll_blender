@@ -69,9 +69,10 @@ class HarpConfig:
             "harp_pivot": "harp_pivot",
         }
 
-        # 左/右手五指短名（用于 state 模块批量操作）
-        self.left_finger_shorts = ["T_L", "I_L", "M_L", "R_L", "P_L"]
-        self.right_finger_shorts = ["T_R", "I_R", "M_R", "R_R", "P_R"]
+        # 左/右手五指短名（用于 state 模块批量操作）；手指短名主体供 ext 驱动共用
+        self.finger_bases = ["T", "I", "M", "R", "P"]
+        self.left_finger_shorts = [f"{base}_L" for base in self.finger_bases]
+        self.right_finger_shorts = [f"{base}_R" for base in self.finger_bases]
 
     # ── 命名辅助 ─────────────────────────────────────────────────
 
