@@ -16,9 +16,9 @@ class ZHENG_OT_export_to_unreal(Operator, ExportHelper):
     bl_idname = "music_doll.zheng_drift_export_to_unreal"
     bl_options = {'REGISTER', 'UNDO'}
 
-    filename_ext = ".json"
+    filename_ext = ".zheng_master"
     __annotations__ = {
-        "filter_glob": StringProperty(default="*.json", options={'HIDDEN'})
+        "filter_glob": StringProperty(default="*.zheng_master", options={'HIDDEN'})
     }
 
     def execute(self, context):
