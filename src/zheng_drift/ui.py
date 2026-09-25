@@ -419,7 +419,8 @@ class ZHENG_OT_generate_string_animation(Operator):
             self.report({'ERROR'}, f"Animation file not found: {path}")
             return {'CANCELLED'}
         try:
-            generate_string_vibration_animation(path, suffix=suffix)
+            generate_string_vibration_animation(
+                path, suffix=suffix, instrument=_get_active_instrument(context))
             self.report({'INFO'}, T("String vibration animation generated"))
             return {'FINISHED'}
         except Exception as e:
@@ -463,7 +464,8 @@ class ZHENG_OT_generate_all_animation(Operator):
                 performance_path = config_file_path
 
             # 清除所有关键帧
-            clear_all_keyframes(suffix)
+            clear_all_keyframes(
+                suffix, instrument=_get_active_instrument(context))
 
             success_count = 0
 
@@ -490,7 +492,8 @@ class ZHENG_OT_generate_all_animation(Operator):
             if string_path and os.path.exists(string_path):
                 try:
                     generate_string_vibration_animation(
-                        string_path, suffix=suffix)
+                        string_path, suffix=suffix,
+                        instrument=_get_active_instrument(context))
                     success_count += 1
                 except Exception as e:
                     print(f"弦动画生成失败：{e}")

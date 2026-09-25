@@ -2,7 +2,9 @@
 """ZhengDrift 乐器模块 —— 动画生成（迁移自 zheng_blender_addon/tools/animation_generator.py）
 
 - 通用 fcurve 工具改调 common.animation_utils；
-- 控制器/弦物体/Head_Control 对象名按演奏者后缀解析；
+- 控制器/Head_Control 对象名按演奏者后缀解析；
+- 弦振动 shape key 全部在「目标乐器」这一个物体上（生成时每根弦是独立物体，
+  用户手动合并成目标乐器），命名 `string{N}_press` / `string{N}_vib`；
 - 清除关键帧时**保留** Middle_Hand / ext 上的 driver（与源码一致）。
 """
 
@@ -158,97 +160,126 @@ def generate_right_hand_animation(animation_file_path: str, suffix: str = "") ->
 
 # ── 弦振动动画 ───────────────────────────────────────────────
 
+# 弦 shape key 命名：string{N}_press / string{N}_vib（N = 0-20，共 42 个），
+# 与 Unreal 端 Morph Target 通道名一致。生成弦时每根弦是独立物体
+# （string{i}_L / string{i}_R），用户随后手动把全部弦合并成一个物体，
+# 即「目标乐器」；合并后 shape key 名不变，所以插帧时只需在该物体上按名查找。
+def _string_shape_key_name(string_index: int, shape_key_type: str) -> str:
+    """弦 shape key 名：'Vib' → string{N}_vib，'Press' → string{N}_press"""
+    type_word = "vib" if shape_key_type == "Vib" else "press"
+    return f"string{string_index}_{type_word}"
+
+
+def _get_target_instrument(suffix: str = "", instrument=None):
+    """目标乐器物体：优先显式传入，其次当前演奏者登记的乐器"""
+    if instrument is not None:
+        return instrument
+    if not suffix:
+        return None
+    performer = performer_utils.get_performer(suffix)
+    return performer.target_instrument if performer is not None else None
+
+
 def generate_string_vibration_animation(animation_file_path: str,
-                                        suffix: str = "") -> None:
-    """生成弦振动动画（批量写 shape key 关键帧）"""
+                                        suffix: str = "",
+                                        instrument=None) -> None:
+    """生成弦振动动画（在「目标乐器」的 shape key 上批量插帧）
+
+    Rust 端输出的事件为 `{string_index, frame, value, shape_key_type}`，
+    shape_key_type 为 "Press"（左手按弦）或 "Vib"（右手摇指）；两类 shape key
+    都在同一个物体（目标乐器，即合并后的弦）上，直接查找并插帧。
+    """
     print("\n=== 生成弦振动动画 ===")
 
-    _clear_string_shape_key_animation(suffix)
+    obj = _get_target_instrument(suffix, instrument)
+    if obj is None:
+        print("  ⚠ 未找到目标乐器物体，请先指定目标乐器")
+        return
+    if obj.type != 'MESH' or not obj.data.shape_keys:
+        print(f"  ⚠ 目标乐器 {obj.name} 没有 shape key")
+        return
+
+    shape_keys = obj.data.shape_keys
+    key_blocks = shape_keys.key_blocks
+
+    _clear_string_shape_key_animation(suffix, obj)
 
     with open(animation_file_path, 'r', encoding='utf-8') as f:
         events = json.load(f)
 
-    # 按 (物体, shape key) 收集每一帧的数据
+    # 按 shape key 收集每一帧的数据（保持帧序）
     shape_data = {}
+    missing_keys = set()
+
     for event in events:
-        string_index = event['string_index']
-        frame = int(event['frame'])
-        value = event['value']
-        shape_type = event['shape_key_type']  # "Press" or "Vib"
-
-        if shape_type == "Press":
-            obj_name = performer_utils.resolve(
-                f'string{string_index}_L', suffix)
-            shape_key_name = performer_utils.resolve(
-                f'string{string_index}_press', suffix)
-        else:  # Vib
-            obj_name = performer_utils.resolve(
-                f'string{string_index}_R', suffix)
-            shape_key_name = performer_utils.resolve(
-                f'string{string_index}_vib', suffix)
-
-        obj = bpy.data.objects.get(obj_name)
-        if not obj:
-            print(f"  ⚠ 弦物体不存在：{obj_name}")
-            continue
-        if not obj.data.shape_keys:
-            print(f"  ⚠ {obj_name} 没有 shape keys")
-            continue
-
-        shape_key = obj.data.shape_keys.key_blocks.get(shape_key_name)
-        if not shape_key:
-            print(f"  ⚠ Shape Key 不存在：{shape_key_name}")
+        shape_key_name = _string_shape_key_name(
+            int(event['string_index']), event['shape_key_type'])
+        if key_blocks.get(shape_key_name) is None:
+            missing_keys.add(shape_key_name)
             continue
 
         entry = shape_data.setdefault(
-            (obj.name, shape_key_name),
-            {"shape_key": shape_key, "frames": [], "values": []})
-        entry["frames"].append(frame)
-        entry["values"].append(value)
+            shape_key_name, {"frames": [], "values": []})
+        entry["frames"].append(int(event['frame']))
+        entry["values"].append(event['value'])
+
+    if missing_keys:
+        print(f"  ⚠ 目标乐器 {obj.name} 上缺少 Shape Key："
+              f"{', '.join(sorted(missing_keys))}")
+        existing_names = [key_block.name for key_block in key_blocks
+                          if key_block.name != 'Basis']
+        print(f"    该物体现有 Shape Key：{', '.join(existing_names[:10])}"
+              f"{' ...' if len(existing_names) > 10 else ''}")
+
+    if not shape_data:
+        print("  ⚠ 没有可写入的弦 Shape Key")
+        return
+
+    if not shape_keys.animation_data:
+        shape_keys.animation_data_create()
+    if not shape_keys.animation_data.action:
+        shape_keys.animation_data.action = bpy.data.actions.new(
+            f"{obj.name}_string_shape_keys")
 
     # 批量写入所有 shape key 的关键帧
-    for (obj_name, shape_key_name), entry in shape_data.items():
-        obj = bpy.data.objects[obj_name]
-        shape_keys = obj.data.shape_keys
-
-        if not shape_keys.animation_data:
-            shape_keys.animation_data_create()
-        if not shape_keys.animation_data.action:
-            shape_keys.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_string_shape_keys")
-
+    for shape_key_name, entry in shape_data.items():
         shape_fcurve = get_or_create_fcurve(
             shape_keys, f'key_blocks["{shape_key_name}"].value')
         write_fcurve_points(
             shape_fcurve, zip(entry["frames"], entry["values"]))
 
-    print(f"  ✓ 弦振动动画生成完成，共 {len(events)} 个事件")
+    print(f"  ✓ 弦振动动画生成完成，共 {len(events)} 个事件，"
+          f"{len(shape_data)} 个 Shape Key")
 
 
-def _clear_string_shape_key_animation(suffix: str = "") -> None:
-    """清除所有弦的 Shape Key 动画（保留 Shape Key 本身）"""
+def _clear_string_shape_key_animation(suffix: str = "",
+                                      instrument=None) -> None:
+    """清除目标乐器上弦的 Shape Key 动画（保留 Shape Key 本身）
+
+    只清弦 shape key 的值与整个 shape key 动画，**不动**乐器物体自身的
+    变换动画（乐器整体动画不属于弦动画范围）。
+    """
     print("  → 清除现有弦动画...")
 
-    for side in ['L', 'R']:
-        for i in range(21):
-            obj_name = performer_utils.resolve(f'string{i}_{side}', suffix)
-            obj = bpy.data.objects.get(obj_name)
+    obj = _get_target_instrument(suffix, instrument)
+    if obj is None or obj.type != 'MESH' or not obj.data.shape_keys:
+        return
 
-            if obj and obj.data.shape_keys:
-                for shape_key_block in obj.data.shape_keys.key_blocks:
-                    if shape_key_block.name != 'Basis':
-                        shape_key_block.value = 0.0
+    shape_keys = obj.data.shape_keys
+    for string_index in range(21):
+        for shape_key_type in ("Press", "Vib"):
+            shape_key_block = shape_keys.key_blocks.get(
+                _string_shape_key_name(string_index, shape_key_type))
+            if shape_key_block is not None:
+                shape_key_block.value = 0.0
 
-                if obj.data.shape_keys.animation_data:
-                    obj.data.shape_keys.animation_data_clear()
-
-                if obj.animation_data:
-                    obj.animation_data_clear()
+    if shape_keys.animation_data:
+        shape_keys.animation_data_clear()
 
 
 # ── 清除关键帧 ───────────────────────────────────────────────
 
-def clear_all_keyframes(suffix: str = "") -> None:
+def clear_all_keyframes(suffix: str = "", instrument=None) -> None:
     """清除关键帧（保留 Middle_Hand / ext 的 driver，与源码一致）"""
     print("\n=== 清除关键帧 ===")
 
@@ -269,8 +300,8 @@ def clear_all_keyframes(suffix: str = "") -> None:
         if obj is not None:
             _clear_object_animation(obj)
 
-    # 清除所有弦的 Shape Key 动画
-    _clear_string_shape_key_animation(suffix)
+    # 清除目标乐器上弦的 Shape Key 动画
+    _clear_string_shape_key_animation(suffix, instrument)
 
     print("  ✓ 已清除所有控制器和弦的关键帧")
 
