@@ -2,10 +2,14 @@
 """竖琴弦工具（迁移自 harp_blender_addon/tools/string_tools.py）
 
 主要改动：
-- create_string_shape_key 从物理 s{n}head/end 对象读位置（沿用）
-- 振动方向改从骨骼 JSON hand_poses.left.far/near 读（替代原 H_L_far/H_L_near 物理对象）
-- create_all_strings_shape_keys 从骨骼 JSON config.string_count 读弦数
-- linear_distribute_recorders 沿用原逻辑（操作物理对象 location）
+- 弦物体命名带演奏者后缀：string{n}_{suffix}（无后缀兼容旧场景），
+  生成后归入本演奏者的 Strings_<suffix> 集合；
+- create_string_shape_key 从物理 s{n}head_<suffix> / s{n}end_<suffix> 对象读位置；
+  振动方向改从骨骼 JSON hand_poses.left.far/near 读（替代原 H_L_far/H_L_near 物理对象），
+  经 H_L 父级世界矩阵还原成世界方向后，再按弦物体自身矩阵转成物体局部方向
+  （shape key 顶点坐标所在空间）；
+- create_all_strings_shape_keys 从骨骼 JSON config.string_count 读弦数；
+- linear_distribute_recorders 沿用原逻辑（操作物理对象 location）。
 """
 
 import bpy     # type: ignore
@@ -13,6 +17,7 @@ import bmesh  # type: ignore
 from mathutils import Vector  # type: ignore
 
 from ...common import i18n; T = i18n.T
+from ...common import object_utils
 from ...common import performer_utils as _pu
 from ...common import state_io
 from ..config import STATE_KEY
@@ -35,10 +40,37 @@ def draw_linear_distribute(layout, scene):
     layout.label(text=T("选中两端 Empty，中间弦标记将线性分布"), icon="INFO")
 
 
+# ── 弦物体集合（按演奏者后缀归位）────────────────────────────
+
+def _move_to_strings_collection(string_obj, suffix: str = "") -> None:
+    """把生成的弦物体归入本演奏者的 Strings 集合
+
+    - 有后缀 → addons_<后缀>/Strings_<后缀>（与 zheng_drift 弦工具一致，
+      避免落到当前激活集合里串到别的演奏者名下）；
+    - 找不到 addons 目录时保留在原集合，不中断弦的生成；
+    - 无后缀 → 全局 Strings 集合（兼容旧场景）。
+    """
+    if suffix:
+        addons = _pu.find_addons_collection(suffix)
+        if addons is None:
+            print("  ⚠ 未找到角色 addons 目录，弦物体保留在原集合（请先初始化角色）")
+            return
+        strings_coll = object_utils.get_or_create_collection(
+            _pu.resolve("Strings", suffix), addons)
+    else:
+        strings_coll = object_utils.get_or_create_collection("Strings")
+    object_utils.move_object_to_collection(string_obj, strings_coll)
+
+
 # ── 内部辅助：振动方向 ───────────────────────────────────────
 
 def _get_vibration_dir(suffix: str, skeleton) -> Vector:
-    """从骨骼 JSON hand_poses.left.far/near 计算振动方向"""
+    """从骨骼 JSON hand_poses.left.far/near 计算振动方向（世界方向）
+
+    记录的是 H_L 的局部 location（相对其父级，通常是 controller_root_<suffix>），
+    因此差值要经父级的世界矩阵变换才是世界方向——否则整个角色/骨骼带有旋转
+    时（如骨骼对象带 ±90° 轴转换），振动方向会跟着偏掉。
+    """
     data = state_io.get_state_data(skeleton, STATE_KEY, {})
     poses = data.get("hand_poses", {}).get("left", {})
 
@@ -49,30 +81,53 @@ def _get_vibration_dir(suffix: str, skeleton) -> Vector:
     near_loc = near_entry.get("location", [0.0, 0.0, 0.0])
 
     direction = Vector(far_loc) - Vector(near_loc)
-    if direction.length > 1e-8:
-        direction.normalize()
-    else:
-        direction = Vector((0.0, 1.0, 0.0))  # 回退方向
+    if direction.length <= 1e-8:
+        return Vector((0.0, 1.0, 0.0))  # 回退方向
+
+    hand_ctrl = bpy.data.objects.get(_pu.resolve("H_L", suffix))
+    parent_obj = hand_ctrl.parent if hand_ctrl else None
+    if parent_obj is not None:
+        # 局部 location 所在空间 → 世界：matrix_world = parent.matrix_world
+        # @ matrix_parent_inverse @ matrix_basis（location 属于 matrix_basis）
+        local_to_world = parent_obj.matrix_world @ hand_ctrl.matrix_parent_inverse
+        direction = local_to_world.to_3x3() @ direction
+
+    direction.normalize()
     return direction
 
 
 # ── Shape Key 生成 ────────────────────────────────────────────
 
+# primitive_cylinder_add(vertices=8) 的顶点数（只有首尾两圈，未环切细分）
+_RAW_CYLINDER_VERT_COUNT = 16
+
+
+def _is_unsubdivided_leftover(string_obj) -> bool:
+    """是否是生成中途失败留下的未细分圆柱（无 shape key 且只有首尾两圈顶点）
+
+    这种残留物直接复用会把 shape key 写在弦身没有中间顶点的网格上（弦不会弯），
+    工具自己重新建一根即可，故按「工具自己的中间产物」处理。
+    """
+    mesh = string_obj.data
+    if string_obj.type != "MESH" or mesh is None:
+        return False
+    return not mesh.shape_keys and len(mesh.vertices) <= _RAW_CYLINDER_VERT_COUNT
+
+
 def _add_vibration_shape_key(string_obj, shape_key_name: str,
                              world_dir: Vector, string_length: float,
                              ratio: float) -> None:
-    """为弦物体添加一个振动 Shape Key（二次方衰减从中点向两端）"""
-    # harp_pivot 局部方向（弦 shape key 在 harp_pivot 坐标系下定义）
-    pivot_obj = None
-    for parent in [string_obj.parent, string_obj.parent.parent if string_obj.parent else None]:
-        if parent and parent.name.startswith("harp_pivot"):
-            pivot_obj = parent
-            break
-    if pivot_obj:
-        local_dir = pivot_obj.matrix_world.inverted().to_3x3() @ world_dir
+    """为弦物体添加一个振动 Shape Key（二次方衰减从中点向两端）
+
+    振动方向按**弦物体自身矩阵**转到物体局部坐标——shape key 顶点坐标就在
+    该空间里，用父级（harp_pivot）矩阵或世界方向直接当局部方向都会在物体
+    自身有旋转/缩放时把振动方向带偏。
+    """
+    local_dir = string_obj.matrix_world.to_3x3().inverted() @ world_dir
+    if local_dir.length > 1e-8:
         local_dir.normalize()
     else:
-        local_dir = world_dir
+        local_dir = Vector((0.0, 1.0, 0.0))  # 回退方向
 
     temp = string_obj.copy()
     temp.data = string_obj.data.copy()
@@ -106,7 +161,8 @@ def create_string_shape_key(skeleton, suffix: str,
                             string_index: int, ratio: float) -> None:
     """为指定弦创建振动 Shape Key
 
-    从 s{n}head_<suffix> / s{n}end_<suffix> 物理对象读位置（沿用原逻辑）。
+    弦物体命名 string{n}_{suffix}（无后缀兼容旧场景），生成后归入本演奏者的
+    Strings 集合；从 s{n}head_<suffix> / s{n}end_<suffix> 物理对象读位置。
     振动方向从骨骼 JSON hand_poses.left.far/near 读。
     """
     head_name = _pu.resolve(f"s{string_index}head", suffix)
@@ -125,9 +181,19 @@ def create_string_shape_key(skeleton, suffix: str,
     if string_length < 1e-6:
         raise ValueError(f"弦 {string_index} 头尾重合，无法生成")
 
-    string_name = f"string{string_index}"
+    string_name = _pu.resolve(f"string{string_index}", suffix)
+    string_obj = bpy.data.objects.get(string_name)
+
+    # 上次生成中途失败留下的未细分圆柱：删掉重建（否则复用会把 shape key
+    # 写到弦身没有中间顶点的网格上）
+    if string_obj is not None and _is_unsubdivided_leftover(string_obj):
+        print(f"  ⚠ {string_name} 是未细分的残留圆柱"
+              f"（{len(string_obj.data.vertices)} 顶点），重建")
+        bpy.data.objects.remove(string_obj, do_unlink=True)
+        string_obj = None
+
     # 创建或复用弦圆柱物体
-    if string_name not in bpy.data.objects:
+    if string_obj is None:
         bpy.ops.mesh.primitive_cylinder_add(
             radius=string_length / 1200,
             depth=1, vertices=8,
@@ -147,16 +213,22 @@ def create_string_shape_key(skeleton, suffix: str,
         string_obj.location = (start_pos + end_pos) / 2
 
         bpy.ops.object.mode_set(mode="EDIT")
+        # edge_index=9：8 顶点圆柱的第 9 条边是纵向边，环切才会沿弦长切出一圈圈
+        # 横环（edge 0 是端盖的 n-gon 环边，环被 n-gon 截断，切不出弦身顶点）；
+        # 参数名必须用 mesh_select_mode_init（Blender 无 mesh_select_mode_changed）。
         bpy.ops.mesh.loopcut_slide(
             MESH_OT_loopcut={"number_cuts": 80, "smoothness": 0,
                              "falloff": "INVERSE_SQUARE", "object_index": 0,
-                             "edge_index": 0, "mesh_select_mode_changed": False},
+                             "edge_index": 9,
+                             "mesh_select_mode_init": (True, False, False)},
             TRANSFORM_OT_edge_slide={"value": 0.0})
         bpy.ops.object.mode_set(mode="OBJECT")
 
         string_obj.shape_key_add(name="Basis")
-    else:
-        string_obj = bpy.data.objects[string_name]
+    elif not string_obj.data.shape_keys:
+        string_obj.shape_key_add(name="Basis")
+
+    _move_to_strings_collection(string_obj, suffix)
 
     vib_dir = _get_vibration_dir(suffix, skeleton)
 

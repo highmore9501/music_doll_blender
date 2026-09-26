@@ -430,7 +430,8 @@ class HG_OT_generate_instrument_anim(Operator):
             if (pp and os.path.exists(pp)) or (sp and os.path.exists(sp)):
                 generate_shape_key_animations(
                     pp if pp and os.path.exists(pp) else "",
-                    sp if sp and os.path.exists(sp) else "")
+                    sp if sp and os.path.exists(sp) else "",
+                    _suffix(context))
             self.report({"INFO"}, T("乐器动画生成完成"))
         except Exception as e:
             self.report({"ERROR"}, T("生成失败：%s") % str(e))

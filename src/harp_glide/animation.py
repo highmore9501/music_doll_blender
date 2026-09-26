@@ -207,17 +207,33 @@ def _generate_hand_animation(hand_kfs: list, side: str, label: str,
     print(f"  ✓ {label}：处理 {len(hand_kfs)} 条关键帧记录")
 
 
-# ── Shape Key 动画（无后缀：按 shape key 名查找 mesh） ──────────
+# ── Shape Key 动画（shape key 名不带后缀，按演奏者归属挑 mesh）──
 
-def _find_obj_with_shape_key(name: str):
+def _find_obj_with_shape_key(name: str, suffix: str = ""):
+    """按 shape key 名查找 mesh。
+
+    shape key 名（string{n}_inner/outer、pedal_X_stateY）本身不带演奏者后缀，
+    多个演奏者会重名，因此有后缀时优先挑归属本演奏者的 mesh
+    （弦物体在 Strings_<后缀>、乐器网格在 Instruments_<后缀>）；
+    找不到归属信息时退回「第一个命中」的旧行为。
+    """
+    fallback = None
     for obj in bpy.data.objects:
-        if obj.type == "MESH" and obj.data.shape_keys:
-            if name in obj.data.shape_keys.key_blocks:
-                return obj
-    return None
+        if obj.type != "MESH" or not obj.data.shape_keys:
+            continue
+        if name not in obj.data.shape_keys.key_blocks:
+            continue
+        if not suffix:
+            return obj
+        if performer_utils.suffix_from_object(obj) == suffix:
+            return obj
+        if fallback is None:
+            fallback = obj
+    return fallback
 
 
-def generate_shape_key_animations(pedal_path: str = "", string_path: str = "") -> None:
+def generate_shape_key_animations(pedal_path: str = "", string_path: str = "",
+                                  suffix: str = "") -> None:
     """整合生成竖琴的踏板 + 弦振动 Shape Key 动画（Blender 4.x/5.x 兼容）。
 
     pedal 与 string 的 shape key 位于同一物体上，因此先合并两类数据、
@@ -239,7 +255,7 @@ def generate_shape_key_animations(pedal_path: str = "", string_path: str = "") -
             entry["data"][sk_name] = (ed["frames"], ed["values"])
 
     if pedal_path:
-        pedal_obj = _find_obj_with_shape_key("pedal_A_state0")
+        pedal_obj = _find_obj_with_shape_key("pedal_A_state0", suffix)
         if pedal_obj:
             key_blocks = pedal_obj.data.shape_keys.key_blocks
             with open(pedal_path, "r", encoding="utf-8") as f:
@@ -260,7 +276,7 @@ def generate_shape_key_animations(pedal_path: str = "", string_path: str = "") -
             print("  ⚠ 未找到含 pedal_A_state0 的物体，跳过踏板动画")
 
     if string_path:
-        string_obj = _find_obj_with_shape_key("string0_inner")
+        string_obj = _find_obj_with_shape_key("string0_inner", suffix)
         if string_obj:
             key_blocks = string_obj.data.shape_keys.key_blocks
             with open(string_path, "r", encoding="utf-8") as f:
@@ -326,6 +342,7 @@ def generate_all_animations(report_path: str, suffix: str = "") -> None:
     if (pedal_path and os.path.exists(pedal_path)) or (str_path and os.path.exists(str_path)):
         generate_shape_key_animations(
             pedal_path if pedal_path and os.path.exists(pedal_path) else "",
-            str_path if str_path and os.path.exists(str_path) else "")
+            str_path if str_path and os.path.exists(str_path) else "",
+            suffix)
 
     print("\n✓ 全部动画生成完成")
