@@ -97,6 +97,7 @@ class HarpConfig:
             "left_far": 0, "left_near": 0,
             "left_mid_far": 0, "left_mid_near": 0,
             "right_far": 0, "right_near": 0,
+            "double_string": False,
         })
 
     def save_harp_config(self, props, skeleton=None) -> None:
@@ -113,6 +114,7 @@ class HarpConfig:
             "left_mid_near": int(props.left_mid_near),
             "right_far":    int(props.right_far),
             "right_near":   int(props.right_near),
+            "double_string": bool(props.double_string),
         }
         state_io.set_state_data(sk, STATE_KEY, data)
 
@@ -133,3 +135,5 @@ class HarpConfig:
             cfg.get("left_mid_near",  props.left_mid_near))
         props.right_far = int(cfg.get("right_far",      props.right_far))
         props.right_near = int(cfg.get("right_near",     props.right_near))
+        props.double_string = bool(
+            cfg.get("double_string", props.double_string))

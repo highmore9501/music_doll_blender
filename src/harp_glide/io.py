@@ -3,6 +3,8 @@
 
 .harpist 文件格式（Rust 端兼容，短名键）：
   STRING_RECORDERS         ← 从物理对象读写（s{n}head / s{n}end）
+                             config.double_string 为 true 时额外含 s0end_L
+                             （左排弦唯一基准点，右排弦的 s0 弦尾到左排的向量）
   PEDAL_POSITION_RECORDERS ← 骨骼 JSON pedal_positions
   HARP_PIVOT_RECORDERS     ← 骨骼 JSON harp_pivot_states
   LEFT_HAND_RECORDERS      ← 骨骼 JSON hand_poses.left（展平为 {ctrl}_{pose} 键）
@@ -86,6 +88,7 @@ def export_harpist(file_path: str, suffix: str, skeleton, props,
     }))
     cfg["is_unreal"] = for_unreal  # Rust 端从 config 子对象读取
     string_count = int(cfg.get("string_count", 47))
+    double_string = bool(cfg.get("double_string", False))
 
     result = {"config": cfg}
 
@@ -96,6 +99,10 @@ def export_harpist(file_path: str, suffix: str, skeleton, props,
             short = f"s{n}{part}"
             string_rec[short] = _te(_read_obj_transform(
                 _pu.resolve(short, suffix)), _pos, _rot)
+    # 双排弦：左排只有一个基准点 s0end_L，Rust 端用它推出整排左排弦
+    if double_string:
+        string_rec["s0end_L"] = _te(_read_obj_transform(
+            _pu.resolve("s0end_L", suffix)), _pos, _rot)
     result["STRING_RECORDERS"] = string_rec
 
     # PEDAL_POSITION_RECORDERS：骨骼 JSON → 直接映射
@@ -181,7 +188,7 @@ def import_harpist(file_path: str, suffix: str, skeleton, props) -> None:
     if "config" in raw:
         data["config"] = raw["config"]
 
-    # STRING_RECORDERS → 物理对象
+    # STRING_RECORDERS → 物理对象（双排弦时含 s0end_L，一并回写）
     for short, entry in raw.get("STRING_RECORDERS", {}).items():
         _write_obj_transform(_pu.resolve(short, suffix), entry)
 

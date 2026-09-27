@@ -139,8 +139,14 @@ class HarpObjectManager(HarpConfig):
 
     # ── add_string_markers ───────────────────────────────────────
 
-    def add_string_markers(self, string_count: int) -> None:
-        """创建弦位置标记（s{n}head / s{n}end），父级 = harp_pivot"""
+    def add_string_markers(self, string_count: int,
+                           double_string: bool = False) -> None:
+        """创建弦位置标记（s{n}head / s{n}end），父级 = harp_pivot
+
+        `double_string=True` 时额外创建 s0end_L —— 双排弦的左排基准点。
+        左排与右排完全平行，只要这一个点就能推出整排左排弦的位置
+        （Rust 端按 s0end → s0end_L 向量整体平移左手动画）。
+        """
         if bpy.context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -162,7 +168,17 @@ class HarpObjectManager(HarpConfig):
                 if pivot and obj.parent != pivot:
                     obj.parent = pivot
 
-        print(f"✓ 弦位置标记已就绪：{string_count} 根弦（{string_count * 2} 个标记）")
+        marker_count = string_count * 2
+        if double_string:
+            left_row_obj = object_utils.create_or_update_object(
+                self.obj_name("s0end_L"), "sphere", str_pos_coll)
+            if pivot and left_row_obj.parent != pivot:
+                left_row_obj.parent = pivot
+            marker_count += 1
+
+        print(f"✓ 弦位置标记已就绪：{string_count} 根弦（{marker_count} 个标记）")
+        if double_string:
+            print("  • 已启用双排弦：请给 s0end_L 摆到左排弦的 s0 弦尾位置")
 
     # ── _setup_special_controllers ───────────────────────────────
 
@@ -217,7 +233,8 @@ class HarpObjectManager(HarpConfig):
 
     # ── setup_all_objects ────────────────────────────────────────
 
-    def setup_all_objects(self, string_count: int = 47) -> bool:
+    def setup_all_objects(self, string_count: int = 47,
+                          double_string: bool = False) -> bool:
         addons = self._get_addons_collection()
         if self.suffix and addons is None:
             print("[ERROR] 未找到角色 addons 目录，请先初始化角色。")
@@ -226,7 +243,7 @@ class HarpObjectManager(HarpConfig):
         self._organize_body()
         self._organize_instrument()
         self.add_controllers()
-        self.add_string_markers(string_count)
+        self.add_string_markers(string_count, double_string)
         self._setup_special_controllers()
         self._organize_performer_root()
         return True

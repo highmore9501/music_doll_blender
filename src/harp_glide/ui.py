@@ -115,6 +115,9 @@ class HarpGlideProperties(PropertyGroup):
             name=T("右远"), default=0, min=0, max=100),
         "right_near": IntProperty(
             name=T("右近"), default=0, min=0, max=100),
+        "double_string": BoolProperty(
+            name=T("双排弦"), default=False,
+            description=T("双排弦（导出 s0end_L）")),
         "tilt_state": EnumProperty(
             name=T("倾斜状态"), items=TILT_STATE_ITEMS, default="NEAR"),
         "hand_pose_hand": EnumProperty(
@@ -153,7 +156,8 @@ class HG_OT_setup_objects(Operator):
         # 先把面板配置写回骨骼 JSON（与其它乐器模块一致：骨骼是唯一事实来源）
         if skel is not None:
             cfg.save_harp_config(props, skel)
-        ok = cfg.setup_all_objects(string_count=int(props.string_count))
+        ok = cfg.setup_all_objects(string_count=int(props.string_count),
+                                  double_string=bool(props.double_string))
         if ok:
             self.report({"INFO"}, T("HarpGlide 控件已就绪（弦数：%d）") %
                         int(props.string_count))
@@ -663,12 +667,15 @@ class HG_PT_main_panel(Panel):
         row = box.row(align=True)
         row.prop(props, "right_far",  text=T("右远"))
         row.prop(props, "right_near", text=T("右近"))
+        box.prop(props, "double_string", text=T("双排弦（导出 s0end_L）"))
         box.operator("harp_glide.save_harp_config", text=T("保存配置到骨骼"))
 
         # 2. 初始化
         box = layout.box()
         box.label(text=T("初始化"), icon="TOOL_SETTINGS")
         box.operator("harp_glide.setup_objects", text=T("Setup Objects"))
+        box.label(text=T("切换双排弦后需重新 Setup Objects"),
+                  icon="INFO")
 
         # 3. 工具区（公共工具 + 本乐器独有工具，折叠 + 按选中展开）
         ui_utils.draw_tools(layout, scene, tools=TOOLS)
