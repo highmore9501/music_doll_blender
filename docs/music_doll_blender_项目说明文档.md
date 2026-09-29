@@ -212,7 +212,7 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 | ---- | ------ | ------ |
 | fret_dance | `fret_dance_controller_data` | `fret_dance_instrument` / `fret_dance_use_vibrato_bar` |
 | key_ripple | `key_ripple_state_data` | （随状态 JSON 存储） |
-| zheng_drift | `zheng_drift_state_data` | `zheng_drift_bilinear_data`（四态辅助） |
+| zheng_drift | `zheng_drift_state_data` | `zheng_drift_bilinear_data`（四个映射采集点） |
 | beat_bloom | `beat_bloom_state_data` | `beat_bloom_drumkit_config` |
 | harp_glide | `harp_glide_state_data` | （config 节在状态 JSON 内） |
 | wind_rise | `wind_rise_state_data` | （config 节在状态 JSON 内） |
@@ -552,26 +552,28 @@ class ToolDef:
 - 左右手各 7 主控：`H_L/HP_L/T_L/I_L/M_L/R_L/P_L`（右手对称）+ 各手指 `*_pole` 极向量 + `ext_*`（`ext = 2×手指` driver，LOCAL_SPACE；另加 Damped Track 约束锁 `+X` 轴指向手掌）；
 - 双脚：`F_L` / `F_R` + `F_L_pole` / `F_R_pole`；
 - 特殊朝向：`Middle_Hand`（H_L/H_R 世界中点 driver，WORLD_SPACE）、`Look_At`（挂 Middle_Hand）、`Head_Control`（世界对象 + TrackTo Look_At）；
-- 双线性辅助：`Middle_Hand_A~D` / `Head_Control_A~D`（四态驱动，`bilinear_map` 注册进 `bpy.app.driver_namespace`）；
+- 双线性辅助：`Middle_Hand_A~D` / `Head_Control_A~D`（四个采集槽位，`bilinear_map` 注册进 `bpy.app.driver_namespace`）；
 - 弦位置标记：`s0head`~`s20head`、`s0end`~`s20end`、`s0mid`~`s20mid`（63 个物理参考点，不挂 controller_root，弦工具按 `.location` 取世界坐标）。
 
-**状态模型**（存骨骼 `zheng_drift_state_data`，`zheng_drift_bilinear_data` 存四态辅助）：
+**状态模型**（存骨骼 `zheng_drift_state_data`，`zheng_drift_bilinear_data` 存四个映射采集点）：
 
 - 左手：`action(Normal/Press) × position(far/middle/near)`；右手：`action(Normal/Tremolo) × position(far/middle/near)`；
 - 结构：`{left_hand/right_hand: {action: {position: {控制器短名: {location, rotation}}}}}`；
-- **四态检测**（A: 左 Normal 右 Tremolo far；B: 左 Press 右 Normal far；C: 左 Normal 右 Tremolo near；D: 左 Press 右 Normal near）：Save 时把 Middle_Hand / Head_Control 位置存进骨骼，Load 时恢复。
+- **四点采集**（A/B/C/D 四个槽位）：面板「映射辅助」里选槽位 → 摆好角色姿态 → **Save Mapping**，把当时的 `Middle_Hand`（手部中点）与 `Head_Control`（头部位置）存进骨骼；**Load Mapping** 还原。
+  ⚠️ 2026-09-30 起**不再**由"四个指定状态"自动检测采集（原四态采样点几乎共面）；四个槽位的手部中点请尽量摆得不共面。
+  导出键（`Middle_Hand_A~D` / `Head_Control_A~D`）与 Rust 端映射算法均未变。
 
 **导入导出**（`io.py`）：`.zheng_master` 标准姿势文件（JSON 键短名兼容 Rust）：
 
 - `STRING_RECORDERS`：弦位置标记（对象）；
 - `LEFT/RIGHT_HAND_RECORDERS`：左右手状态（骨骼，键如 `H_L_Normal_far`）；
-- `FOOT_CONTROLLERS`：脚部控制器（对象）；`BILINEAR_HELPERS`：双线性辅助（骨骼）。
+- `FOOT_CONTROLLERS`：脚部控制器（对象）；`BILINEAR_HELPERS`：四个映射采集点（骨骼）。
 
 **动画**（`animation.py`）：左手 / 右手 / 弦振动 / 特殊朝向 target（Head_Control）/ 一键全部。动画配置 `.zhengdrift`（内含 performance / target / string 三个子文件 + 相对路径解析）。
 
 **特有工具**：弦 shape key（右手摇指 / 左手按弦）、线性分布记录器。
 
-**面板**：初始化（Check/Setup）、工具区、左右手状态选择（position + action）、设置与加载（含四态）、导入/导出标准姿势、生成动画。
+**面板**：初始化（Check/Setup）、工具区、左右手状态选择（position + action）、设置与加载、**映射辅助（A/B/C/D 槽位采集）**、导入/导出标准姿势、生成动画。
 
 ### 7.4 BeatBloom（打击乐，`beat_bloom/`）
 

@@ -666,6 +666,17 @@ _DICT: dict[str, dict[str, str]] = {
     "Mapping helper slot (A/B/C/D)": {"zh": "Mapping helper 槽位 (A/B/C/D)", "en": "Mapping helper slot (A/B/C/D)"},
     "Save Mapping": {"zh": "保存映射", "en": "Save Mapping"},
     "Load Mapping": {"zh": "加载映射", "en": "Load Mapping"},
+    "已保存 Mapping %s": {"zh": "已保存 Mapping %s", "en": "Saved Mapping %s"},
+    "已采集 Mapping %s": {"zh": "已采集 Mapping %s", "en": "Collected Mapping %s"},
+    "已加载 Mapping %s": {"zh": "已加载 Mapping %s", "en": "Loaded Mapping %s"},
+    "骨骼中不存在 Mapping %s，请先 Save": {
+        "zh": "骨骼中不存在 Mapping %s，请先 Save",
+        "en": "Mapping %s not found on the skeleton, please Save first"},
+    "采集四个槽位的手部中点与头部位置": {
+        "zh": "采集四个槽位的手部中点与头部位置",
+        "en": "Collect the hand midpoint and head position for the four slots"},
+    "已采集槽位：%s": {"zh": "已采集槽位：%s", "en": "Collected slots: %s"},
+    "（无）": {"zh": "（无）", "en": "(none)"},
     "Export / Import": {"zh": "导出/导入", "en": "Export / Import"},
     "Export .drummer": {"zh": "导出 .drummer", "en": "Export .drummer"},
     "Import .drummer": {"zh": "导入 .drummer", "en": "Import .drummer"},

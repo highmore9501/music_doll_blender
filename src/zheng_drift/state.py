@@ -2,7 +2,7 @@
 """ZhengDrift 乐器模块 —— 状态传输
 
 左右手状态统一存**演奏者骨骼自定义属性**（zheng_drift_state_data），
-双线性 Middle_Hand/Head_Control 极端位姿存 **zheng_drift_bilinear_data**，
+映射辅助的四个采集点（手部中点 + 头部位置）存 **zheng_drift_bilinear_data**，
 与 key_ripple / fret_dance 一致；不再在场景里生成大量记录器/辅助球体物体。
 复用 common.state_io 的对象↔字典搬运工具（含约束器影响的真实变换）。
 
@@ -21,7 +21,7 @@ from ..common import state_io as _sio
 
 # 骨骼自定义属性键
 STATE_KEY = "zheng_drift_state_data"
-# 双线性 Middle_Hand/Head_Control 极端位姿的骨骼自定义属性键
+# 映射辅助四个采集点（手部中点 + 头部位置）的骨骼自定义属性键
 BILINEAR_KEY = "zheng_drift_bilinear_data"
 
 
@@ -137,92 +137,94 @@ def load_hand_state(config, skeleton, hand: str, hand_position,
     print(f"已加载 {hand} 手 {action_str}/{pos_str} ({loaded} 个控制器)")
 
 
-# ── 四态 bilinear 保存/恢复（存演奏者骨骼自定义属性，不再用辅助球体） ──
+# ── 四点采集（Mapping Helpers，存演奏者骨骼自定义属性，不再用辅助球体） ──
+#
+# **采集方式（2026-09-30 起）**：四个槽位 A/B/C/D 由用户在「映射辅助」面板里
+# **手动采集**，每个槽位同时记下当时的两个位置：
+#   - `Middle_Hand`：手部中点（Control Rig / Driver 自动算出的 H_L、H_R 中点）；
+#   - `Head_Control`：头部位置。
+# 于是这 8 个点定义了两个空间，Rust 端据此建立"手部中点空间 → 头部空间"的映射：
+#   A 空间 = 四个手部中点；B 空间 = 四个头部位置。槽位顺序两边一一对应。
+#
+# 采集建议：四个槽位要尽量让手部中点**不要落在同一个平面上**（四面体体积越大越好），
+# Rust 端按四面体体积在"3D 仿射"与"2D 透视"之间自动选路，四点越接近共面映射越容易退化。
+# 旧口径（"在四个指定状态（A/B/C/D）下自动采集"）已废除。
 
-# 四态定义（A/B/C/D）：
-#   A: 左手 Normal + 右手 Tremolo + Far/Far
-#   B: 左手 Press + 右手 Normal + Far/Far
-#   C: 左手 Normal + 右手 Tremolo + Near/Near
-#   D: 左手 Press + 右手 Normal + Near/Near
-
-
-def _detect_state_key(left_position, left_action,
-                      right_position, right_action) -> str | None:
-    """检测是否满足四态之一，返回 state_key（a/b/c/d）；否则返回 None"""
-    if (left_action.value == "Normal" and right_action.value == "Tremolo" and
-            left_position.value == "far" and right_position.value == "far"):
-        return "a"
-    if (left_action.value == "Press" and right_action.value == "Normal" and
-            left_position.value == "far" and right_position.value == "far"):
-        return "b"
-    if (left_action.value == "Normal" and right_action.value == "Tremolo" and
-            left_position.value == "near" and right_position.value == "near"):
-        return "c"
-    if (left_action.value == "Press" and right_action.value == "Normal" and
-            left_position.value == "near" and right_position.value == "near"):
-        return "d"
-    return None
+# 槽位短名（与导出 JSON 的 `Middle_Hand_A` / `Head_Control_A` 对应）
+MAPPING_SLOTS = ("a", "b", "c", "d")
 
 
-def save_bilinear_helpers(config, skeleton, left_position, left_action,
-                          right_position, right_action) -> bool:
-    """满足四态时，把 Middle_Hand / Head_Control 位置存进骨骼自定义属性"""
-    state_key = _detect_state_key(
-        left_position, left_action, right_position, right_action)
-    if not state_key:
+def _mapping_objects(config):
+    """取 Middle_Hand / Head_Control 两个控制器物体；缺失时返回 (None, None)"""
+    return config.obj("Middle_Hand"), config.obj("Head_Control")
+
+
+def save_mapping(config, skeleton, slot_key: str) -> bool:
+    """把当前 Middle_Hand / Head_Control 的位置存进指定槽位（a/b/c/d）
+
+    返回是否保存成功。槽位键统一转小写后再取大写做导出名。
+    """
+    slot_key = (slot_key or "").lower()
+    if slot_key not in MAPPING_SLOTS:
+        print(f"  ⚠ 未知的映射槽位：{slot_key}")
         return False
     if skeleton is None:
-        print("  ⚠ 未指定目标骨骼，无法保存双线性辅助数据")
+        print("  ⚠ 未指定目标骨骼，无法保存映射辅助数据")
         return False
 
-    middle_hand_obj = config.obj("Middle_Hand")
-    head_control_obj = config.obj("Head_Control")
+    middle_hand_obj, head_control_obj = _mapping_objects(config)
     if not (middle_hand_obj and head_control_obj):
-        print("  ⚠ 缺少 Middle_Hand / Head_Control 物体，无法保存双线性辅助数据")
+        print("  ⚠ 缺少 Middle_Hand / Head_Control 物体，无法保存映射辅助数据")
         return False
 
     data = get_bilinear_data(skeleton)
-    mh_name = f"Middle_Hand_{state_key.upper()}"
-    hc_name = f"Head_Control_{state_key.upper()}"
+    mh_name = f"Middle_Hand_{slot_key.upper()}"
+    hc_name = f"Head_Control_{slot_key.upper()}"
     data[mh_name] = {"location": list(middle_hand_obj.location)}
     data[hc_name] = {"location": list(head_control_obj.location)}
     set_bilinear_data(skeleton, data)
 
-    print(
-        f"\n✓ 检测到 {state_key.upper()} 态，已保存 Middle_Hand 和 Head_Control 的位置到骨骼")
+    print(f"\n✓ 已采集槽位 {slot_key.upper()}：")
     print(f"  {mh_name}: {data[mh_name]['location']}")
     print(f"  {hc_name}: {data[hc_name]['location']}")
     return True
 
 
-def load_bilinear_helpers(config, skeleton, left_position, left_action,
-                          right_position, right_action) -> bool:
-    """满足四态时，从骨骼自定义属性加载位置到 Middle_Hand / Head_Control"""
-    state_key = _detect_state_key(
-        left_position, left_action, right_position, right_action)
-    if not state_key:
+def load_mapping(config, skeleton, slot_key: str) -> bool:
+    """把指定槽位（a/b/c/d）的位置还原到 Middle_Hand / Head_Control"""
+    slot_key = (slot_key or "").lower()
+    if slot_key not in MAPPING_SLOTS:
+        print(f"  ⚠ 未知的映射槽位：{slot_key}")
         return False
     if skeleton is None:
-        print("  ⚠ 未指定目标骨骼，无法加载双线性辅助数据")
+        print("  ⚠ 未指定目标骨骼，无法加载映射辅助数据")
         return False
 
-    middle_hand_obj = config.obj("Middle_Hand")
-    head_control_obj = config.obj("Head_Control")
+    middle_hand_obj, head_control_obj = _mapping_objects(config)
     if not (middle_hand_obj and head_control_obj):
-        print("  ⚠ 缺少 Middle_Hand / Head_Control 物体，无法加载双线性辅助数据")
+        print("  ⚠ 缺少 Middle_Hand / Head_Control 物体，无法加载映射辅助数据")
         return False
 
     data = get_bilinear_data(skeleton)
-    mh_entry = data.get(f"Middle_Hand_{state_key.upper()}")
-    hc_entry = data.get(f"Head_Control_{state_key.upper()}")
+    mh_entry = data.get(f"Middle_Hand_{slot_key.upper()}")
+    hc_entry = data.get(f"Head_Control_{slot_key.upper()}")
     if not (mh_entry and hc_entry):
-        print(f"  ⚠ 骨骼中未找到 {state_key.upper()} 态的双线性辅助数据，请先保存")
+        print(f"  ⚠ 骨骼中未找到槽位 {slot_key.upper()} 的数据，请先采集")
         return False
 
     middle_hand_obj.location = mh_entry["location"]
     head_control_obj.location = hc_entry["location"]
-    print(
-        f"\n✓ 检测到 {state_key.upper()} 态，已从骨骼加载位置到 Middle_Hand 和 Head_Control")
+    print(f"\n✓ 已还原槽位 {slot_key.upper()}：")
     print(f"  {middle_hand_obj.name}: {list(middle_hand_obj.location)}")
     print(f"  {head_control_obj.name}: {list(head_control_obj.location)}")
     return True
+
+
+def get_mapping_slot_summary(skeleton) -> dict:
+    """返回各槽位的采集状态（槽位短名 → 是否已采集），供面板显示用"""
+    data = get_bilinear_data(skeleton)
+    return {
+        slot_key: (f"Middle_Hand_{slot_key.upper()}" in data
+                   and f"Head_Control_{slot_key.upper()}" in data)
+        for slot_key in MAPPING_SLOTS
+    }

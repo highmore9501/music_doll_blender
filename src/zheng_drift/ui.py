@@ -19,8 +19,9 @@ from .io import export_recorder_info, import_recorder_info
 from .state import (
     save_hand_state,
     load_hand_state,
-    save_bilinear_helpers,
-    load_bilinear_helpers,
+    save_mapping,
+    load_mapping,
+    get_mapping_slot_summary,
 )
 from .enums import LeftHandAction, RightHandAction, HandPosition
 from .config import ZhengConfig
@@ -155,6 +156,15 @@ class ZhengDriftProperties(PropertyGroup):
                    ('TREMOLO', T('Tremolo'), T('摇指'))],
             default='NORMAL'),
 
+        # 映射辅助的采集槽位（四点采集，替代原来的"四个指定状态自动采集"）
+        "mapping_key": EnumProperty(
+            name=T("Mapping State"),
+            description=T("Mapping helper slot (A/B/C/D)"),
+            items=[('A', 'A', ''), ('B', 'B', ''),
+                   ('C', 'C', ''), ('D', 'D', '')],
+            default='A',
+        ),
+
         # .zhengdrift 配置 / 动画文件路径（乐器面板唯一 FILE_PATH；
         # 乐器物体/人物信息路径由角色模块「角色操作」面板统一设置）
         "zheng_animation_file": StringProperty(
@@ -214,10 +224,6 @@ class ZHENG_OT_save_left_hand_state(Operator):
         position = _position_from_props(props, "left")
         action = _action_from_props(props, "left")
         save_hand_state(config, skel, "left", position, action)
-        # 满足四态时保存 Middle_Hand / Head_Control 位置到骨骼
-        save_bilinear_helpers(config, skel, position, action,
-                              _position_from_props(props, "right"),
-                              _action_from_props(props, "right"))
         self.report({'INFO'}, T("Left hand state has been set"))
         return {'FINISHED'}
 
@@ -238,10 +244,6 @@ class ZHENG_OT_save_right_hand_state(Operator):
         position = _position_from_props(props, "right")
         action = _action_from_props(props, "right")
         save_hand_state(config, skel, "right", position, action)
-        save_bilinear_helpers(config, skel,
-                              _position_from_props(props, "left"),
-                              _action_from_props(props, "left"),
-                              position, action)
         self.report({'INFO'}, T("Right hand state has been set"))
         return {'FINISHED'}
 
@@ -266,9 +268,6 @@ class ZHENG_OT_load_left_hand_state(Operator):
         except ValueError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        load_bilinear_helpers(config, skel, position, action,
-                              _position_from_props(props, "right"),
-                              _action_from_props(props, "right"))
         self.report({'INFO'}, T("Left hand state has been loaded"))
         return {'FINISHED'}
 
@@ -293,11 +292,50 @@ class ZHENG_OT_load_right_hand_state(Operator):
         except ValueError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        load_bilinear_helpers(config, skel,
-                              _position_from_props(props, "left"),
-                              _action_from_props(props, "left"),
-                              position, action)
         self.report({'INFO'}, T("Right hand state has been loaded"))
+        return {'FINISHED'}
+
+
+class ZHENG_OT_save_mapping(Operator):
+    """把当前 Middle_Hand（手部中点）与 Head_Control（头部位置）采集到选中槽位"""
+    bl_idname = "music_doll.zheng_drift_save_mapping"
+    bl_label = T("Save Mapping")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.zhengdrift_props
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
+            return {'CANCELLED'}
+        config = _get_zheng_config(
+            props, suffix=_get_active_suffix(context), skeleton=skel)
+        if not save_mapping(config, skel, props.mapping_key):
+            self.report({'ERROR'}, T("采集失败：请确认 Middle_Hand / Head_Control 已创建"))
+            return {'CANCELLED'}
+        self.report({'INFO'}, T("已采集 Mapping %s") % props.mapping_key)
+        return {'FINISHED'}
+
+
+class ZHENG_OT_load_mapping(Operator):
+    """把选中槽位的位置还原到 Middle_Hand / Head_Control"""
+    bl_idname = "music_doll.zheng_drift_load_mapping"
+    bl_label = T("Load Mapping")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.zhengdrift_props
+        skel = _get_active_skeleton(context)
+        if skel is None:
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
+            return {'CANCELLED'}
+        config = _get_zheng_config(
+            props, suffix=_get_active_suffix(context), skeleton=skel)
+        if not load_mapping(config, skel, props.mapping_key):
+            self.report(
+                {'WARNING'}, T("骨骼中不存在 Mapping %s，请先 Save") % props.mapping_key)
+            return {'CANCELLED'}
+        self.report({'INFO'}, T("已加载 Mapping %s") % props.mapping_key)
         return {'FINISHED'}
 
 
@@ -693,7 +731,7 @@ class ZHENG_PT_main_panel(Panel):
         box.prop(props, "right_hand_position")
         box.prop(props, "right_hand_action")
 
-        # 5. 设置与加载模块（含四态 bilinear 保存/恢复）
+        # 5. 设置与加载模块
         box = layout.box()
         box.label(text=T("设置与加载"), icon='FILE_REFRESH')
         row = box.row(align=True)
@@ -707,7 +745,27 @@ class ZHENG_PT_main_panel(Panel):
         row.operator("music_doll.zheng_drift_load_right_hand_state",
                      text=T("Load Right Hand"))
 
-        # 6. 导入/导出标准姿势（人物信息路径由角色模块统一设置）
+        # 6. 映射辅助（四点采集）：手动采集四个槽位的手部中点 + 头部位置，
+        #    替代原来的"在四个指定状态下自动采集"
+        box = layout.box()
+        box.label(text=T("Mapping Helpers"), icon='ORIENTATION_VIEW')
+        box.label(text=T("采集四个槽位的手部中点与头部位置"), icon='INFO')
+        col = box.column(align=True)
+        col.prop(props, "mapping_key", text=T("Slot"))
+        row = col.row(align=True)
+        row.operator("music_doll.zheng_drift_save_mapping",
+                     text=T("Save Mapping"))
+        row.operator("music_doll.zheng_drift_load_mapping",
+                     text=T("Load Mapping"))
+        skeleton = _get_active_skeleton(context)
+        if skeleton is not None:
+            slot_summary = get_mapping_slot_summary(skeleton)
+            captured = " ".join(
+                slot_key.upper() for slot_key, done in slot_summary.items() if done)
+            box.label(
+                text=T("已采集槽位：%s") % (captured if captured else T("（无）")))
+
+        # 7. 导入/导出标准姿势（人物信息路径由角色模块统一设置）
         box = layout.box()
         box.label(text=T("导入/导出标准姿势"), icon='EXPORT')
         row = box.row(align=True)
@@ -716,7 +774,7 @@ class ZHENG_PT_main_panel(Panel):
         box.operator("music_doll.zheng_drift_export_to_unreal",
                      text=T("导出到 Unreal"), icon='EXPORT')
 
-        # 7. 动画生成模块
+        # 8. 动画生成模块
         box = layout.box()
         box.label(text=T("生成动画"), icon='PLAY')
         box.prop(props, "zheng_animation_file", text="")
@@ -752,6 +810,10 @@ def register():
     bpy.utils.register_class(ZHENG_OT_load_left_hand_state)
     bl_label_set(ZHENG_OT_load_right_hand_state, "Load Right Hand")
     bpy.utils.register_class(ZHENG_OT_load_right_hand_state)
+    bl_label_set(ZHENG_OT_save_mapping, "Save Mapping")
+    bpy.utils.register_class(ZHENG_OT_save_mapping)
+    bl_label_set(ZHENG_OT_load_mapping, "Load Mapping")
+    bpy.utils.register_class(ZHENG_OT_load_mapping)
     bl_label_set(ZHENG_OT_export_info, "导出控制器信息")
     bpy.utils.register_class(ZHENG_OT_export_info)
     bl_label_set(ZHENG_OT_import_info, "导入控制器信息")
@@ -798,6 +860,8 @@ def unregister():
     bpy.utils.unregister_class(ZHENG_OT_generate_left_hand_animation)
     bpy.utils.unregister_class(ZHENG_OT_import_info)
     bpy.utils.unregister_class(ZHENG_OT_export_info)
+    bpy.utils.unregister_class(ZHENG_OT_load_mapping)
+    bpy.utils.unregister_class(ZHENG_OT_save_mapping)
     bpy.utils.unregister_class(ZHENG_OT_load_right_hand_state)
     bpy.utils.unregister_class(ZHENG_OT_load_left_hand_state)
     bpy.utils.unregister_class(ZHENG_OT_save_right_hand_state)

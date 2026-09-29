@@ -212,7 +212,7 @@ Bone custom-property keys per instrument:
 | ---------- | --------- | ------------ |
 | fret_dance | `fret_dance_controller_data` | `fret_dance_instrument` / `fret_dance_use_vibrato_bar` |
 | key_ripple | `key_ripple_state_data` | (stored within the state JSON) |
-| zheng_drift | `zheng_drift_state_data` | `zheng_drift_bilinear_data` (four-state helpers) |
+| zheng_drift | `zheng_drift_state_data` | `zheng_drift_bilinear_data` (four mapping sample points) |
 | beat_bloom | `beat_bloom_state_data` | `beat_bloom_drumkit_config` |
 | harp_glide | `harp_glide_state_data` | (config section inside the state JSON) |
 | wind_rise | `wind_rise_state_data` | (config section inside the state JSON) |
@@ -552,26 +552,28 @@ The following are the core profiles of the 7 instrument modules (controller layo
 - 7 main controllers per hand: `H_L/HP_L/T_L/I_L/M_L/R_L/P_L` (right symmetric) + per-finger `*_pole` poles + `ext_*` (`ext = 2×finger` driver, LOCAL_SPACE; plus a Damped Track constraint locking `+X` toward the palm);
 - Feet: `F_L` / `F_R` + `F_L_pole` / `F_R_pole`;
 - Special orientation: `Middle_Hand` (world-midpoint driver of H_L/H_R, WORLD_SPACE), `Look_At` (parented to Middle_Hand), `Head_Control` (world object + TrackTo Look_At);
-- Bilinear helpers: `Middle_Hand_A~D` / `Head_Control_A~D` (four-state drivers; `bilinear_map` registered into `bpy.app.driver_namespace`);
+- Bilinear helpers: `Middle_Hand_A~D` / `Head_Control_A~D` (four collection slots; `bilinear_map` registered into `bpy.app.driver_namespace`);
 - String-position markers: `s0head`–`s20head`, `s0end`–`s20end`, `s0mid`–`s20mid` (63 physical reference points, not parented to controller_root; string tools read world `.location`).
 
-**State model** (stored on the skeleton, key `zheng_drift_state_data`; `zheng_drift_bilinear_data` holds the four-state helpers):
+**State model** (stored on the skeleton, key `zheng_drift_state_data`; `zheng_drift_bilinear_data` holds the four mapping sample points):
 
 - Left hand: `action(Normal/Press) × position(far/middle/near)`; right hand: `action(Normal/Tremolo) × position(far/middle/near)`;
 - Structure: `{left_hand/right_hand: {action: {position: {short controller name: {location, rotation}}}}}`;
-- **Four-state detection** (A: left Normal + right Tremolo far; B: left Press + right Normal far; C: left Normal + right Tremolo near; D: left Press + right Normal near): on Save, Middle_Hand / Head_Control positions are stored on the skeleton; on Load they are restored.
+- **Four-slot collection** (A/B/C/D): pick a slot in the "Mapping Helpers" box, pose the character, press **Save Mapping** to store the current `Middle_Hand` (hand midpoint) and `Head_Control` (head position) on the skeleton; **Load Mapping** restores them.
+  ⚠️ Since 2026-09-30 the points are **no longer** auto-detected from "four specified states" (those samples were nearly coplanar); keep the four hand midpoints non-coplanar.
+  The exported keys (`Middle_Hand_A~D` / `Head_Control_A~D`) and the Rust-side mapping are unchanged.
 
 **Import/export** (`io.py`): `.zheng_master` standard-pose file (short JSON keys compatible with Rust):
 
 - `STRING_RECORDERS`: string-position markers (objects);
 - `LEFT/RIGHT_HAND_RECORDERS`: left/right-hand states (skeleton; keys like `H_L_Normal_far`);
-- `FOOT_CONTROLLERS`: foot controllers (objects); `BILINEAR_HELPERS`: bilinear helpers (skeleton).
+- `FOOT_CONTROLLERS`: foot controllers (objects); `BILINEAR_HELPERS`: the four mapping sample points (skeleton).
 
 **Animation** (`animation.py`): left hand / right hand / string vibration / special-orientation target (Head_Control) / generate all. Animation config `.zhengdrift` (contains performance / target / string sub-files + relative path resolution).
 
 **Specific tools**: string shape keys (right-hand tremolo / left-hand pressing), linear-distribute recorders.
 
-**Panel**: initialization (Check/Setup), tools area, left/right-hand state selection (position + action), set & load (incl. four states), import/export standard poses, generate animation.
+**Panel**: initialization (Check/Setup), tools area, left/right-hand state selection (position + action), set & load, **Mapping Helpers (A/B/C/D slot collection)**, import/export standard poses, generate animation.
 
 ### 7.4 BeatBloom (percussion, `beat_bloom/`)
 
