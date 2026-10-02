@@ -405,17 +405,29 @@ class KEYRIPPLE_OT_generate_animation(Operator):
 
         # 键盘（乐器）物体由角色模块「角色操作」面板的「目标乐器」统一设置
         inst = _get_active_instrument(context)
-        keyboard_obj_name = inst.name if inst is not None else 'keyboard'
+        if inst is None:
+            self.report({'ERROR'}, T("请先在「角色操作」面板中设置目标乐器"))
+            return {'CANCELLED'}
+        if inst.type != 'MESH' or not inst.data.shape_keys:
+            self.report(
+                {'ERROR'}, T("目标乐器 %s 不是带 shape key 的网格") % inst.name)
+            return {'CANCELLED'}
 
         try:
-            make_animation_from_keyripple(
-                file_path, keyboard_obj_name, suffix=suffix)
-            self.report(
-                {'INFO'}, T("KeyRipple animation generated from %s") % file_path)
-            return {'FINISHED'}
+            success = make_animation_from_keyripple(
+                file_path, inst.name, suffix=suffix)
         except Exception as e:
             self.report({'ERROR'}, f"Failed to generate animation: {str(e)}")
             return {'CANCELLED'}
+
+        if not success:
+            self.report(
+                {'ERROR'}, T("生成失败：钢琴键动画未能写入目标乐器 %s，详见控制台") % inst.name)
+            return {'CANCELLED'}
+
+        self.report(
+            {'INFO'}, T("KeyRipple animation generated from %s") % file_path)
+        return {'FINISHED'}
 
 
 class KEYRIPPLE_OT_duplicate_performer(Operator):

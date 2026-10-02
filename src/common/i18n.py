@@ -358,6 +358,15 @@ _DICT: dict[str, dict[str, str]] = {
     "Avatar exported to %s": {"zh": "头像已导出到 %s", "en": "Avatar exported to %s"},
     "Avatar imported from %s": {"zh": "头像已从 %s 导入", "en": "Avatar imported from %s"},
     "KeyRipple animation generated from %s": {"zh": "KeyRipple 动画已从 %s 生成", "en": "KeyRipple animation generated from %s"},
+    "请先在「角色操作」面板中设置目标乐器": {
+        "zh": "请先在「角色操作」面板中设置目标乐器",
+        "en": "Please set the target instrument in the Performer Ops panel first"},
+    "目标乐器 %s 不是带 shape key 的网格": {
+        "zh": "目标乐器 %s 不是带 shape key 的网格",
+        "en": "Target instrument %s is not a mesh with shape keys"},
+    "生成失败：钢琴键动画未能写入目标乐器 %s，详见控制台": {
+        "zh": "生成失败：钢琴键动画未能写入目标乐器 %s，详见控制台",
+        "en": "Generation failed: piano key animation was not written to target instrument %s (see console)"},
     "状态已保存: 左%s/%s 右%s/%s": {"zh": "状态已保存: 左%s/%s 右%s/%s", "en": "State saved: L%s/%s R%s/%s"},
 
     # ═══════════════════════════════════════════════════════════

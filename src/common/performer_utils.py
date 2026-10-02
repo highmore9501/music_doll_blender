@@ -366,7 +366,8 @@ def duplicate_collection_tree(src: bpy.types.Collection,
                               parent: bpy.types.Collection | None = None) -> bpy.types.Collection:
     """深拷贝一个集合（含子集合与对象）。
 
-    - 对象用 copy() 创建（共享数据，类似 Shift+D）；
+    - 对象用 copy() 创建（自定义属性一并带过来，类似 Shift+D；但数据随后会被
+      复制成副本自己的，见下面「数据独立」一条）；
     - 对象自定义属性一并复制（含骨骼上的状态数据/设置）；
     - 集合自定义属性不自动复制（调用方按需设置，如 performer_suffix 交给 resuffix）；
     - 父级关系用「全局 obj_map」重建：只要父级也在复制范围内，就指向新复制的副本，
@@ -374,6 +375,9 @@ def duplicate_collection_tree(src: bpy.types.Collection,
       不会残留指向原物体的父级导致层级被破坏；
     - 约束器里的对象引用重映射为新副本；
     - modifier 里的对象引用（如 Armature 的 object）同样重映射为新副本；
+    - **数据独立**：副本独占自己的 mesh 数据、材质与动画 Action（见
+      `_make_duplicate_data_independent`）——否则两个演奏者会共享 shape key 动画
+      （挂在 mesh 数据上）与发光动画（挂在材质上），互相覆盖；
     - 新集合挂到 parent 下（默认 Performers 根）。
     """
     new_root = None
@@ -418,7 +422,152 @@ def duplicate_collection_tree(src: bpy.types.Collection,
     # （如 Mesh 的 Armature modifier 仍指向原骨骼）
     _remap_modifiers(obj_map)
 
+    # 分离数据：mesh / 材质 / Action 都必须是副本自己的，否则两个演奏者的
+    # shape key 动画与发光动画会互相覆盖
+    _make_duplicate_data_independent(obj_map)
+
     return new_root
+
+
+# ── 复制演奏者：让副本独占数据与动画 ───────────────────────────
+
+def make_action_independent(anim_data, action_map=None) -> None:
+    """让 anim_data 拥有自己的 Action（多演奏者互不覆盖）。
+
+    Blender 的 `ID.copy()` 只复制 AnimData 的引用、**不复制 Action 本身**
+    （`LIB_ID_COPY_DEFAULT` 里没有 `LIB_ID_COPY_ACTIONS`），所以复制出来的对象、
+    mesh 的 shape key、材质的节点树都还指向源演奏者的同一条 Action：给新演奏者
+    写动画会把原演奏者的曲线改掉。
+
+    :param anim_data: 目标 AnimData（None 或没有 action 时直接返回）
+    :param action_map: 复制演奏者时传入的字典（同一个源 Action 在副本里只复制一份）；
+                       为 None 表示「写入动画前的兜底」——只有 Action 确实被多个
+                       data-block 共用（users > 1）时才复制，避免每次生成动画都
+                       凭空多出一份 Action。
+    """
+    if anim_data is None or anim_data.action is None:
+        return
+    source_action = anim_data.action
+    if action_map is None:
+        if source_action.users <= 1:
+            return
+        action_map = {}
+
+    copied_action = action_map.get(source_action)
+    if copied_action is None:
+        copied_action = source_action.copy()
+        action_map[source_action] = copied_action
+
+    anim_data.action = copied_action
+    # Blender 4.4+ 的分层 Action：赋值时会自动挑合适槽位，这里兜底显式绑定，
+    # 避免曲线挂在别的槽位上导致动画不生效
+    if hasattr(anim_data, "action_slot") and anim_data.action_slot is None:
+        slots = getattr(copied_action, "slots", None)
+        if slots:
+            try:
+                anim_data.action_slot = slots[0]
+            except Exception:
+                pass
+
+
+def _duplicate_material(material, material_map, action_map):
+    """复制材质（含节点树）并让节点树上的动画独立；同一个源材质只复制一份"""
+    duplicated = material_map.get(material)
+    if duplicated is not None:
+        return duplicated
+    duplicated = material.copy()
+    material_map[material] = duplicated
+    node_tree = getattr(duplicated, "node_tree", None)
+    if node_tree is not None:
+        make_action_independent(node_tree.animation_data, action_map)
+    return duplicated
+
+
+def _make_duplicate_data_independent(obj_map) -> None:
+    """让复制出的演奏者独占 mesh 数据、材质与动画 Action。
+
+    - `obj.copy()` 共享 mesh 数据，而 shape key 及其动画挂在 mesh（Key）上：
+      共享就意味着两个演奏者的琴键/弦会一起动，写入动画还会互相覆盖；
+    - 材质同理：材质槽指向同一个材质，Mix Shader Factor 的发光动画会串；
+    - 按「同一个源 data-block 只复制一次」处理，副本内部原本共用的数据仍然共用；
+    - 只处理 MESH（骨骼等其它数据类型不在此列）。
+    """
+    mesh_map = {}
+    material_map = {}
+    action_map = {}
+
+    # 1) 对象自身的动画（手部控制器、乐器整体等）
+    for new_obj in obj_map.values():
+        make_action_independent(new_obj.animation_data, action_map)
+
+    # 2) mesh 数据 / shape key 动画 / 材质
+    for old_obj, new_obj in obj_map.items():
+        if old_obj.type != "MESH" or old_obj.data is None:
+            continue
+        new_mesh = mesh_map.get(old_obj.data)
+        if new_mesh is None:
+            new_mesh = old_obj.data.copy()
+            mesh_map[old_obj.data] = new_mesh
+            for slot_index, material in enumerate(new_mesh.materials):
+                if material is not None:
+                    new_mesh.materials[slot_index] = _duplicate_material(
+                        material, material_map, action_map)
+            # shape key 动画挂在 Key datablock 上（mesh.copy() 会连带复制 Key）
+            if new_mesh.shape_keys is not None:
+                make_action_independent(
+                    new_mesh.shape_keys.animation_data, action_map)
+        new_obj.data = new_mesh
+        # 槽位链接为 OBJECT 时材质挂在物体槽上（不在 mesh 上）
+        for slot in new_obj.material_slots:
+            if slot.link == "OBJECT" and slot.material is not None:
+                slot.material = _duplicate_material(
+                    slot.material, material_map, action_map)
+
+
+def make_object_data_independent(obj) -> bool:
+    """让 obj 独占自己的 mesh 数据、材质与动画 Action（写入动画前的兜底）。
+
+    「合并后的乐器」（钢琴键、古筝弦等）把 shape key 动画挂在 mesh 数据上、把发光
+    动画挂在材质上：这些数据一旦被两个演奏者共享，写动画时就会互相覆盖。深拷贝
+    演奏者时由 `duplicate_collection_tree` 负责分离；本函数用于写入动画前兜底，
+    修复旧场景里已经共享了数据的演奏者。
+
+    只在数据确实被共用（users > 1）时才复制，正常场景下是空操作。
+    返回是否真的复制过数据（调用方可据此打印提示）。
+    """
+    if obj is None:
+        return False
+    copied_anything = False
+
+    mesh = obj.data if obj.type == "MESH" else None
+    if mesh is not None and mesh.users > 1:
+        mesh = mesh.copy()
+        obj.data = mesh
+        copied_anything = True
+
+    if mesh is not None and mesh.shape_keys is not None:
+        make_action_independent(mesh.shape_keys.animation_data)
+
+    make_action_independent(obj.animation_data)
+
+    duplicated_materials = {}
+    for slot in obj.material_slots:
+        material = slot.material
+        if material is None:
+            continue
+        if material.users > 1:
+            duplicated = duplicated_materials.get(material)
+            if duplicated is None:
+                duplicated = material.copy()
+                duplicated_materials[material] = duplicated
+            material = duplicated
+            slot.material = material
+            copied_anything = True
+        node_tree = getattr(material, "node_tree", None)
+        if node_tree is not None:
+            make_action_independent(node_tree.animation_data)
+
+    return copied_anything
 
 
 def _remap_constraints(obj_map: dict[bpy.types.Object, bpy.types.Object]):
