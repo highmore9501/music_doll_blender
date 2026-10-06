@@ -448,6 +448,7 @@ class ToolDef:
 ```
 
 - 公共工具在 `common/tools/`（`COMMON_TOOLS`）；乐器独有工具在各乐器 `tools/__init__.py`（`INSTRUMENT_TOOLS`）；
+- 当前公共工具：修正手指骨骼（`fix_finger_ik.py`）、骨骼/控制器映射（`bone_controller_mapping.py`）、轴旋转工具 / 轴移动工具（`axis_transform.py`——Edit Mode 下以两物体位置定义旋转轴/移动方向，对选中顶点实时旋转或平移）；
 - 每个乐器面板的 `TOOLS = COMMON_TOOLS + INSTRUMENT_TOOLS`，用 `ui_utils.draw_tools(layout, scene, tools=TOOLS)` 统一绘制；
 - 工具参数用**场景级属性**（工具模块内注册，幂等 hasattr 守卫），不污染乐器 PropertyGroup；
 - 工具生成的对象带演奏者后缀；
@@ -461,18 +462,18 @@ class ToolDef:
 | key_ripple | 为钢琴键创建 Shape Keys | `music_doll.tool_key_ripple_make_shape_keys` | 无（选中键执行） |
 | zheng_drift | 生成弦 Shape Key / 线性分布记录器 | `music_doll.tool_zheng_*` | 弦序号 0~20 / 振幅比例 |
 | beat_bloom | （无专属工具，仅公共工具） | — | — |
-| harp_glide | 生成弦 Shape Key / 批量生成所有弦 / 线性分布弦位置 | `harp_glide.create_string_shape_key` 等 | 弦数 / 振幅 |
-| wind_rise | 轴旋转工具 / 轴移动工具 | （参数区自带按钮） | — |
+| harp_glide | 生成弦 Shape Key / 批量生成所有弦 / 线性分布弦位置 / 更名shape key方向 | `harp_glide.create_string_shape_key` 等 | 弦数 / 振幅（更名工具参数为方向：左 _L / 右 _R，选中物体执行） |
+| wind_rise | （无专属工具，轴旋转 / 轴移动已提升为公共工具） | — | — |
 | string_flow | 一键创建琴弦 / 生成 ShapeKey | `music_doll.tool_string_flow_create_violin_string` 等 | 弦号 / 偏移比例 / 翻转法线方向 |
 
 ### 6.3 典型工具实现位置
 
-- 公共：`common/tools/fix_finger_ik.py`、`common/tools/bone_controller_mapping.py`；
+- 公共：`common/tools/fix_finger_ik.py`、`common/tools/bone_controller_mapping.py`、`common/tools/axis_transform.py`（轴旋转 + 轴移动）；
 - fret_dance：`fret_dance/tools/strings.py`（`create_string_with_shape_keys`，选中起点→终点两对象生成弦与 0~20 品 shape key）、`fret_dance/tools/export_to_unreal.py`；
 - key_ripple：`key_ripple/tools/make_shape_keys.py`（Basis + pressed shape keys）、`key_ripple/tools/export_to_unreal.py`；
 - zheng_drift：`zheng_drift/tools/string_tools.py`（右手摇指 + 左手按弦 shape key、线性分布）、`zheng_drift/tools/export_to_unreal.py`；
 - harp_glide：`harp_glide/tools/string_tools.py`（振动方向从骨骼 JSON 读）、`harp_glide/tools/export_to_unreal.py`；
-- wind_rise：`wind_rise/tools/axis_rotation_tool.py`（Edit Mode 下以两物体位置定义旋转轴对选中顶点实时旋转）、`wind_rise/tools/export_to_unreal.py`；
+- wind_rise：`wind_rise/tools/export_to_unreal.py`；
 - string_flow：`string_flow/tools/make_violin_string.py`（三点定平面生成琴弦 shape key）、`string_flow/tools/export_to_unreal.py`。
 
 > 各乐器的"导出到 Unreal"均为 `(Operator, ExportHelper)` 类，弹出文件浏览器选择路径后调用 `io.export_*(..., for_unreal=True)`。

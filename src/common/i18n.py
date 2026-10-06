@@ -543,6 +543,30 @@ _DICT: dict[str, dict[str, str]] = {
     "选中两端 Empty，中间弦标记将线性分布": {
         "zh": "选中两端 Empty，中间弦标记将线性分布",
         "en": "Select two end Empty objects; intermediate string markers will be distributed linearly"},
+    "更名shape key方向": {"zh": "更名shape key方向", "en": "Rename Shape Key Side"},
+    "方向": {"zh": "方向", "en": "Side"},
+    "左": {"zh": "左", "en": "Left"},
+    "右": {"zh": "右", "en": "Right"},
+    "补 _L 后缀": {"zh": "补 _L 后缀", "en": "append _L suffix"},
+    "补 _R 后缀": {"zh": "补 _R 后缀", "en": "append _R suffix"},
+    "string 开头的 Shape Key 将补 _L / _R 后缀": {
+        "zh": "string 开头的 Shape Key 将补 _L / _R 后缀",
+        "en": "Shape keys starting with \"string\" get an _L / _R suffix"},
+    "已带 _L / _R 的会自动跳过": {
+        "zh": "已带 _L / _R 的会自动跳过",
+        "en": "Keys that already carry _L / _R are skipped"},
+    "请先选中至少一个网格物体": {
+        "zh": "请先选中至少一个网格物体",
+        "en": "Please select at least one mesh object first"},
+    "选中的物体没有 Shape Key": {
+        "zh": "选中的物体没有 Shape Key",
+        "en": "The selected objects have no shape keys"},
+    "已更名 %d 个 Shape Key": {
+        "zh": "已更名 %d 个 Shape Key",
+        "en": "Renamed %d shape key(s)"},
+    "已更名 %d 个 Shape Key（跳过：已带方向后缀 %d 个，同名 %d 个）": {
+        "zh": "已更名 %d 个 Shape Key（跳过：已带方向后缀 %d 个，同名 %d 个）",
+        "en": "Renamed %d shape key(s) (skipped: %d already carrying a side suffix, %d with a duplicate name)"},
 
     # ═══════════════════════════════════════════════════════════
     # WindRise UI
@@ -575,16 +599,6 @@ _DICT: dict[str, dict[str, str]] = {
     "导出到 Unreal": {"zh": "导出到 Unreal", "en": "Export to Unreal"},
     "生成动画": {"zh": "生成动画", "en": "Generate Animation"},
     "请先选择含 Shape Key 的 Mesh": {"zh": "请先选择含 Shape Key 的 Mesh", "en": "Please select a Mesh with Shape Keys first"},
-    "重置旋转": {"zh": "重置旋转", "en": "Reset Rotation"},
-    "重置移动": {"zh": "重置移动", "en": "Reset Translation"},
-    "轴旋转工具": {"zh": "轴旋转工具", "en": "Axis Rotation Tool"},
-    "轴移动工具": {"zh": "轴移动工具", "en": "Axis Translation Tool"},
-    "物体1": {"zh": "物体1", "en": "Object 1"},
-    "物体2": {"zh": "物体2", "en": "Object 2"},
-    "角度": {"zh": "角度", "en": "Angle"},
-    "距离": {"zh": "距离", "en": "Distance"},
-    "物体2（旋转轴终点）": {"zh": "物体2（旋转轴终点）", "en": "Object 2 (rotation axis endpoint)"},
-    "物体2（移动方向终点）": {"zh": "物体2（移动方向终点）", "en": "Object 2 (translation direction endpoint)"},
     # WindRise report messages
     "WindRise 控件已就绪": {"zh": "WindRise 控件已就绪", "en": "WindRise controls ready"},
     "请先在「角色生成器」初始化角色": {
@@ -731,6 +745,18 @@ _DICT: dict[str, dict[str, str]] = {
     "映射文件的保存/加载路径": {"zh": "映射文件的保存/加载路径", "en": "Save/load path for mapping file"},
     "显示骨骼映射": {"zh": "显示骨骼映射", "en": "Show Bone Mapping"},
     "展开/折叠骨骼控制器映射模块": {"zh": "展开/折叠骨骼控制器映射模块", "en": "Expand/collapse bone controller mapping module"},
+    "轴旋转工具": {"zh": "轴旋转工具", "en": "Axis Rotation Tool"},
+    "轴移动工具": {"zh": "轴移动工具", "en": "Axis Translation Tool"},
+    "重置旋转": {"zh": "重置旋转", "en": "Reset Rotation"},
+    "重置移动": {"zh": "重置移动", "en": "Reset Translation"},
+    "物体1": {"zh": "物体1", "en": "Object 1"},
+    "物体2": {"zh": "物体2", "en": "Object 2"},
+    "角度": {"zh": "角度", "en": "Angle"},
+    "距离": {"zh": "距离", "en": "Distance"},
+    "物体2（旋转轴终点）": {"zh": "物体2（旋转轴终点）", "en": "Object 2 (rotation axis endpoint)"},
+    "物体2（移动方向终点）": {"zh": "物体2（移动方向终点）", "en": "Object 2 (translation direction endpoint)"},
+    "未初始化轴旋转参数": {"zh": "未初始化轴旋转参数", "en": "Axis rotation settings not initialized"},
+    "未初始化轴移动参数": {"zh": "未初始化轴移动参数", "en": "Axis translation settings not initialized"},
 
     # ═══════════════════════════════════════════════════════════
     # 工具模块提示文本

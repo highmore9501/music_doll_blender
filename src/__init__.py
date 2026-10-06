@@ -38,6 +38,8 @@ def register():
     common_fix_finger_ik.register()
     from .common.tools import bone_controller_mapping as common_bcm
     common_bcm.register()
+    from .common.tools import axis_transform as common_axis_transform
+    common_axis_transform.register()
 
     # 乐器模块注册
     from .fret_dance import ui as fret_dance_ui
@@ -74,6 +76,8 @@ def unregister():
     fret_dance_ui.unregister()
 
     # 公共工具（逆序注销）
+    from .common.tools import axis_transform as common_axis_transform
+    common_axis_transform.unregister()
     from .common.tools import bone_controller_mapping as common_bcm
     common_bcm.unregister()
     from .common.tools import fix_finger_ik as common_fix_finger_ik

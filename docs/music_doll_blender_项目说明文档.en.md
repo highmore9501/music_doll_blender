@@ -448,6 +448,7 @@ class ToolDef:
 ```
 
 - Shared tools live in `common/tools/` (`COMMON_TOOLS`); instrument-specific tools live in each instrument's `tools/__init__.py` (`INSTRUMENT_TOOLS`);
+- Current shared tools: Fix Finger Bones (`fix_finger_ik.py`), Bone/Controller Mapping (`bone_controller_mapping.py`), Axis Rotation / Axis Move (`axis_transform.py` — in Edit Mode, define a rotation axis or move direction from two objects' positions and rotate/translate the selected vertices in real time);
 - Each instrument panel uses `TOOLS = COMMON_TOOLS + INSTRUMENT_TOOLS`, drawn uniformly via `ui_utils.draw_tools(layout, scene, tools=TOOLS)`;
 - Tool parameters use **scene-level properties** (registered inside the tool module, guarded idempotently by hasattr), so they do not pollute the instrument PropertyGroup;
 - Objects created by tools carry the performer suffix;
@@ -461,18 +462,18 @@ class ToolDef:
 | key_ripple | Create Shape Keys for Piano Keys | `music_doll.tool_key_ripple_make_shape_keys` | none (run on selected keys) |
 | zheng_drift | Create String Shape Keys / Linear-Distribute Recorders | `music_doll.tool_zheng_*` | string index 0–20 / amplitude ratio |
 | beat_bloom | (no instrument-specific tools; shared tools only) | — | — |
-| harp_glide | Create String Shape Key / Batch-Create All Strings / Linear-Distribute String Positions | `harp_glide.create_string_shape_key` etc. | string count / amplitude |
-| wind_rise | Axis-Rotation Tool / Axis-Move Tool | (buttons inside the parameter area) | — |
+| harp_glide | Create String Shape Key / Batch-Create All Strings / Linear-Distribute String Positions / Rename Shape Key Side | `harp_glide.create_string_shape_key` etc. | string count / amplitude (the rename tool takes a side: left _L / right _R, runs on selected objects) |
+| wind_rise | (no instrument-specific tools; Axis Rotation / Axis Move were promoted to shared tools) | — | — |
 | string_flow | Create Violin String / Generate ShapeKeys | `music_doll.tool_string_flow_create_violin_string` etc. | string index / offset ratio / reverse-fret order |
 
 ### 6.3 Typical tool implementation locations
 
-- Shared: `common/tools/fix_finger_ik.py`, `common/tools/bone_controller_mapping.py`;
+- Shared: `common/tools/fix_finger_ik.py`, `common/tools/bone_controller_mapping.py`, `common/tools/axis_transform.py` (axis rotation + axis move);
 - fret_dance: `fret_dance/tools/strings.py` (`create_string_with_shape_keys`, select start→end objects to build the string with 0–20 fret shape keys), `fret_dance/tools/export_to_unreal.py`;
 - key_ripple: `key_ripple/tools/make_shape_keys.py` (Basis + pressed shape keys), `key_ripple/tools/export_to_unreal.py`;
 - zheng_drift: `zheng_drift/tools/string_tools.py` (right-hand tremolo + left-hand pressing shape keys, linear distribution), `zheng_drift/tools/export_to_unreal.py`;
 - harp_glide: `harp_glide/tools/string_tools.py` (vibration direction read from the skeleton JSON), `harp_glide/tools/export_to_unreal.py`;
-- wind_rise: `wind_rise/tools/axis_rotation_tool.py` (in Edit Mode, define a rotation axis from two objects' positions and rotate selected vertices in real time), `wind_rise/tools/export_to_unreal.py`;
+- wind_rise: `wind_rise/tools/export_to_unreal.py`;
 - string_flow: `string_flow/tools/make_violin_string.py` (three-point-plane string shape keys), `string_flow/tools/export_to_unreal.py`.
 
 > Each instrument's "Export to Unreal" is an `(Operator, ExportHelper)` class that opens a file browser and calls `io.export_*(..., for_unreal=True)`.

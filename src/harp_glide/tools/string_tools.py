@@ -9,7 +9,10 @@
   经 H_L 父级世界矩阵还原成世界方向后，再按弦物体自身矩阵转成物体局部方向
   （shape key 顶点坐标所在空间）；
 - create_all_strings_shape_keys 从骨骼 JSON config.string_count 读弦数；
-- linear_distribute_recorders 沿用原逻辑（操作物理对象 location）。
+- linear_distribute_recorders 沿用原逻辑（操作物理对象 location）；
+- rename_shape_key_direction 批量给选中的弦物体 shape key 补方向后缀
+  （左 = string0_inner → string0_inner_L，右 = → string0_inner_R；
+  左右两排弦合并成一个 mesh 后靠它区分，已带 _L/_R 的自动跳过）。
 """
 
 import bpy     # type: ignore
@@ -38,6 +41,13 @@ def draw_create_all_strings_shape_keys(layout, scene):
 
 def draw_linear_distribute(layout, scene):
     layout.label(text=T("选中两端 Empty，中间弦标记将线性分布"), icon="INFO")
+
+
+def draw_rename_shape_key_direction(layout, scene):
+    props = scene.md_hg_props
+    layout.prop(props, "shape_key_side", text=T("方向"))
+    layout.label(text=T("string 开头的 Shape Key 将补 _L / _R 后缀"), icon="INFO")
+    layout.label(text=T("已带 _L / _R 的会自动跳过"))
 
 
 # ── 弦物体集合（按演奏者后缀归位）────────────────────────────
@@ -305,3 +315,75 @@ def linear_distribute_recorders(suffix: str) -> None:
             obj.location = new_loc
 
     print(f"✓ 线性分布完成：s{start_idx} → s{end_idx}（{total - 1} 个中间标记）")
+
+
+# ── 批量更名带方向的 Shape Key ───────────────────────────────
+
+_STRING_KEY_PREFIX = "string"
+_LEFT_KEY_SUFFIX = "_L"
+_RIGHT_KEY_SUFFIX = "_R"
+# 已有方向后缀（无论左右）都算「已命名」，一律跳过
+_DIRECTION_SUFFIXES = (_LEFT_KEY_SUFFIX, _RIGHT_KEY_SUFFIX)
+
+
+def _direction_suffix(side: str) -> str:
+    """方向 → 后缀：左 = _L，右 = _R（side 取 "left" / "right"，其它值按左处理）"""
+    return _RIGHT_KEY_SUFFIX if side == "right" else _LEFT_KEY_SUFFIX
+
+
+def rename_shape_key_direction(side: str = "left") -> tuple[int, int, int]:
+    """给选中物体上「string 开头且未带方向后缀」的 shape key 批量补方向后缀。
+
+    - `side = "left"` → 补 `_L`（string0_inner → string0_inner_L）
+    - `side = "right"` → 补 `_R`
+
+    返回 `(更名数, 跳过已带方向后缀数, 跳过同名冲突数)`。两类跳过都不改名：
+    - 已带 `_L` / `_R` 的（**无论左右**）一律跳过——否则连点两次会拼出
+      `_L_R` / `_R_L` 这种没有意义的弦名；
+    - 目标名已存在的（该 mesh 上 `string0_inner` 与 `string0_inner_L` 并存）
+      跳过——否则 Blender 会自动补 `.001` 数字后缀，把弦名弄成无效名字。
+    """
+    selected_objects = [o for o in bpy.context.selected_objects
+                        if o is not None and o.type == "MESH"]
+    if not selected_objects:
+        raise ValueError(T("请先选中至少一个网格物体"))
+
+    direction_suffix = _direction_suffix(side)
+    shape_key_mesh_count = 0
+    renamed_count = 0
+    skipped_has_suffix_count = 0
+    skipped_duplicate_count = 0
+
+    for obj in selected_objects:
+        shape_keys = obj.data.shape_keys
+        if shape_keys is None:
+            continue
+        shape_key_mesh_count += 1
+
+        existing_names = {key_block.name for key_block in shape_keys.key_blocks}
+        for key_block in list(shape_keys.key_blocks):
+            old_name = key_block.name
+            if not old_name.startswith(_STRING_KEY_PREFIX):
+                continue
+            if old_name.endswith(_DIRECTION_SUFFIXES):
+                skipped_has_suffix_count += 1
+                continue
+            new_name = old_name + direction_suffix
+            if new_name in existing_names:
+                print(f"  ⚠ {obj.name}：{old_name} 已在同名 key "
+                      f"{new_name}，跳过")
+                skipped_duplicate_count += 1
+                continue
+            key_block.name = new_name
+            existing_names.discard(old_name)
+            existing_names.add(new_name)
+            renamed_count += 1
+            print(f"  ✓ {obj.name}：{old_name} → {new_name}")
+
+    if shape_key_mesh_count == 0:
+        raise ValueError(T("选中的物体没有 Shape Key"))
+
+    print(f"✓ Shape Key 更名完成（{direction_suffix}）：{renamed_count} 个"
+          f"，跳过 {skipped_has_suffix_count} 个已有方向后缀"
+          f"，跳过 {skipped_duplicate_count} 个同名已存在")
+    return renamed_count, skipped_has_suffix_count, skipped_duplicate_count

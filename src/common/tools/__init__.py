@@ -9,6 +9,7 @@
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import axis_transform as _axis_tool
 from . import bone_controller_mapping as _bcm_tool
 from .. import i18n
 
@@ -73,5 +74,21 @@ COMMON_TOOLS: list[ToolDef] = [
         operator="",
         icon="BONE_DATA",
         draw=_bcm_tool.draw,
+    ),
+    ToolDef(
+        id="axis_rotation",
+        label=T("轴旋转工具"),
+        # 无单一执行按钮：参数区自带角度滑条与重置按钮
+        operator="",
+        icon="ORIENTATION_LOCAL",
+        draw=_axis_tool.draw,
+    ),
+    ToolDef(
+        id="axis_move",
+        label=T("轴移动工具"),
+        # 无单一执行按钮：参数区自带距离滑条与重置按钮
+        operator="",
+        icon="ORIENTATION_GLOBAL",
+        draw=_axis_tool.draw_move,
     ),
 ]

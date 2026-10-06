@@ -5,6 +5,7 @@ from .tools.string_tools import (
     create_string_shape_key,
     create_all_strings_shape_keys,
     linear_distribute_recorders,
+    rename_shape_key_direction,
 )
 from .tools import INSTRUMENT_TOOLS
 from .animation import generate_all_animations
@@ -131,6 +132,10 @@ class HarpGlideProperties(PropertyGroup):
             name=T("位置"), items=PEDAL_STATE_ITEMS, default="STATE_2"),
         "string_index": IntProperty(
             name=T("弦序号"), default=20, min=0, max=199),
+        "shape_key_side": EnumProperty(
+            name=T("方向"), default="left",
+            items=[("left", T("左"), T("补 _L 后缀")),
+                   ("right", T("右"), T("补 _R 后缀"))]),
         "string_amplitude": FloatProperty(
             name=T("振幅比例"), default=0.005, min=0.0001, max=0.1,
             precision=4, step=0.0001),
@@ -524,6 +529,29 @@ class HG_OT_linear_distribute_recorders(Operator):
         return {"FINISHED"}
 
 
+class HG_OT_rename_shape_key_direction(Operator):
+    """给选中物体上 string 开头且未带方向后缀的 shape key 批量补 _L / _R 后缀"""
+    bl_idname = "harp_glide.rename_shape_key_direction"
+    bl_label = T("更名shape key方向")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        props = context.scene.md_hg_props
+        try:
+            renamed_count, has_suffix_count, duplicate_count = (
+                rename_shape_key_direction(props.shape_key_side))
+        except Exception as e:
+            self.report({"ERROR"}, T("失败：%s") % str(e))
+            return {"CANCELLED"}
+        if has_suffix_count or duplicate_count:
+            self.report({"INFO"},
+                        T("已更名 %d 个 Shape Key（跳过：已带方向后缀 %d 个，同名 %d 个）")
+                        % (renamed_count, has_suffix_count, duplicate_count))
+        else:
+            self.report({"INFO"}, T("已更名 %d 个 Shape Key") % renamed_count)
+        return {"FINISHED"}
+
+
 # ── 重命名/复制算子 ───────────────────────────────────────────
 
 class HG_OT_rename_performer(Operator):
@@ -769,6 +797,7 @@ _CLASSES = (
     HG_OT_create_string_shape_key,
     HG_OT_create_all_strings_shape_keys,
     HG_OT_linear_distribute_recorders,
+    HG_OT_rename_shape_key_direction,
     HG_OT_rename_performer,
     HG_OT_duplicate_performer,
     HG_PT_main_panel,
@@ -798,6 +827,7 @@ def register():
     bl_label_set(HG_OT_create_string_shape_key, "生成弦 Shape Key")
     bl_label_set(HG_OT_create_all_strings_shape_keys, "批量生成所有弦 Shape Key")
     bl_label_set(HG_OT_linear_distribute_recorders, "线性分布弦位置")
+    bl_label_set(HG_OT_rename_shape_key_direction, "更名shape key方向")
     bl_label_set(HG_OT_rename_performer, "重命名当前角色")
     bl_label_set(HG_OT_duplicate_performer, "复制角色")
     bl_label_set(HG_PT_main_panel, "Harp Glide")

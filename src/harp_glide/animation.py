@@ -207,7 +207,35 @@ def _generate_hand_animation(hand_kfs: list, side: str, label: str,
     print(f"  ✓ {label}：处理 {len(hand_kfs)} 条关键帧记录")
 
 
-# ── Shape Key 动画（shape key 名不带后缀，按演奏者归属挑 mesh）──
+# ── Shape Key 动画（shape key 名不带演奏者后缀，按演奏者归属挑 mesh）──
+
+# 弦振动事件的「拨弦手 → shape key 方向后缀」
+# 双排弦时左右两排弦各有自己的 shape key（左手弹左排 _L、右手弹右排 _R）；
+# 单排弦的数据不带 hand，shape key 名也就没有方向后缀。
+_HAND_KEY_SUFFIXES = {"left": "_L", "right": "_R"}
+
+# 承载弦振动 shape key 的 mesh 的探测名：双排弦只保留一排、或两排合并后
+# 全部带方向后缀时，`string0_inner` 可能不存在，故带后缀的名字也要试。
+_STRING_MESH_PROBE_NAMES = ("string0_inner", "string0_inner_L", "string0_inner_R")
+
+
+def _string_shape_key_name(event: dict) -> str:
+    """弦振动事件 → shape key 名：弦索引 + 振动方向 +（双排弦的）方向后缀
+
+    - 索引：`string_index`（0-46），缺了就返回空串（调用方跳过该事件）；
+    - 方向：拇指拨弦 = `outer`，其余手指 = `inner`；
+    - 后缀：数据带 `hand`（"left" / "right"）= 双排弦 → 拼 `_L` / `_R`；
+      不带 = 单排弦 → 不拼后缀。
+
+    例：string12_inner / string12_inner_L / string12_outer_R
+    """
+    string_index = event.get("string_index")
+    if string_index is None:
+        return ""
+    direction = "outer" if event.get("is_thumb") else "inner"
+    hand = str(event.get("hand") or "").strip().lower()
+    return f'string{string_index}_{direction}{_HAND_KEY_SUFFIXES.get(hand, "")}'
+
 
 def _find_obj_with_shape_key(name: str, suffix: str = ""):
     """按 shape key 名查找 mesh。
@@ -230,6 +258,15 @@ def _find_obj_with_shape_key(name: str, suffix: str = ""):
         if fallback is None:
             fallback = obj
     return fallback
+
+
+def _find_string_mesh(suffix: str = ""):
+    """查找承载弦振动 shape key 的 mesh（合并后的整把弦、或单根弦都算）"""
+    for probe_name in _STRING_MESH_PROBE_NAMES:
+        found = _find_obj_with_shape_key(probe_name, suffix)
+        if found is not None:
+            return found
+    return None
 
 
 def generate_shape_key_animations(pedal_path: str = "", string_path: str = "",
@@ -276,22 +313,29 @@ def generate_shape_key_animations(pedal_path: str = "", string_path: str = "",
             print("  ⚠ 未找到含 pedal_A_state0 的物体，跳过踏板动画")
 
     if string_path:
-        string_obj = _find_obj_with_shape_key("string0_inner", suffix)
+        string_obj = _find_string_mesh(suffix)
         if string_obj:
             key_blocks = string_obj.data.shape_keys.key_blocks
             with open(string_path, "r", encoding="utf-8") as f:
                 events = json.load(f)
             shape_data = {}
+            missing_count = 0
             for ev in events:
-                direction = "outer" if ev.get("is_thumb") else "inner"
-                sk_name = f'string{ev["string_index"]}_{direction}'
+                sk_name = _string_shape_key_name(ev)
+                if not sk_name:
+                    continue
                 if not key_blocks.get(sk_name):
+                    missing_count += 1
                     continue
                 shape_data.setdefault(sk_name, {"frames": [], "values": []})
                 shape_data[sk_name]["frames"].append(int(ev["frame"]))
                 shape_data[sk_name]["values"].append(ev["value"])
             _collect(string_obj, shape_data)
             print(f"  ✓ 弦振动 Shape Key：{len(events)} 个事件")
+            if missing_count:
+                print(f"  ⚠ 其中 {missing_count} 个事件在 {string_obj.name} 上"
+                      f"找不到对应 Shape Key（检查弦 mesh 的 shape key 名"
+                      f"是否带 _L / _R 后缀，与数据里的 hand 是否一致）")
         else:
             print("  ⚠ 未找到含 string0_inner 的物体，跳过弦动画")
 

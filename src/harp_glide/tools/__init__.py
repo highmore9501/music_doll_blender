@@ -7,6 +7,7 @@ from ..tools.string_tools import (
     draw_create_string_shape_key,
     draw_create_all_strings_shape_keys,
     draw_linear_distribute,
+    draw_rename_shape_key_direction,
 )
 from ...common.tools import ToolDef
 from . import export_to_unreal
@@ -32,6 +33,13 @@ INSTRUMENT_TOOLS: list[ToolDef] = [
         operator="harp_glide.linear_distribute_recorders",
         icon="ARROW_LEFTRIGHT",
         draw=draw_linear_distribute,
+    ),
+    ToolDef(
+        id="harp_rename_shape_key_direction",
+        label="更名shape key方向",
+        operator="harp_glide.rename_shape_key_direction",
+        icon="SHAPEKEY_DATA",
+        draw=draw_rename_shape_key_direction,
     ),
 ]
 
