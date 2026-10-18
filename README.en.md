@@ -31,7 +31,7 @@ In short, MusicDoll Blender lets you:
 
 ## Supported instruments
 
-The instruments were merged in phases; 7 are currently included:
+The instruments were merged in phases; 8 are currently included:
 
 | Instrument | Prefix | Type | Notes |
 | ---------- | ------ | ---- | ----- |
@@ -42,6 +42,7 @@ The instruments were merged in phases; 7 are currently included:
 | HarpGlide (Harp) | HG | Fixed | 47 strings (configurable); pedals, harp tilt, hand & head poses |
 | WindRise (Wind) | WR | Moving | Chinese dizi / flute / clarinet / saxophone etc.; states keyed by MIDI note |
 | StringFlow (Violin) | SF | Fixed | 4 strings; numbered fingers, "hand on bow" rig, three-point-plane string tool |
+| BellowsPulse (Accordion) | BP | Fixed | Right-hand keyboard or bayan buttons + left-hand Stradella; two key-zone pivots, bellows pivot, step-by-step settings panel |
 
 All instruments share the same common framework (performer management, state storage, animation writing, import/export, tool system).
 
@@ -69,13 +70,14 @@ music_doll_blender/
 │   ├── beat_bloom/  # Percussion module (Phase 4)
 │   ├── harp_glide/  # Harp module
 │   ├── wind_rise/   # Wind module
-│   └── string_flow/ # Violin module
+│   ├── string_flow/ # Violin module
+│   └── bellows_pulse/ # Accordion module (Rust side: bellows_pulse_rust)
 ├── docs/            # Project documentation (EN/CN)
 └── music_doll_blender.zip  # Distribution package (built locally)
 ```
 
 - **common/** is the foundation for all instruments: performer recognition, collection/object management, state read/write, animation writing and import/export are all implemented here once and reused by every instrument;
-- **fret_dance/ … string_flow/** are instrument modules that only hold instrument-specific logic: controller layouts, state semantics, export formats, and dedicated tools.
+- **fret_dance/ … bellows_pulse/** are instrument modules that only hold instrument-specific logic: controller layouts, state semantics, export formats, and dedicated tools.
 
 ## Documentation
 

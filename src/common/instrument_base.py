@@ -42,6 +42,7 @@ INSTRUMENT_PREFIX = {
     "harp_glide": "HG",
     "wind_rise": "WR",
     "beat_bloom": "BB",
+    "bellows_pulse": "BP",
 }
 
 # 未知乐器回退前缀

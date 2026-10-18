@@ -914,4 +914,188 @@ _DICT: dict[str, dict[str, str]] = {
     "String Amplitude": {"zh": "弦振幅", "en": "String Amplitude"},
     "Use Vibrato Bar": {"zh": "使用颤音摇杆", "en": "Use Vibrato Bar"},
     "MusicDoll": {"zh": "MusicDoll", "en": "MusicDoll"},
+
+    # ═══════════════════════════════════════════════════════════
+    # BellowsPulse（手风琴）UI
+    # ═══════════════════════════════════════════════════════════
+    "BellowsPulse": {"zh": "BellowsPulse", "en": "BellowsPulse"},
+    "BellowsPulse 手风琴": {"zh": "BellowsPulse 手风琴", "en": "BellowsPulse Accordion"},
+
+    # ── 面板：分步标题 ──
+    "① 右手键区类型": {"zh": "① 右手键区类型", "en": "① Right Hand Layout"},
+    "② 右键区范围": {"zh": "② 右键区范围", "en": "② Right Key Zone Range"},
+    "③ 左键区范围": {"zh": "③ 左键区范围", "en": "③ Left Key Zone Range"},
+    "④ 键区物体": {"zh": "④ 键区物体", "en": "④ Key Zone Objects"},
+    "⑤ 保存": {"zh": "⑤ 保存", "en": "⑤ Save"},
+
+    # ── 右手键区类型 ──
+    "右手键区类型": {"zh": "右手键区类型", "en": "Right Hand Layout"},
+    "手风琴右手是键盘还是按钮": {
+        "zh": "手风琴右手是键盘还是按钮",
+        "en": "Whether the right hand uses a keyboard or buttons"},
+    "键盘": {"zh": "键盘", "en": "Keyboard"},
+    "钢琴式半音键盘": {"zh": "钢琴式半音键盘", "en": "Piano-style chromatic keyboard"},
+    "按钮": {"zh": "按钮", "en": "Buttons"},
+    "巴扬按钮键区（固定 5 排）": {
+        "zh": "巴扬按钮键区（固定 5 排）",
+        "en": "Bayan button board (fixed 5 rows)"},
+
+    # ── 右键区字段 ──
+    "最低音": {"zh": "最低音", "en": "Lowest Note"},
+    "右手键盘最低音的 midi 音高": {
+        "zh": "右手键盘最低音的 midi 音高",
+        "en": "Midi pitch of the lowest key on the right keyboard"},
+    "最高音": {"zh": "最高音", "en": "Highest Note"},
+    "右手键盘最高音的 midi 音高": {
+        "zh": "右手键盘最高音的 midi 音高",
+        "en": "Midi pitch of the highest key on the right keyboard"},
+    "第 3 排最低音": {"zh": "第 3 排最低音", "en": "Lowest Note of Row 3"},
+    "右手按钮第 3 排（中间排）最低音的 midi 音高": {
+        "zh": "右手按钮第 3 排（中间排）最低音的 midi 音高",
+        "en": "Midi pitch of the lowest button on row 3 (middle row)"},
+    "第 1/3/5 排按钮数": {"zh": "第 1/3/5 排按钮数", "en": "Buttons per Row (1/3/5)"},
+    "第 2/4 排比这个数少一颗": {
+        "zh": "第 2/4 排比这个数少一颗",
+        "en": "Rows 2 and 4 have one button less"},
+    "错排量": {"zh": "错排量", "en": "Row Stagger"},
+    "相邻两排的横向错开量（钮距；带符号，左右手可能相反）": {
+        "zh": "相邻两排的横向错开量（钮距；带符号，左右手可能相反）",
+        "en": "Lateral offset per row (in button pitches; signed, left/right may differ)"},
+
+    # ── 左键区字段 ──
+    "排数": {"zh": "排数", "en": "Row Count"},
+    "左手按钮排数（3~6）": {"zh": "左手按钮排数（3~6）", "en": "Left hand row count (3-6)"},
+    "第 2 排最低音": {"zh": "第 2 排最低音", "en": "Lowest Note of Row 2"},
+    "左手第 2 排（主低音排）最低那颗按钮的 midi 音高": {
+        "zh": "左手第 2 排（主低音排）最低那颗按钮的 midi 音高",
+        "en": "Midi pitch of the lowest button on row 2 (main bass row)"},
+    "每排按钮数": {"zh": "每排按钮数", "en": "Buttons per Row"},
+    "左手每一排的按钮数量": {
+        "zh": "左手每一排的按钮数量",
+        "en": "Number of buttons on each left hand row"},
+
+    # ── 键区物体 ──
+    "左键区网格": {"zh": "左键区网格", "en": "Left Key Zone Mesh"},
+    "左键区（低音按钮区）的网格对象": {
+        "zh": "左键区（低音按钮区）的网格对象",
+        "en": "Mesh object of the left key zone (bass buttons)"},
+    "右键区（= 目标乐器）": {
+        "zh": "右键区（= 目标乐器）",
+        "en": "Right Key Zone (= Instrument)"},
+    "（未设置）": {"zh": "（未设置）", "en": "(not set)"},
+
+    # ── 摘要行 ──
+    "→ %d 个键，%s": {"zh": "→ %d 个键，%s", "en": "→ %d keys, %s"},
+    "→ 每排 %s，共 %d 颗": {
+        "zh": "→ 每排 %s，共 %d 颗",
+        "en": "→ per row %s, %d buttons in total"},
+    "→ 音域 %s（第 1 排最低音到第 3 排最高音）": {
+        "zh": "→ 音域 %s（第 1 排最低音到第 3 排最高音）",
+        "en": "→ range %s (lowest of row 1 to highest of row 3)"},
+    "→ %d 颗按钮；每排：%s": {
+        "zh": "→ %d 颗按钮；每排：%s",
+        "en": "→ %d buttons; rows: %s"},
+
+    # ── 左手每排功能 ──
+    "对位低音": {"zh": "对位低音", "en": "Counter Bass"},
+    "主低音": {"zh": "主低音", "en": "Main Bass"},
+    "大三和弦": {"zh": "大三和弦", "en": "Major Chord"},
+    "小三和弦": {"zh": "小三和弦", "en": "Minor Chord"},
+    "属七和弦": {"zh": "属七和弦", "en": "Dominant Seventh"},
+    "减七和弦": {"zh": "减七和弦", "en": "Diminished Seventh"},
+
+    # ── 保存乐器属性 ──
+    "保存乐器属性到骨骼": {
+        "zh": "保存乐器属性到骨骼",
+        "en": "Save Instrument Settings to Skeleton"},
+    "从骨骼重新读取": {"zh": "从骨骼重新读取", "en": "Reload from Skeleton"},
+    "乐器属性已保存到骨骼 %s": {
+        "zh": "乐器属性已保存到骨骼 %s",
+        "en": "Instrument settings saved to skeleton %s"},
+    "已从骨骼重新读取乐器属性": {
+        "zh": "已从骨骼重新读取乐器属性",
+        "en": "Instrument settings reloaded from skeleton"},
+    "状态：骨骼上还没有保存过设置": {
+        "zh": "状态：骨骼上还没有保存过设置",
+        "en": "Status: no settings saved on this skeleton yet"},
+    "状态：有未保存的修改": {
+        "zh": "状态：有未保存的修改",
+        "en": "Status: unsaved changes"},
+    "状态：已保存": {"zh": "状态：已保存", "en": "Status: saved"},
+
+    # ── 校验提示 ──
+    "右手键区类型无效：%s": {
+        "zh": "右手键区类型无效：%s",
+        "en": "Invalid right hand layout: %s"},
+    "右键区最低音不能大于最高音": {
+        "zh": "右键区最低音不能大于最高音",
+        "en": "Lowest note cannot be higher than highest note"},
+    "右键区最低音超出 midi 范围（0~127）：%d": {
+        "zh": "右键区最低音超出 midi 范围（0~127）：%d",
+        "en": "Right lowest note is outside the midi range (0-127): %d"},
+    "右键区最高音超出 midi 范围（0~127）：%d": {
+        "zh": "右键区最高音超出 midi 范围（0~127）：%d",
+        "en": "Right highest note is outside the midi range (0-127): %d"},
+    "右键区键数至少为 1": {"zh": "右键区键数至少为 1", "en": "Right key zone needs at least 1 key"},
+    "右手第 3 排最低音超出 midi 范围（0~127）：%d": {
+        "zh": "右手第 3 排最低音超出 midi 范围（0~127）：%d",
+        "en": "Right row 3 lowest note is outside the midi range (0-127): %d"},
+    "右手第 1/3/5 排按钮数至少为 2": {
+        "zh": "右手第 1/3/5 排按钮数至少为 2",
+        "en": "Rows 1/3/5 need at least 2 buttons"},
+    "左手排数必须在 3~6 之间：%d": {
+        "zh": "左手排数必须在 3~6 之间：%d",
+        "en": "Left hand row count must be 3-6: %d"},
+    "左手每排按钮数至少为 1": {
+        "zh": "左手每排按钮数至少为 1",
+        "en": "Left hand needs at least 1 button per row"},
+    "左手第 2 排最低音超出 midi 范围（0~127）：%d": {
+        "zh": "左手第 2 排最低音超出 midi 范围（0~127）：%d",
+        "en": "Left row 2 lowest note is outside the midi range (0-127): %d"},
+
+    # ── 控件与记录器 ──
+    "控件与记录器": {"zh": "控件与记录器", "en": "Controllers & Recorders"},
+    "设置所有对象": {"zh": "设置所有对象", "en": "Setup All Objects"},
+    "控件已就绪，详见控制台": {
+        "zh": "控件已就绪，详见控制台",
+        "en": "Controllers are ready, see console for details"},
+    "记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3": {
+        "zh": "记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3",
+        "en": "Recorders follow the saved right hand layout: 4 + 3 for keyboard, 6 + 3 for buttons"},
+    "切换右手类型后请重新「设置所有对象」，另一套记录器会被删除": {
+        "zh": "切换右手类型后请重新「设置所有对象」，另一套记录器会被删除",
+        "en": "After switching the right hand layout, run Setup All Objects again; the other recorder set is deleted"},
+
+    # ── 基准手型（动画用）──
+    "基准手型": {"zh": "基准手型", "en": "Reference Hand"},
+    "基准手型（动画用）": {"zh": "基准手型（动画用）", "en": "Reference Hand (for animation)"},
+    "左手": {"zh": "左手", "en": "Left Hand"},
+    "右手": {"zh": "右手", "en": "Right Hand"},
+    "保存": {"zh": "保存", "en": "Save"},
+    "加载": {"zh": "加载", "en": "Load"},
+    "保存基准手型": {"zh": "保存基准手型", "en": "Save Reference Hand"},
+    "加载基准手型": {"zh": "加载基准手型", "en": "Load Reference Hand"},
+    "已保存": {"zh": "已保存", "en": "Saved"},
+    "未保存": {"zh": "未保存", "en": "Not Saved"},
+    "基准手型已保存：%s（%d 个控制器）": {
+        "zh": "基准手型已保存：%s（%d 个控制器）",
+        "en": "Reference hand saved: %s (%d controllers)"},
+    "基准手型已加载：%s（%d 个控制器）": {
+        "zh": "基准手型已加载：%s（%d 个控制器）",
+        "en": "Reference hand loaded: %s (%d controllers)"},
+    "没有找到这只手的控制器，请先「设置所有对象」": {
+        "zh": "没有找到这只手的控制器，请先「设置所有对象」",
+        "en": "No controllers found for this hand; run Setup All Objects first"},
+    "骨骼上还没有这只手的基准手型，请先保存": {
+        "zh": "骨骼上还没有这只手的基准手型，请先保存",
+        "en": "This hand has no saved reference hand yet, please save one first"},
+    "手掌存位置 + 旋转，五指存位置；ext 与朝向链由驱动/约束决定": {
+        "zh": "手掌存位置 + 旋转，五指存位置；ext 与朝向链由驱动/约束决定",
+        "en": "Palms store location + rotation, fingers store location; ext and aiming chain are driven by drivers/constraints"},
+
+    # ── 复制 / 重命名 ──
+    "复制完成，但重建驱动与朝向链失败: %s": {
+        "zh": "复制完成，但重建驱动与朝向链失败: %s",
+        "en": "Duplicated, but rebuilding drivers and aiming chain failed: %s"},
+    "重命名失败: %s": {"zh": "重命名失败: %s", "en": "Rename failed: %s"},
 }

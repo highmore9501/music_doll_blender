@@ -8,6 +8,7 @@
 - key_ripple/  KeyRipple 乐器模块（Phase 2 迁入）。
 - zheng_drift/ ZhengDrift 乐器模块（Phase 3 迁入，古筝 21 弦）。
 - beat_bloom/ BeatBloom 乐器模块（Phase 4 迁入，打击乐）。
+- bellows_pulse/ BellowsPulse 乐器模块（手风琴：双键区 + 风箱）。
 
 演奏者模型：
 - 演奏者实例 = Performers 根集合下的一个子 Collection（身份属性 md_* 存其上）；
@@ -56,10 +57,14 @@ def register():
     wind_rise_ui.register()
     from .string_flow import ui as string_flow_ui
     string_flow_ui.register()
+    from .bellows_pulse import ui as bellows_pulse_ui
+    bellows_pulse_ui.register()
 
 
 def unregister():
     # 乐器模块注销（与注册顺序相反）
+    from .bellows_pulse import ui as bellows_pulse_ui
+    bellows_pulse_ui.unregister()
     from .string_flow import ui as string_flow_ui
     string_flow_ui.unregister()
     from .wind_rise import ui as wind_rise_ui
