@@ -2,6 +2,8 @@
 """BeatBloom 乐器模块 —— 动画生成（迁移自 beat_bloom_addon/make_animation.py）
 
 通用动画工具（fcurve / shape key / 清帧）改调 common.animation_utils。
+清帧时默认保留 driver：Middle_Hand / Invert_Middle_Hand / Virtul_Middle_Hand /
+手指 ext 控件的动画来自 driver，被 animation_data_clear() 扫到就再也回不来。
 """
 
 import json
@@ -12,9 +14,62 @@ from ..common import performer_utils
 from ..common import animation_utils
 
 
+# 纯 driver 驱动的特殊朝向控件（短名）：
+# Middle_Hand = (H_L + H_R) / 2，Invert_Middle_Hand = 2 × Head_Control − Middle_Hand，
+# Virtul_Middle_Hand 的两条 Copy Location 由半球判定 driver 切换 influence。
+_DRIVER_DRIVEN_SPECIAL_SHORTS = (
+    "Middle_Hand",
+    "Invert_Middle_Hand",
+    "Virtul_Middle_Hand",
+)
+
+
 def clear_all_keyframe(collection_names=None, exclude_names=None, suffix=""):
     """清除关键帧（按演奏者后缀隔离）"""
     animation_utils.clear_all_keyframe(collection_names, exclude_names, suffix)
+
+
+def clear_all_keyframe_preserve_drivers(collection_names=None, exclude_names=None,
+                                        suffix=""):
+    """清除关键帧但保留 driver（备份 → 清空 → 恢复）"""
+    animation_utils.clear_all_keyframe_preserve_drivers(
+        collection_names, exclude_names, suffix)
+
+
+def driver_protected_object_names(suffix=""):
+    """列出清关键帧时必须跳过的物体名 —— 它们的动画是 driver，不是关键帧。
+
+    - 特殊朝向链 Middle_Hand / Invert_Middle_Hand / Virtul_Middle_Hand；
+    - 各手指 ext 辅助控件 `ext_<手指>_<手>`（位置 = 2 × 手指，+X 轴指向手掌）；
+    - 兜底：清理范围内的任何当前挂着 driver 的物体（以后新增的 driver 控件也不会被误伤）。
+
+    这些物体被 `animation_data_clear()` 扫到就会丢掉 driver（Middle_Hand 不再位于
+    左右手中间、ext 不再跟随手指），而且只有重新 Setup 才会重建，所以清理前先把
+    名字收集好、交给 exclude_names 挡掉。
+    """
+    collected_names = []
+    for collection_short in ("drum", "addons"):
+        collection = bpy.data.collections.get(
+            performer_utils.resolve(collection_short, suffix))
+        if collection is None:
+            continue
+        animation_utils.collect_collection_objects(
+            collection, [], collected_names)
+
+    suffix_marker = "_" + suffix if suffix else ""
+    protected_names = []
+    for object_name in collected_names:
+        obj = bpy.data.objects.get(object_name)
+        if obj is None or object_name in protected_names:
+            continue
+        short_name = object_name
+        if suffix_marker and object_name.endswith(suffix_marker):
+            short_name = object_name[:-len(suffix_marker)]
+        if (short_name in _DRIVER_DRIVEN_SPECIAL_SHORTS
+                or short_name.startswith("ext_")
+                or (obj.animation_data and obj.animation_data.drivers)):
+            protected_names.append(object_name)
+    return protected_names
 
 
 def make_animation_by_path(animation_path: str, suffix: str = "") -> None:

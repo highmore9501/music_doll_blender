@@ -31,7 +31,8 @@ from .state import (
 )
 from .io import export_drummer, import_drummer
 from .animation import (
-    clear_all_keyframe,
+    clear_all_keyframe_preserve_drivers,
+    driver_protected_object_names,
     make_animation_by_path,
     make_shape_key_animation,
 )
@@ -78,6 +79,23 @@ def _get_bb_config(context) -> BeatBloomConfig:
         performer_suffix=_get_active_suffix(context),
         target_skeleton=_get_active_skeleton(context),
     )
+
+
+def _middle_hand_driver_missing(suffix: str) -> bool:
+    """Middle_Hand 的 XYZ 位置 driver 是否缺失（旧版本生成动画时会被清掉）。
+
+    缺失时 Middle_Hand 不再位于左右手中间，头部朝向链也跟着失效；
+    driver 只有 Setup Objects 才会重建，所以由调用方提示用户重新 Setup。
+    """
+    middle_hand = bpy.data.objects.get(
+        performer_utils.resolve("Middle_Hand", suffix))
+    if middle_hand is None or not middle_hand.animation_data:
+        return True
+    drivers = middle_hand.animation_data.drivers
+    for axis_index in range(3):
+        if drivers.find("location", index=axis_index) is None:
+            return True
+    return False
 
 
 def _on_beatbloom_path_update(self, context):
@@ -434,11 +452,24 @@ class BB_OT_execute_beatbloom(Operator):
                 self.report({'ERROR'}, T("找不到 shape key 动画文件：%s") % sk_path)
                 return {'CANCELLED'}
 
-            clear_all_keyframe(["drum", "addons"], suffix=suffix)
+            # 只清上一次的关键帧，不碰 driver：
+            # Middle_Hand / Invert_Middle_Hand / Virtul_Middle_Hand 与手指 ext 控件的
+            # 动画都是 driver（Middle_Hand = 左右手中点），被清掉就再也回不来。
+            protected_names = driver_protected_object_names(suffix)
+            if protected_names:
+                print(f"  • 清理关键帧时保留 driver 的物体：{', '.join(protected_names)}")
+            clear_all_keyframe_preserve_drivers(
+                ["drum", "addons"], exclude_names=protected_names, suffix=suffix)
             make_animation_by_path(anim_path, suffix=suffix)
             make_shape_key_animation(sk_path)
 
-            self.report({'INFO'}, T("动画已生成：%s") % os.path.basename(filepath))
+            if _middle_hand_driver_missing(suffix):
+                self.report({'WARNING'}, T(
+                    "动画已生成，但 Middle_Hand 的 driver 已缺失（可能被旧版本清掉了），"
+                    "请点一次 Setup Objects 重建：%s") % os.path.basename(filepath))
+            else:
+                self.report({'INFO'}, T("动画已生成：%s")
+                            % os.path.basename(filepath))
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, T("执行动画时出错：%s") % e)

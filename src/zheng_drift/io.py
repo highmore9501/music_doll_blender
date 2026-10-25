@@ -133,7 +133,10 @@ def export_recorder_info(file_path: str, config, skeleton,
                 list(obj.rotation_quaternion))
             foot_count += 1
 
-    # 双线性映射辅助数据（存骨骼自定义属性，只导出位置）
+    # 双线性映射辅助数据（存骨骼自定义属性）
+    # 手部中点 / 头部只导出位置；左右手另带四元数旋转。
+    # 注意：骨骼里的内部键名是 "rotation"，导出键**必须**叫 rotation_quaternion
+    # （三端约定，见 docs/mapping_helpers_format.md 第 2 节；不要沿用本文件其他类目的 "rotation"）。
     bilinear_count = 0
     bilinear_data = _sio.get_state_data(skeleton, BILINEAR_KEY, {}) or {}
     for helper_name, helper_entry in bilinear_data.items():
@@ -142,9 +145,16 @@ def export_recorder_info(file_path: str, config, skeleton,
         location = helper_entry.get("location")
         if location is None:
             continue
-        result['BILINEAR_HELPERS'][helper_name] = {
+        helper_out = {
             'location': _pos(list(location))
         }
+        quaternion = helper_entry.get("rotation")
+        if quaternion is not None:
+            helper_out['rotation_quaternion'] = _rot(list(quaternion))
+        elif helper_name.startswith(("Left_Hand_", "Right_Hand_")):
+            print(f"  ⚠ {helper_name} 缺少旋转数据（左右手条目必须带四元数），"
+                  f"本次只写出位置，请在「映射辅助」面板重新采集该槽位")
+        result['BILINEAR_HELPERS'][helper_name] = helper_out
         bilinear_count += 1
 
     # pole 控件（挂在 ext 下的手指极向量，导出局部位置）
@@ -268,7 +278,8 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
                         foot_loaded += 1
         loaded_count += foot_loaded
 
-        # 双线性映射辅助数据（写入骨骼自定义属性，只导入位置）
+        # 双线性映射辅助数据（写入骨骼自定义属性；左右手连同四元数旋转一并读回）
+        # 文件里的键是 rotation_quaternion，落地到骨骼时仍用内部键名 "rotation"（与本文件其他类目一致）
         bilinear_loaded = 0
         if 'BILINEAR_HELPERS' in data:
             bilinear_data = _sio.get_state_data(
@@ -279,7 +290,11 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
                 location = helper_data.get('location')
                 if location is None:
                     continue
-                bilinear_data[helper_name] = {"location": list(location)}
+                helper_entry = {"location": list(location)}
+                quaternion = helper_data.get('rotation_quaternion')
+                if quaternion is not None:
+                    helper_entry["rotation"] = list(quaternion)
+                bilinear_data[helper_name] = helper_entry
                 bilinear_loaded += 1
             if bilinear_loaded:
                 _sio.set_state_data(skeleton, BILINEAR_KEY, bilinear_data)

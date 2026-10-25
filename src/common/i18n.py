@@ -698,6 +698,17 @@ _DICT: dict[str, dict[str, str]] = {
     "采集四个槽位的手部中点与头部位置": {
         "zh": "采集四个槽位的手部中点与头部位置",
         "en": "Collect the hand midpoint and head position for the four slots"},
+    "采集四个槽位的手部中点、头部位置与左右手位置+旋转": {
+        "zh": "采集四个槽位的手部中点、头部位置与左右手位置+旋转",
+        "en": "Collect the hand midpoint, head position, and left/right hand "
+              "location + rotation for the four slots"},
+    "槽位 A 为默认坐姿（头部原点），B/C/D 请分别采集三个极端坐姿": {
+        "zh": "槽位 A 为默认坐姿（头部原点），B/C/D 请分别采集三个极端坐姿",
+        "en": "Slot A is the default sitting pose (head origin); collect the "
+              "other three slots as three extreme sitting poses"},
+    "采集失败：请确认 Middle_Hand / Head_Control / H_L / H_R 已创建": {
+        "zh": "采集失败：请确认 Middle_Hand / Head_Control / H_L / H_R 已创建",
+        "en": "Capture failed: make sure Middle_Hand / Head_Control / H_L / H_R exist"},
     "已采集槽位：%s": {"zh": "已采集槽位：%s", "en": "Collected slots: %s"},
     "（无）": {"zh": "（无）", "en": "(none)"},
     "Export / Import": {"zh": "导出/导入", "en": "Export / Import"},

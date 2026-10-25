@@ -297,7 +297,7 @@ class ZHENG_OT_load_right_hand_state(Operator):
 
 
 class ZHENG_OT_save_mapping(Operator):
-    """把当前 Middle_Hand（手部中点）与 Head_Control（头部位置）采集到选中槽位"""
+    """把当前 Middle_Hand / Head_Control 的位置与 H_L / H_R 的位置+旋转采集到选中槽位"""
     bl_idname = "music_doll.zheng_drift_save_mapping"
     bl_label = T("Save Mapping")
     bl_options = {'REGISTER', 'UNDO'}
@@ -311,14 +311,16 @@ class ZHENG_OT_save_mapping(Operator):
         config = _get_zheng_config(
             props, suffix=_get_active_suffix(context), skeleton=skel)
         if not save_mapping(config, skel, props.mapping_key):
-            self.report({'ERROR'}, T("采集失败：请确认 Middle_Hand / Head_Control 已创建"))
+            self.report(
+                {'ERROR'},
+                T("采集失败：请确认 Middle_Hand / Head_Control / H_L / H_R 已创建"))
             return {'CANCELLED'}
         self.report({'INFO'}, T("已采集 Mapping %s") % props.mapping_key)
         return {'FINISHED'}
 
 
 class ZHENG_OT_load_mapping(Operator):
-    """把选中槽位的位置还原到 Middle_Hand / Head_Control"""
+    """把选中槽位的位置还原到 Middle_Hand / Head_Control，位置+旋转还原到 H_L / H_R"""
     bl_idname = "music_doll.zheng_drift_load_mapping"
     bl_label = T("Load Mapping")
     bl_options = {'REGISTER', 'UNDO'}
@@ -745,11 +747,15 @@ class ZHENG_PT_main_panel(Panel):
         row.operator("music_doll.zheng_drift_load_right_hand_state",
                      text=T("Load Right Hand"))
 
-        # 6. 映射辅助（四点采集）：手动采集四个槽位的手部中点 + 头部位置，
+        # 6. 映射辅助（四点采集）：手动采集四个槽位的手部中点 + 头部位置 + 左右手变换，
         #    替代原来的"在四个指定状态下自动采集"
         box = layout.box()
         box.label(text=T("Mapping Helpers"), icon='ORIENTATION_VIEW')
-        box.label(text=T("采集四个槽位的手部中点与头部位置"), icon='INFO')
+        box.label(
+            text=T("采集四个槽位的手部中点、头部位置与左右手位置+旋转"), icon='INFO')
+        box.label(
+            text=T("槽位 A 为默认坐姿（头部原点），B/C/D 请分别采集三个极端坐姿"),
+            icon='ERROR')
         col = box.column(align=True)
         col.prop(props, "mapping_key", text=T("Slot"))
         row = col.row(align=True)

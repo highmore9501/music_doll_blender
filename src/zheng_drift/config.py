@@ -79,9 +79,9 @@ class ZhengConfig:
             "head_control": "Head_Control",
         }
 
-        # ── 双线性映射辅助记录器命名表（8 个极端位姿） ──
+        # ── 双线性映射辅助记录器命名表（16 个：4 槽位 × 手部中点/头部/左手/右手） ──
         # 不创建空物体，位置存演奏者骨骼自定义属性（见 state.py / io.py），
-        # 导出 BILINEAR_HELPERS 时按此键名。
+        # 导出 BILINEAR_HELPERS 时按此键名（左右手条目另带四元数旋转）。
         self.bilinear_helpers = {
             "middle_hand_a": "Middle_Hand_A",
             "middle_hand_b": "Middle_Hand_B",
@@ -91,6 +91,14 @@ class ZhengConfig:
             "head_control_b": "Head_Control_B",
             "head_control_c": "Head_Control_C",
             "head_control_d": "Head_Control_D",
+            "left_hand_a": "Left_Hand_A",
+            "left_hand_b": "Left_Hand_B",
+            "left_hand_c": "Left_Hand_C",
+            "left_hand_d": "Left_Hand_D",
+            "right_hand_a": "Right_Hand_A",
+            "right_hand_b": "Right_Hand_B",
+            "right_hand_c": "Right_Hand_C",
+            "right_hand_d": "Right_Hand_D",
         }
 
         # ── 双脚控制器（4 个） ──
