@@ -7,7 +7,7 @@
 
 - STRING_RECORDERS：弦位置标记（对象，物理参考点）；
 - LEFT/RIGHT_HAND_RECORDERS：左右手状态（存演奏者骨骼自定义属性，见 state.py）；
-- FOOT_CONTROLLERS：脚部控制器（对象）；BILINEAR_HELPERS：双线性辅助数据（存骨骼）。
+- FOOT_CONTROLLERS：脚部控制器（对象）；HEAD_SAMPLES：头部采样（存骨骼）。
 """
 
 import json
@@ -20,7 +20,17 @@ import bpy  # type: ignore
 from ..common import state_io as _sio
 from ..common import io_utils
 
-from .state import STATE_KEY, BILINEAR_KEY
+from .state import STATE_KEY, HEAD_SAMPLE_KEY, missing_head_sample_states
+
+
+def _print_missing_head_samples(skeleton) -> None:
+    """导出/导入后提示还缺哪些头部样本（只提示，不影响文件写出与读入）"""
+    missing = missing_head_sample_states(skeleton)
+    if not missing:
+        print(" • 头部采样齐全（头部原点 + 12 条）")
+        return
+    print(f" ⚠ 头部采样不完整，缺 {len(missing)} 项：{'、'.join(missing)}")
+    print("   （不影响导出/导入；补上对应手部状态的头部位置后重新导出即可）")
 
 
 def _nested_dict():
@@ -133,29 +143,29 @@ def export_recorder_info(file_path: str, config, skeleton,
                 list(obj.rotation_quaternion))
             foot_count += 1
 
-    # 双线性映射辅助数据（存骨骼自定义属性）
-    # 手部中点 / 头部只导出位置；左右手另带四元数旋转。
-    # 注意：骨骼里的内部键名是 "rotation"，导出键**必须**叫 rotation_quaternion
-    # （三端约定，见 docs/mapping_helpers_format.md 第 2 节；不要沿用本文件其他类目的 "rotation"）。
-    bilinear_count = 0
-    bilinear_data = _sio.get_state_data(skeleton, BILINEAR_KEY, {}) or {}
-    for helper_name, helper_entry in bilinear_data.items():
-        if helper_name not in config.bilinear_helpers.values():
-            continue
-        location = helper_entry.get("location")
-        if location is None:
-            continue
-        helper_out = {
-            'location': _pos(list(location))
+    # 头部采样数据（存骨骼自定义属性）
+    # 头部原点 + 左右手各 6 个手部状态一条：该状态下手在哪、头在哪。
+    head_sample_count = 0
+    head_data = _sio.get_state_data(skeleton, HEAD_SAMPLE_KEY, {}) or {}
+    head_samples_out = {}
+    origin_entry = head_data.get("origin")
+    if origin_entry is not None:
+        head_samples_out['origin'] = {
+            'location': _pos(list(origin_entry["location"]))
         }
-        quaternion = helper_entry.get("rotation")
-        if quaternion is not None:
-            helper_out['rotation_quaternion'] = _rot(list(quaternion))
-        elif helper_name.startswith(("Left_Hand_", "Right_Hand_")):
-            print(f"  ⚠ {helper_name} 缺少旋转数据（左右手条目必须带四元数），"
-                  f"本次只写出位置，请在「映射辅助」面板重新采集该槽位")
-        result['BILINEAR_HELPERS'][helper_name] = helper_out
-        bilinear_count += 1
+        head_sample_count += 1
+    for hand_key in ("left", "right"):
+        side_samples = {}
+        for state_key, sample in (head_data.get(hand_key, {}) or {}).items():
+            side_samples[state_key] = {
+                'hand_location': _pos(list(sample["hand_location"])),
+                'head_location': _pos(list(sample["head_location"])),
+            }
+            head_sample_count += 1
+        if side_samples:
+            head_samples_out[hand_key] = side_samples
+    if head_samples_out:
+        result['HEAD_SAMPLES'] = head_samples_out
 
     # pole 控件（挂在 ext 下的手指极向量，导出局部位置）
     pole_count = 0
@@ -182,7 +192,7 @@ def export_recorder_info(file_path: str, config, skeleton,
         f.write(data)
 
     total_count = string_count + left_hand_count + \
-        right_hand_count + foot_count + bilinear_count + pole_count
+        right_hand_count + foot_count + head_sample_count + pole_count
     print("\n" + "=" * 60)
     print("✓ 记录器信息导出成功!")
     print("=" * 60)
@@ -190,10 +200,12 @@ def export_recorder_info(file_path: str, config, skeleton,
     print(f" • 左手状态记录器：{left_hand_count} 个")
     print(f" • 右手状态记录器：{right_hand_count} 个")
     print(f" • 脚部控制器：{foot_count} 个")
-    print(f" • 双线性映射辅助数据：{bilinear_count} 条")
+    print(f" • 头部采样：{head_sample_count - (1 if 'origin' in head_samples_out else 0)}/12 条，"
+          f"头部原点：{'已采集' if 'origin' in head_samples_out else '未采集'}")
     print(f" • pole 控件：{pole_count}/{len(pole_shorts)} 个")
     print(f" • 总计：{total_count} 个对象")
     print(f"  • 文件路径：{file_path}")
+    _print_missing_head_samples(skeleton)
     print("=" * 60)
 
 
@@ -278,27 +290,31 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
                         foot_loaded += 1
         loaded_count += foot_loaded
 
-        # 双线性映射辅助数据（写入骨骼自定义属性；左右手连同四元数旋转一并读回）
-        # 文件里的键是 rotation_quaternion，落地到骨骼时仍用内部键名 "rotation"（与本文件其他类目一致）
-        bilinear_loaded = 0
-        if 'BILINEAR_HELPERS' in data:
-            bilinear_data = _sio.get_state_data(
-                skeleton, BILINEAR_KEY, {}) or {}
-            for helper_name, helper_data in data['BILINEAR_HELPERS'].items():
-                if helper_name not in config.bilinear_helpers.values():
-                    continue
-                location = helper_data.get('location')
-                if location is None:
-                    continue
-                helper_entry = {"location": list(location)}
-                quaternion = helper_data.get('rotation_quaternion')
-                if quaternion is not None:
-                    helper_entry["rotation"] = list(quaternion)
-                bilinear_data[helper_name] = helper_entry
-                bilinear_loaded += 1
-            if bilinear_loaded:
-                _sio.set_state_data(skeleton, BILINEAR_KEY, bilinear_data)
-        loaded_count += bilinear_loaded
+        # 头部采样数据（写入骨骼自定义属性：头部原点 + 左右手各状态的样本）
+        head_sample_loaded = 0
+        if 'HEAD_SAMPLES' in data:
+            head_samples_in = data['HEAD_SAMPLES']
+            head_data = _sio.get_state_data(
+                skeleton, HEAD_SAMPLE_KEY, {}) or {}
+            origin_entry = head_samples_in.get('origin')
+            if origin_entry and origin_entry.get('location'):
+                head_data["origin"] = {"location": list(origin_entry["location"])}
+                head_sample_loaded += 1
+            for hand_key in ("left", "right"):
+                side_samples = head_samples_in.get(hand_key) or {}
+                for state_key, sample in side_samples.items():
+                    hand_location = sample.get('hand_location')
+                    head_location = sample.get('head_location')
+                    if hand_location is None or head_location is None:
+                        continue
+                    head_data.setdefault(hand_key, {})[state_key] = {
+                        "hand_location": list(hand_location),
+                        "head_location": list(head_location),
+                    }
+                    head_sample_loaded += 1
+            if head_sample_loaded:
+                _sio.set_state_data(skeleton, HEAD_SAMPLE_KEY, head_data)
+        loaded_count += head_sample_loaded
 
         # pole 控件（应用局部位置到对应对象）
         pole_loaded = 0
@@ -321,10 +337,11 @@ def import_recorder_info(file_path: str, config, skeleton) -> None:
         print(f" • 左手状态记录器：{left_hand_loaded} 个")
         print(f" • 右手状态记录器：{right_hand_loaded} 个")
         print(f" • 脚部控制器：{foot_loaded} 个")
-        print(f" • 双线性映射辅助数据：{bilinear_loaded} 条")
+        print(f" • 头部采样：{head_sample_loaded} 条")
         print(f" • pole 控件：{pole_loaded} 个")
         print(f" • 总计：{loaded_count} 个对象")
         print(f"  • 文件路径：{file_path}")
+        _print_missing_head_samples(skeleton)
         print("=" * 60)
 
     except FileNotFoundError as e:

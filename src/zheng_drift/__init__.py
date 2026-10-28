@@ -5,6 +5,6 @@
 - 命名接演奏者后缀（<短名>_<后缀>）；
 - 集合/物体创建改调 common.object_utils / performer_utils；
 - 导入/导出标准姿势用角色模块的「人物信息路径」（SCENE_INFO_PATH）；
-- 保留 zheng 独有逻辑：bilinear_map 双线性映射、特殊朝向控制器、
+- 保留 zheng 独有逻辑：特殊朝向控制器、头部采样、
   双脚控制器、21 弦、弦 shape key 工具、线性分布工具。
 """

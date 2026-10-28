@@ -19,9 +19,9 @@ from .io import export_recorder_info, import_recorder_info
 from .state import (
     save_hand_state,
     load_hand_state,
-    save_mapping,
-    load_mapping,
-    get_mapping_slot_summary,
+    save_head_origin,
+    load_head_origin,
+    get_head_sample_summary,
 )
 from .enums import LeftHandAction, RightHandAction, HandPosition
 from .config import ZhengConfig
@@ -156,15 +156,6 @@ class ZhengDriftProperties(PropertyGroup):
                    ('TREMOLO', T('Tremolo'), T('摇指'))],
             default='NORMAL'),
 
-        # 映射辅助的采集槽位（四点采集，替代原来的"四个指定状态自动采集"）
-        "mapping_key": EnumProperty(
-            name=T("Mapping State"),
-            description=T("Mapping helper slot (A/B/C/D)"),
-            items=[('A', 'A', ''), ('B', 'B', ''),
-                   ('C', 'C', ''), ('D', 'D', '')],
-            default='A',
-        ),
-
         # .zhengdrift 配置 / 动画文件路径（乐器面板唯一 FILE_PATH；
         # 乐器物体/人物信息路径由角色模块「角色操作」面板统一设置）
         "zheng_animation_file": StringProperty(
@@ -296,10 +287,10 @@ class ZHENG_OT_load_right_hand_state(Operator):
         return {'FINISHED'}
 
 
-class ZHENG_OT_save_mapping(Operator):
-    """把当前 Middle_Hand / Head_Control 的位置与 H_L / H_R 的位置+旋转采集到选中槽位"""
-    bl_idname = "music_doll.zheng_drift_save_mapping"
-    bl_label = T("Save Mapping")
+class ZHENG_OT_save_head_origin(Operator):
+    """采集默认坐姿下的头部位置（头部原点）"""
+    bl_idname = "music_doll.zheng_drift_save_head_origin"
+    bl_label = T("采集头部原点")
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -310,19 +301,17 @@ class ZHENG_OT_save_mapping(Operator):
             return {'CANCELLED'}
         config = _get_zheng_config(
             props, suffix=_get_active_suffix(context), skeleton=skel)
-        if not save_mapping(config, skel, props.mapping_key):
-            self.report(
-                {'ERROR'},
-                T("采集失败：请确认 Middle_Hand / Head_Control / H_L / H_R 已创建"))
+        if not save_head_origin(config, skel):
+            self.report({'ERROR'}, T("采集失败：请确认 Head_Control 已创建"))
             return {'CANCELLED'}
-        self.report({'INFO'}, T("已采集 Mapping %s") % props.mapping_key)
+        self.report({'INFO'}, T("已采集头部原点"))
         return {'FINISHED'}
 
 
-class ZHENG_OT_load_mapping(Operator):
-    """把选中槽位的位置还原到 Middle_Hand / Head_Control，位置+旋转还原到 H_L / H_R"""
-    bl_idname = "music_doll.zheng_drift_load_mapping"
-    bl_label = T("Load Mapping")
+class ZHENG_OT_load_head_origin(Operator):
+    """把头部原点还原到 Head_Control"""
+    bl_idname = "music_doll.zheng_drift_load_head_origin"
+    bl_label = T("还原头部原点")
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -333,11 +322,10 @@ class ZHENG_OT_load_mapping(Operator):
             return {'CANCELLED'}
         config = _get_zheng_config(
             props, suffix=_get_active_suffix(context), skeleton=skel)
-        if not load_mapping(config, skel, props.mapping_key):
-            self.report(
-                {'WARNING'}, T("骨骼中不存在 Mapping %s，请先 Save") % props.mapping_key)
+        if not load_head_origin(config, skel):
+            self.report({'WARNING'}, T("骨骼中不存在头部原点，请先采集"))
             return {'CANCELLED'}
-        self.report({'INFO'}, T("已加载 Mapping %s") % props.mapping_key)
+        self.report({'INFO'}, T("已还原头部原点"))
         return {'FINISHED'}
 
 
@@ -747,29 +735,27 @@ class ZHENG_PT_main_panel(Panel):
         row.operator("music_doll.zheng_drift_load_right_hand_state",
                      text=T("Load Right Hand"))
 
-        # 6. 映射辅助（四点采集）：手动采集四个槽位的手部中点 + 头部位置 + 左右手变换，
-        #    替代原来的"在四个指定状态下自动采集"
+        # 6. 头部采样：头部原点单独采集；各手部状态的头部位置跟着 Save/Load 一起走
         box = layout.box()
-        box.label(text=T("Mapping Helpers"), icon='ORIENTATION_VIEW')
+        box.label(text=T("头部采样"), icon='ORIENTATION_VIEW')
         box.label(
-            text=T("采集四个槽位的手部中点、头部位置与左右手位置+旋转"), icon='INFO')
+            text=T("保存 / 加载左右手状态时，会一并采集 / 还原该状态下的头部位置"),
+            icon='INFO')
+        row = box.row(align=True)
+        row.operator("music_doll.zheng_drift_save_head_origin",
+                     text=T("采集头部原点"))
+        row.operator("music_doll.zheng_drift_load_head_origin",
+                     text=T("还原头部原点"))
         box.label(
-            text=T("槽位 A 为默认坐姿（头部原点），B/C/D 请分别采集三个极端坐姿"),
+            text=T("头部原点 = 默认坐姿下的头部位置（判断哪只手离头更远）"),
             icon='ERROR')
-        col = box.column(align=True)
-        col.prop(props, "mapping_key", text=T("Slot"))
-        row = col.row(align=True)
-        row.operator("music_doll.zheng_drift_save_mapping",
-                     text=T("Save Mapping"))
-        row.operator("music_doll.zheng_drift_load_mapping",
-                     text=T("Load Mapping"))
         skeleton = _get_active_skeleton(context)
         if skeleton is not None:
-            slot_summary = get_mapping_slot_summary(skeleton)
-            captured = " ".join(
-                slot_key.upper() for slot_key, done in slot_summary.items() if done)
-            box.label(
-                text=T("已采集槽位：%s") % (captured if captured else T("（无）")))
+            summary = get_head_sample_summary(skeleton)
+            captured_count = len(summary["left"]) + len(summary["right"])
+            origin_text = T("已采集") if summary["origin"] else T("未采集")
+            box.label(text=T("头部样本 %d/12，头部原点%s")
+                      % (captured_count, origin_text))
 
         # 7. 导入/导出标准姿势（人物信息路径由角色模块统一设置）
         box = layout.box()
@@ -816,10 +802,10 @@ def register():
     bpy.utils.register_class(ZHENG_OT_load_left_hand_state)
     bl_label_set(ZHENG_OT_load_right_hand_state, "Load Right Hand")
     bpy.utils.register_class(ZHENG_OT_load_right_hand_state)
-    bl_label_set(ZHENG_OT_save_mapping, "Save Mapping")
-    bpy.utils.register_class(ZHENG_OT_save_mapping)
-    bl_label_set(ZHENG_OT_load_mapping, "Load Mapping")
-    bpy.utils.register_class(ZHENG_OT_load_mapping)
+    bl_label_set(ZHENG_OT_save_head_origin, "采集头部原点")
+    bpy.utils.register_class(ZHENG_OT_save_head_origin)
+    bl_label_set(ZHENG_OT_load_head_origin, "还原头部原点")
+    bpy.utils.register_class(ZHENG_OT_load_head_origin)
     bl_label_set(ZHENG_OT_export_info, "导出控制器信息")
     bpy.utils.register_class(ZHENG_OT_export_info)
     bl_label_set(ZHENG_OT_import_info, "导入控制器信息")
@@ -866,8 +852,8 @@ def unregister():
     bpy.utils.unregister_class(ZHENG_OT_generate_left_hand_animation)
     bpy.utils.unregister_class(ZHENG_OT_import_info)
     bpy.utils.unregister_class(ZHENG_OT_export_info)
-    bpy.utils.unregister_class(ZHENG_OT_load_mapping)
-    bpy.utils.unregister_class(ZHENG_OT_save_mapping)
+    bpy.utils.unregister_class(ZHENG_OT_load_head_origin)
+    bpy.utils.unregister_class(ZHENG_OT_save_head_origin)
     bpy.utils.unregister_class(ZHENG_OT_load_right_hand_state)
     bpy.utils.unregister_class(ZHENG_OT_load_left_hand_state)
     bpy.utils.unregister_class(ZHENG_OT_save_right_hand_state)

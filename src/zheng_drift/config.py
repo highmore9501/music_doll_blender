@@ -10,13 +10,12 @@ controller_root 作为固定乐器根（古筝固定不动，无 controller_root
 - 特殊朝向控制器（Middle_Hand / Look_At / Head_Control）保持世界对象：
   Middle_Hand 用世界空间 driver 取 H_L/H_R 中点，Head_Control 用 TrackTo 跟随，
   父级化反而会造成「本地 vs 世界」坐标错位，故不挂根；
-- 记录器（弦 s{i}head/end/mid）为世界空物体；左右手状态与双线性
-  Middle_Hand/Head_Control 极端位姿存演奏者骨骼自定义属性（等价于 key_ripple 把
-  状态存骨骼的做法：记录器即状态存储，Rust 端按世界坐标消费），不挂 controller_root。
+- 记录器（弦 s{i}head/end/mid）为世界空物体；左右手状态与头部采样数据存
+  演奏者骨骼自定义属性（等价于 key_ripple 把状态存骨骼的做法：记录器即状态存储，
+  Rust 端按世界坐标消费），不挂 controller_root。
 """
 
 import bpy  # type: ignore
-from mathutils import Vector  # type: ignore
 
 from ..common import performer_utils
 from ..common import object_utils
@@ -79,28 +78,6 @@ class ZhengConfig:
             "head_control": "Head_Control",
         }
 
-        # ── 双线性映射辅助记录器命名表（16 个：4 槽位 × 手部中点/头部/左手/右手） ──
-        # 不创建空物体，位置存演奏者骨骼自定义属性（见 state.py / io.py），
-        # 导出 BILINEAR_HELPERS 时按此键名（左右手条目另带四元数旋转）。
-        self.bilinear_helpers = {
-            "middle_hand_a": "Middle_Hand_A",
-            "middle_hand_b": "Middle_Hand_B",
-            "middle_hand_c": "Middle_Hand_C",
-            "middle_hand_d": "Middle_Hand_D",
-            "head_control_a": "Head_Control_A",
-            "head_control_b": "Head_Control_B",
-            "head_control_c": "Head_Control_C",
-            "head_control_d": "Head_Control_D",
-            "left_hand_a": "Left_Hand_A",
-            "left_hand_b": "Left_Hand_B",
-            "left_hand_c": "Left_Hand_C",
-            "left_hand_d": "Left_Hand_D",
-            "right_hand_a": "Right_Hand_A",
-            "right_hand_b": "Right_Hand_B",
-            "right_hand_c": "Right_Hand_C",
-            "right_hand_d": "Right_Hand_D",
-        }
-
         # ── 双脚控制器（4 个） ──
         self.foot_controllers = {
             "left_foot_controller": "F_L",
@@ -118,9 +95,6 @@ class ZhengConfig:
 
         # 用于记录添加控件前的对象名称
         self.pre_obj_names = []
-
-        # 注册 bilinear_map 函数到 driver namespace（幂等）
-        self._register_bilinear_map()
 
     # ── 后缀化命名 ──────────────────────────────────────────
 
@@ -393,44 +367,6 @@ class ZhengConfig:
 
         print("  ✓ 弦位置记录器添加完成")
 
-    # ── 旧版双线性辅助清理（已改存骨骼自定义属性） ────────────
-
-    def _cleanup_legacy_bilinear_helpers(self) -> None:
-        """清理旧版遗留的 Bilinear_Helpers 空物体与集合（幂等）。
-
-        双线性 Middle_Hand/Head_Control 极端位姿已改存骨骼自定义属性，不再需要
-        空物体。这里：1) 把已有空物体位置迁移进骨骼属性（防止丢数据）；
-        2) 删除命名精确匹配的球形空物体；3) 集合变空则一并移除。
-        """
-        from . import state as _state
-
-        # 解析本演奏者骨骼（迁移用；无骨骼则只删物体不迁移）
-        skeleton = self.target_skeleton
-        if skeleton is None:
-            p = self._get_performer_collection()
-            if p is not None:
-                skeleton = p.target_skeleton
-        migrated = _state.migrate_legacy_bilinear_objects(self, skeleton)
-        if migrated:
-            print(f"  ✓ 已迁移 {migrated} 个旧版双线性辅助数据到骨骼自定义属性")
-
-        leftover = []
-        for short in self.bilinear_helpers.values():
-            obj = bpy.data.objects.get(self.obj_name(short))
-            if obj is not None and obj.type == 'EMPTY':
-                leftover.append(obj)
-        for obj in leftover:
-            full_name = obj.name
-            bpy.data.objects.remove(obj, do_unlink=True)
-            if full_name in self.pre_obj_names:
-                self.pre_obj_names.remove(full_name)
-            print(f"  ✓ 已移除旧版双线性辅助空物体：{full_name}")
-
-        coll = bpy.data.collections.get(self.obj_name("Bilinear_Helpers"))
-        if coll is not None and not coll.objects and not coll.children:
-            bpy.data.collections.remove(coll)
-            print(f"  ✓ 已移除空的 Bilinear_Helpers 集合：{coll.name}")
-
     # ── 状态检查 ────────────────────────────────────────────
 
     def check_all_objects(self) -> CheckResult:
@@ -535,9 +471,6 @@ class ZhengConfig:
         self.add_ext_drivers()
         self.add_recorders()
 
-        # 清理旧版双线性辅助空物体（已改存骨骼自定义属性；顺带迁移已有数据）
-        self._cleanup_legacy_bilinear_helpers()
-
         # 演奏者根 <缩写>_<名称>（挂接骨骼 / controller_root；乐器不挂根）
         self._organize_performer_root()
 
@@ -626,67 +559,3 @@ class ZhengConfig:
 
     def _parent_to(self, parent_obj, child_obj):
         object_utils.parent_to(parent_obj, child_obj)
-
-    # ── bilinear_map 双线性映射 ─────────────────────────────
-
-    def _register_bilinear_map(self):
-        """注册 bilinear_map 函数到 bpy.app.driver_namespace（幂等）"""
-        if "bilinear_map" not in bpy.app.driver_namespace:
-            bpy.app.driver_namespace["bilinear_map"] = self._bilinear_map_func
-
-    @staticmethod
-    def _bilinear_map_func(px, py, pz,
-                           a0x, a0y, a0z, a1x, a1y, a1z, a2x, a2y, a2z, a3x, a3y, a3z,
-                           b0x, b0y, b0z, b1x, b1y, b1z, b2x, b2y, b2z, b3x, b3y, b3z,
-                           axis):
-        """通过三角形重心坐标法，将点 P 从四边形 A 映射到四边形 B。
-
-        四边形 A / B 顶点一一对应（凸四边形）。
-        """
-        P = Vector((px, py, pz))
-        A = [Vector((a0x, a0y, a0z)),
-             Vector((a1x, a1y, a1z)),
-             Vector((a2x, a2y, a2z)),
-             Vector((a3x, a3y, a3z))]
-        B = [Vector((b0x, b0y, b0z)),
-             Vector((b1x, b1y, b1z)),
-             Vector((b2x, b2y, b2z)),
-             Vector((b3x, b3y, b3z))]
-
-        def triangle_area(v1, v2, v3):
-            return (v2 - v1).cross(v3 - v1).length / 2.0
-
-        def barycentric_coords(p, v0, v1, v2):
-            area_total = triangle_area(v0, v1, v2)
-            if area_total < 1e-10:
-                return (1.0, 0.0, 0.0)
-            u = triangle_area(p, v1, v2) / area_total
-            v = triangle_area(p, v2, v0) / area_total
-            w = 1.0 - u - v
-            return (u, v, w)
-
-        def inside_triangle(coords, eps=1e-5):
-            return all(c >= -eps for c in coords)
-
-        coords1 = barycentric_coords(P, A[0], A[1], A[2])
-        if inside_triangle(coords1):
-            u, v, w = coords1
-            result = u * B[0] + v * B[1] + w * B[2]
-        else:
-            coords2 = barycentric_coords(P, A[0], A[2], A[3])
-            u, v, w = coords2
-            result = u * B[0] + v * B[2] + w * B[3]
-
-        return result[axis]
-
-    def clear_vector_interpolation_drivers(self, target) -> int:
-        """清除目标物体上的向量插值 Driver（保留原实现，供工具/脚本使用）"""
-        cleared_count = 0
-        if target.animation_data:
-            for i in range(3):
-                driver = target.animation_data.drivers.find(
-                    data_path="location", index=i)
-                if driver is not None:
-                    target.animation_data.drivers.remove(driver)
-                    cleared_count += 1
-        return cleared_count
