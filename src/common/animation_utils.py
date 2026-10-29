@@ -4,6 +4,7 @@
 提供所有乐器共用的：
 - 集合对象递归收集；
 - fcurve 批量写入（预解析 + 批量写 keyframe_points，性能优化）；
+- 动作（action）的复用与回收：同名优先复用，清动画时把失去使用者的旧动作删除；
 - shape key 归零 / 清除动画；
 - driver 备份/恢复（清动画时保留驱动）；
 - 清动画（按演奏者后缀过滤，多演奏者隔离）。
@@ -64,10 +65,13 @@ def write_fcurve_points(fcurve, keyframes, clear_existing=True) -> None:
     if fcurve is None:
         return
     keyframes = list(keyframes)
-    if not keyframes:
-        return
+    # 清空必须写在"没有数据就直接返回"之前：否则某条通道这次没有数据时，
+    # 它上一次留下的关键帧会原样保留下来。
     if clear_existing:
         fcurve.keyframe_points.clear()
+    if not keyframes:
+        fcurve.update()
+        return
 
     points = fcurve.keyframe_points
     points.add(count=len(keyframes))
@@ -78,6 +82,61 @@ def write_fcurve_points(fcurve, keyframes, clear_existing=True) -> None:
         point.handle_left_type = 'VECTOR'
         point.handle_right_type = 'VECTOR'
     fcurve.update()
+
+
+# ── 动作（action）的复用与回收 ────────────────────────────────
+
+def get_or_create_action(datablock, action_name):
+    """取得 datablock 的动画动作：先用挂着的，其次复用同名的，最后才新建。
+
+    同名动作直接复用，避免每重跑一次插帧就在文件里多留一份 xxx_anim.001。
+    """
+    anim_data = datablock.animation_data
+    if anim_data is None:
+        datablock.animation_data_create()
+        anim_data = datablock.animation_data
+    if anim_data is None:
+        return None
+    if anim_data.action is not None:
+        return anim_data.action
+
+    action = bpy.data.actions.get(action_name)
+    if action is None:
+        action = bpy.data.actions.new(action_name)
+    anim_data.action = action
+    return action
+
+
+def discard_action_if_unused(action) -> bool:
+    """把已经没有使用者的动作从文件里删掉（删掉了返回 True）。
+
+    判断依据是"还有没有物体 / 形态键在用"，不能用 action.users：
+    动作只要被保存下来的界面状态（大纲视图的记录等）引用过，users 就不会归零，
+    Blender 自带的"清理未使用数据"因此永远删不到它。
+    """
+    if action is None:
+        return False
+    try:
+        owners = bpy.data.user_map(subset=[action]).get(action, set())
+        for owner in owners:
+            if owner.bl_rna.identifier in ('Object', 'Key'):
+                return False
+        bpy.data.actions.remove(action)
+    except (RuntimeError, ReferenceError, ValueError):
+        return False
+    return True
+
+
+def clear_animation_and_discard(owner) -> None:
+    """清除任意 ID（物体 / 形态键 / 节点树）上的动画数据，并删掉失去使用者的旧动作。"""
+    if owner is None:
+        return
+    anim_data = getattr(owner, 'animation_data', None)
+    if anim_data is None:
+        return
+    discarded_action = anim_data.action
+    owner.animation_data_clear()
+    discard_action_if_unused(discarded_action)
 
 
 # ── shape key 工具 ────────────────────────────────────────────
@@ -92,12 +151,11 @@ def reset_shape_keys(obj, value: float = 0.0) -> None:
 
 
 def clear_shape_key_animation(obj) -> None:
-    """清除对象的 shape key 动画数据。"""
+    """清除对象的 shape key 动画数据（连带删掉失去使用者的旧动作）。"""
     if obj is None:
         return
     if hasattr(obj.data, "shape_keys") and obj.data.shape_keys:
-        if obj.data.shape_keys.animation_data:
-            obj.data.shape_keys.animation_data_clear()
+        clear_animation_and_discard(obj.data.shape_keys)
 
 
 # ── driver 备份 / 恢复 ────────────────────────────────────────
@@ -210,18 +268,10 @@ def clear_all_keyframe(collection_names=None, exclude_names=None,
         if ob is None or ob.name in exclude_names:
             continue
 
-        # 清除对象变换关键帧
-        if ob.animation_data and ob.animation_data.action:
-            ob.animation_data.action.animation_data_clear()
-
-        # 归零 shape key 并清除动画
+        # 归零 shape key，并清除物体与 shape key 上的动画（用完的旧动作随即删掉）
         reset_shape_keys(ob, 0.0)
         clear_shape_key_animation(ob)
-
-        # 彻底清除动画数据
-        if ob.animation_data:
-            ob.animation_data_clear()
-        clear_shape_key_animation(ob)
+        clear_animation_and_discard(ob)
 
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -281,10 +331,10 @@ def clear_all_keyframe_preserve_drivers(collection_names=None,
                         'driver': backup_driver(fcurve.driver)
                     })
 
-        # 阶段 2: 清空所有动画数据
-        ob.animation_data_clear()
+        # 阶段 2: 清空所有动画数据（旧动作失去使用者就一并删掉）
+        clear_animation_and_discard(ob)
         if hasattr(ob.data, "shape_keys") and ob.data.shape_keys:
-            ob.data.shape_keys.animation_data_clear()
+            clear_animation_and_discard(ob.data.shape_keys)
             for shape_key_block in ob.data.shape_keys.key_blocks:
                 shape_key_block.value = 0.0
 

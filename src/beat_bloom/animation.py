@@ -136,9 +136,7 @@ def make_animation_by_path(animation_path: str, suffix: str = "") -> None:
         obj = bpy.data.objects[obj_name]
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_anim")
+        animation_utils.get_or_create_action(obj, f"{obj_name}_anim")
 
         if "locations" in entry:
             entry["loc_fcurves"] = [
@@ -207,9 +205,7 @@ def make_shape_key_animation(shape_key_animation_path: str) -> None:
         shape_keys = obj.data.shape_keys
         if not shape_keys.animation_data:
             shape_keys.animation_data_create()
-        if not shape_keys.animation_data.action:
-            shape_keys.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_sk")
+        animation_utils.get_or_create_action(shape_keys, f"{obj_name}_sk")
 
         fc = animation_utils.get_or_create_fcurve(
             shape_keys, f'key_blocks["{sk_name}"].value')

@@ -21,6 +21,10 @@ import bpy  # type: ignore
 from ..common import animation_utils
 from ..common import performer_utils
 
+get_or_create_fcurve = animation_utils.get_or_create_fcurve
+get_or_create_action = animation_utils.get_or_create_action
+write_fcurve_points = animation_utils.write_fcurve_points
+
 
 def clear_all_keyframe(collection_names=None, exclude_names=None, suffix=""):
     """清除关键帧（集合名自动按演奏者后缀解析）"""
@@ -150,9 +154,7 @@ def make_animation(animation_file_path: str, suffix: str = ""):
 
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_anim")
+        get_or_create_action(obj, f"{obj_name}_anim")
 
         if "locations" in entry:
             entry["location_fcurves"] = [
@@ -333,9 +335,7 @@ def _prepare_factor_fcurve(material):
 
     if not node_tree.animation_data:
         node_tree.animation_data_create()
-    if not node_tree.animation_data.action:
-        node_tree.animation_data.action = bpy.data.actions.new(
-            f"{material.name}_factor")
+    get_or_create_action(node_tree, f"{material.name}_factor")
 
     fcurve = get_or_create_fcurve(node_tree, data_path, index=0)
     if fcurve is None:
@@ -375,8 +375,7 @@ def clear_piano_key_animation(obj) -> None:
     for shape_key_block in shape_keys.key_blocks:
         if _is_piano_key_shape_key(shape_key_block.name):
             shape_key_block.value = 0.0
-    if shape_keys.animation_data:
-        shape_keys.animation_data_clear()
+    animation_utils.clear_animation_and_discard(shape_keys)
 
     for material in _iter_materials(obj):
         _clear_factor_animation(material)
@@ -427,9 +426,7 @@ def generate_piano_key_animation(piano_key_animation_path: str,
 
     if not shape_keys.animation_data:
         shape_keys.animation_data_create()
-    if not shape_keys.animation_data.action:
-        shape_keys.animation_data.action = bpy.data.actions.new(
-            f"{keyboard_obj_name}_shape_keys")
+    get_or_create_action(shape_keys, f"{keyboard_obj_name}_shape_keys")
 
     key_infos = []
     missing_key_count = 0

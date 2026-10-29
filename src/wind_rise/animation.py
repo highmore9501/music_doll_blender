@@ -175,9 +175,7 @@ def apply_hand_animation(frames: List[HandKeyframe], suffix: str) -> None:
         obj = bpy.data.objects[full_name]
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(
-                f"{full_name}_anim")
+        animation_utils.get_or_create_action(obj, f"{full_name}_anim")
 
         if "locations" in entry:
             entry["location_fcurves"] = [
@@ -233,9 +231,8 @@ def apply_shape_key_animation(
     shape_keys = mesh_obj.data.shape_keys
     if not shape_keys.animation_data:
         shape_keys.animation_data_create()
-    if not shape_keys.animation_data.action:
-        shape_keys.animation_data.action = bpy.data.actions.new(
-            f"{mesh_obj.name}_shape_keys")
+    animation_utils.get_or_create_action(
+        shape_keys, f"{mesh_obj.name}_shape_keys")
 
     for sk_name, entry in shape_data.items():
         fc = animation_utils.get_or_create_fcurve(
@@ -258,9 +255,7 @@ def apply_activity_curve(frames: List[ActivityCurveFrame], suffix: str) -> None:
     if cr_obj is not None:
         if not cr_obj.animation_data:
             cr_obj.animation_data_create()
-        if not cr_obj.animation_data.action:
-            cr_obj.animation_data.action = bpy.data.actions.new(
-                f"{cr_name}_anim")
+        animation_utils.get_or_create_action(cr_obj, f"{cr_name}_anim")
         # 确保自定义属性存在
         if "activity_curve" not in cr_obj:
             cr_obj["activity_curve"] = 0.0

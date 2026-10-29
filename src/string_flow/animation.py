@@ -5,7 +5,7 @@
 - 动画 JSON 里的控制器名是短名（Rust 端输出），用 resolve(short, suffix) 映射到带后缀对象；
 - 左右手控制器列表按 one_hand_finger_number 动态生成（支持多指/外星人），不再硬编码 4 指；
 - 弦动画 shape key 名 s{i}fret{k}（在弦数据内部，无需后缀）；
-- 清除控制器动画逐对象 animation_data_clear（动画控制器列表内无 driver 对象，安全）。
+- 清动画时连动作一起回收（animation_utils.clear_animation_and_discard）。
 """
 
 import json
@@ -16,6 +16,7 @@ from ..common import animation_utils
 from ..common import performer_utils
 
 get_or_create_fcurve = animation_utils.get_or_create_fcurve
+get_or_create_action = animation_utils.get_or_create_action
 write_fcurve_points = animation_utils.write_fcurve_points
 
 
@@ -35,12 +36,13 @@ def _hand_controller_shorts(config, side: str) -> list:
 
 
 def _clear_controller_animation(config, side: str, suffix: str = "") -> None:
-    """清除该侧全部控制器的动画数据（列表内无 driver 对象，animation_data_clear 安全）"""
+    """清除该侧全部控制器的动画数据（列表内无 driver 对象，animation_data_clear 安全），
+    并把这些控制器原来的动作从文件里删掉。"""
     for short in _hand_controller_shorts(config, side):
         full = performer_utils.resolve(short, suffix)
         obj = bpy.data.objects.get(full)
-        if obj is not None and obj.animation_data:
-            obj.animation_data_clear()
+        if obj is not None:
+            animation_utils.clear_animation_and_discard(obj)
 
 
 def _animate_hand_from_file(animation_file_path: str, side: str,
@@ -111,8 +113,7 @@ def _animate_hand_from_file(animation_file_path: str, side: str,
 
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(f"{full}_anim")
+        get_or_create_action(obj, f"{full}_anim")
 
         if "locations" in entry:
             entry["location_fcurves"] = [
@@ -167,9 +168,8 @@ def clear_string_shape_key_animation(instrument) -> None:
     for shape_key_block in instrument.data.shape_keys.key_blocks:
         if shape_key_block.name != "Basis":
             shape_key_block.value = 0.0
-    # 清除 shape key 动画数据
-    if instrument.data.shape_keys.animation_data:
-        instrument.data.shape_keys.animation_data_clear()
+    # 清除 shape key 动画数据（用完的旧动作随即删掉）
+    animation_utils.clear_animation_and_discard(instrument.data.shape_keys)
     # 清除 shape key 上的驱动（保留 Basis）
     for shape_key in instrument.data.shape_keys.key_blocks:
         if shape_key.name != "Basis":
@@ -269,9 +269,8 @@ def apply_string_animation(string_animation_file: str, suffix: str = "",
 
         if not shape_keys.animation_data:
             shape_keys.animation_data_create()
-        if not shape_keys.animation_data.action:
-            shape_keys.animation_data.action = bpy.data.actions.new(
-                f"{instrument_name}_string_shape_keys")
+        get_or_create_action(
+            shape_keys, f"{instrument_name}_string_shape_keys")
 
         shape_fcurve = get_or_create_fcurve(
             shape_keys, f'key_blocks["{shape_key_name}"].value')

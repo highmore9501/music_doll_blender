@@ -22,6 +22,11 @@ def get_or_create_fcurve(datablock, data_path, index=0):
     return animation_utils.get_or_create_fcurve(datablock, data_path, index)
 
 
+def get_or_create_action(datablock, action_name):
+    """取得 datablock 的动画动作（同名优先复用，避免每次插帧多留一份动作）"""
+    return animation_utils.get_or_create_action(datablock, action_name)
+
+
 def write_fcurve_points(fcurve, keyframes, clear_existing=True):
     """批量写入 fcurve 的关键帧点"""
     animation_utils.write_fcurve_points(fcurve, keyframes, clear_existing)
@@ -66,9 +71,7 @@ def animate_hand(animation_file: str, suffix: str = ""):
 
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_anim")
+        get_or_create_action(obj, f"{obj_name}_anim")
 
         if "locations" in entry:
             entry["location_fcurves"] = [
@@ -111,8 +114,7 @@ def clear_controller_root_animation(suffix: str = ""):
     obj.location = (0.0, 0.0, 0.0)
     obj.rotation_mode = 'QUATERNION'
     obj.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-    if obj.animation_data:
-        obj.animation_data_clear()
+    animation_utils.clear_animation_and_discard(obj)
 
 
 def animate_controller_root(animation_file: str, suffix: str = ""):
@@ -162,8 +164,7 @@ def animate_controller_root(animation_file: str, suffix: str = ""):
     # 第二步：准备 fcurve（位置 + 四元数旋转）
     if not obj.animation_data:
         obj.animation_data_create()
-    if not obj.animation_data.action:
-        obj.animation_data.action = bpy.data.actions.new(f"{obj_name}_anim")
+    get_or_create_action(obj, f"{obj_name}_anim")
 
     obj.rotation_mode = 'QUATERNION'
     location_fcurves = [
@@ -296,9 +297,7 @@ def animate_string(string_recorder: str, suffix: str = "", instrument=None):
 
         if not shape_keys.animation_data:
             shape_keys.animation_data_create()
-        if not shape_keys.animation_data.action:
-            shape_keys.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_string_shape_keys")
+        get_or_create_action(shape_keys, f"{obj_name}_string_shape_keys")
 
         shape_key = entry["shape_key"]
         shape_fcurve = get_or_create_fcurve(
@@ -314,9 +313,7 @@ def animate_string(string_recorder: str, suffix: str = "", instrument=None):
 
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_is_vib")
+        get_or_create_action(obj, f"{obj_name}_is_vib")
 
         vib_fcurve = get_or_create_fcurve(obj, '["is_vib"]')
 
@@ -363,8 +360,7 @@ def clear_string_animation(suffix: str = "", instrument=None):
             for shape_key_block in obj.data.shape_keys.key_blocks:
                 shape_key_block.value = 0.0
 
-            if obj.data.shape_keys.animation_data:
-                obj.data.shape_keys.animation_data_clear()
+            animation_utils.clear_animation_and_discard(obj.data.shape_keys)
 
         if obj and "is_vib" in obj:
             obj["is_vib"] = 0.0

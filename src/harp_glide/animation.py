@@ -37,15 +37,14 @@ def _get_obj(short: str, suffix: str):
 
 
 def _clear(obj) -> None:
-    if obj and obj.animation_data:
-        obj.animation_data_clear()
+    """清除物体的动画数据，并把它原来的动作从文件里删掉。"""
+    animation_utils.clear_animation_and_discard(obj)
 
 
 def _ensure_action(obj) -> None:
     if not obj.animation_data:
         obj.animation_data_create()
-    if not obj.animation_data.action:
-        obj.animation_data.action = bpy.data.actions.new(f"{obj.name}_anim")
+    animation_utils.get_or_create_action(obj, f"{obj.name}_anim")
 
 
 def _write_loc_rot(obj, loc_frames, locations, quat_frames, quats) -> None:
@@ -344,17 +343,15 @@ def generate_shape_key_animations(pedal_path: str = "", string_path: str = "",
 
     # 第二步：对涉及的 shape_keys 各清理一次动画（同一物体即一次）
     for entry in sk_writes.values():
-        if entry["shape_keys"].animation_data:
-            entry["shape_keys"].animation_data_clear()
+        animation_utils.clear_animation_and_discard(entry["shape_keys"])
 
     # 第三步：一次性批量写入所有 shape key 关键帧
     for entry in sk_writes.values():
         sk_data = entry["shape_keys"]
         if not sk_data.animation_data:
             sk_data.animation_data_create()
-        if not sk_data.animation_data.action:
-            sk_data.animation_data.action = bpy.data.actions.new(
-                f"{entry['obj_name']}_shape_keys")
+        animation_utils.get_or_create_action(
+            sk_data, f"{entry['obj_name']}_shape_keys")
         for sk_name, (frames, values) in entry["data"].items():
             fc = animation_utils.get_or_create_fcurve(
                 sk_data, f'key_blocks["{sk_name}"].value')

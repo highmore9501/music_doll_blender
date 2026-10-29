@@ -20,10 +20,9 @@ write_fcurve_points = animation_utils.write_fcurve_points
 
 
 def _clear_object_animation(obj) -> None:
-    """清除物体的所有动画数据（约束器/驱动不属于 animation_data 的会保留，
-    但这里与源码语义一致：整段 animation_data_clear）"""
-    if obj.animation_data:
-        obj.animation_data_clear()
+    """清除物体的所有动画数据（约束器/驱动不属于 animation_data 的会保留），
+    并把这个物体原来的动作从文件里删掉，避免每跑一次插帧就多留一份。"""
+    animation_utils.clear_animation_and_discard(obj)
 
 
 # ── 左右手动画 ───────────────────────────────────────────────
@@ -118,9 +117,7 @@ def _generate_hand_animation_from_file(animation_file_path: str, side: str,
 
         if not obj.animation_data:
             obj.animation_data_create()
-        if not obj.animation_data.action:
-            obj.animation_data.action = bpy.data.actions.new(
-                f"{obj_name}_anim")
+        animation_utils.get_or_create_action(obj, f"{obj_name}_anim")
 
         if "locations" in entry:
             entry["location_fcurves"] = [
@@ -237,9 +234,8 @@ def generate_string_vibration_animation(animation_file_path: str,
 
     if not shape_keys.animation_data:
         shape_keys.animation_data_create()
-    if not shape_keys.animation_data.action:
-        shape_keys.animation_data.action = bpy.data.actions.new(
-            f"{obj.name}_string_shape_keys")
+    animation_utils.get_or_create_action(
+        shape_keys, f"{obj.name}_string_shape_keys")
 
     # 批量写入所有 shape key 的关键帧
     for shape_key_name, entry in shape_data.items():
@@ -273,8 +269,7 @@ def _clear_string_shape_key_animation(suffix: str = "",
             if shape_key_block is not None:
                 shape_key_block.value = 0.0
 
-    if shape_keys.animation_data:
-        shape_keys.animation_data_clear()
+    animation_utils.clear_animation_and_discard(shape_keys)
 
 
 # ── 清除关键帧 ───────────────────────────────────────────────
@@ -337,8 +332,7 @@ def generate_target_animation(animation_file_path: str,
 
     if not obj.animation_data:
         obj.animation_data_create()
-    if not obj.animation_data.action:
-        obj.animation_data.action = bpy.data.actions.new(f"{obj.name}_anim")
+    animation_utils.get_or_create_action(obj, f"{obj.name}_anim")
 
     location_fcurves = [
         get_or_create_fcurve(obj, "location", index=i) for i in range(3)]
