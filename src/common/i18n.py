@@ -203,6 +203,10 @@ _DICT: dict[str, dict[str, str]] = {
     "左手动画": {"zh": "左手动画", "en": "Left Hand Animation"},
     "右手动画": {"zh": "右手动画", "en": "Right Hand Animation"},
     "弦动画": {"zh": "弦动画", "en": "String Animation"},
+    "弦与摇把动画": {"zh": "弦与摇把动画", "en": "String & Vibrato Animation"},
+    "Generate String and Vibrato Animation": {
+        "zh": "生成弦与摇把动画",
+        "en": "Generate String and Vibrato Animation"},
     "吉他偏移": {"zh": "吉他偏移", "en": "Guitar Offset"},
     "一键生成全部动画": {"zh": "一键生成全部动画", "en": "Generate All Animations"},
     "Use Vibrato Bar (颤音摇杆)": {"zh": "使用颤音摇杆", "en": "Use Vibrato Bar"},
@@ -229,6 +233,9 @@ _DICT: dict[str, dict[str, str]] = {
     "Left hand animation generation completed": {"zh": "左手动画生成完成", "en": "Left hand animation generation completed"},
     "Right hand animation generation completed": {"zh": "右手动画生成完成", "en": "Right hand animation generation completed"},
     "String animation generation completed": {"zh": "弦动画生成完成", "en": "String animation generation completed"},
+    "No shape key in the target instrument matches the data": {
+        "zh": "目标乐器上没有与数据对应的 shape key（请先给乐器生成弦 / 摇把的 shape key）",
+        "en": "No shape key on the target instrument matches the data (create string / vibrato shape keys first)"},
     "Controller root animation generation completed": {"zh": "控制器根动画生成完成", "en": "Controller root animation generation completed"},
     "All animations generation completed": {"zh": "全部动画生成完成", "en": "All animations generation completed"},
     "No animation files found or specified": {"zh": "未找到或未指定任何动画文件", "en": "No animation files found or specified"},

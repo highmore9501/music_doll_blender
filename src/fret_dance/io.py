@@ -26,6 +26,23 @@ _FINGER_MAP = {
 # 有效的右手状态名称（用于校验从 recorder_name 中提取的 state）
 _VALID_RIGHT_STATES = {"low", "end", "high", "release", "up", "down"}
 
+# 乐器种类 → 角色文件 `OTHER_SETTING.instrument` 的写法。
+# 三个串与 `avatar_infos.json` 的 `instrument`、Rust 侧 `InstrumentType` 完全一致，
+# 不能另造词（Rust 靠它交叉核对角色文件与登记表的乐器标记是否一致）。
+_INSTRUMENT_NAMES = {
+    Instruments.FINGER_STYLE_GUITAR: "finger_style_guitar",
+    Instruments.ELECTRIC_GUITAR: "electric_guitar",
+    Instruments.BASS: "bass",
+}
+
+
+def _instrument_name(instrument_value) -> str:
+    """把骨骼里存的乐器编号换成上面那三个串之一（编号异常时按指弹吉他写）。"""
+    try:
+        return _INSTRUMENT_NAMES[Instruments(int(instrument_value))]
+    except (TypeError, ValueError, KeyError):
+        return _INSTRUMENT_NAMES[Instruments.FINGER_STYLE_GUITAR]
+
 
 def _compute_right_recorder_name(state_value: str, ctrl_name: str,
                                  use_vibrato_bar: bool) -> str:
@@ -145,6 +162,7 @@ class IOManager:
         result["OTHER_SETTING"] = {
             "is_unreal": for_unreal,
             "use_vibrato_bar": settings["use_vibrato_bar"],
+            "instrument": _instrument_name(settings["instrument"]),
         }
 
         io_utils.save_json(file_name, result)

@@ -333,9 +333,9 @@ Responsibility: animation writing and clearing shared by all instruments (the co
 - `get_or_create_fcurve(datablock, data_path, index)`: find or create an fcurve in an animation action (**compatible with Blender 4.x and 5.x**: since 5.0 Action no longer exposes `fcurves` directly; `Action.fcurve_ensure_for_datablock()` is used instead);
 - `write_fcurve_points(fcurve, keyframes, clear_existing)`: batch-write fcurve keyframe points (much faster than per-frame `frame_set` + `keyframe_insert`; VECTOR handles + BEZIER interpolation);
 - `reset_shape_keys(obj, value)` / `clear_shape_key_animation(obj)`: shape-key utilities;
-- `backup_driver(driver)` / `restore_driver(new_driver, backup)`: deep driver backup/restore (keep drivers when clearing animation);
-- `clear_all_keyframe(collection_names, exclude_names, suffix)`: clear keyframes (filtered by performer suffix for multi-performer isolation);
-- `clear_all_keyframe_preserve_drivers(...)`: **clear keyframes but preserve drivers** (backup → clear → restore), for scenes that need to keep drivers on target objects — the migration guide explicitly requires this when clearing animation, since per-object `animation_data_clear()` destroys ext / Middle_Hand drivers.
+- `backup_driver(driver)` / `restore_driver(new_driver, backup)`: deep driver backup/restore (for callers that need to move drivers by hand);
+- `clear_all_keyframe(collection_names, exclude_names, suffix)`: clear keyframes (filtered by performer suffix for multi-performer isolation); **only detaches the action / NLA and always keeps the object's drivers**, without relying on the caller to exclude objects;
+- `clear_all_keyframe_preserve_drivers(...)`: legacy name with the same behaviour as `clear_all_keyframe` (instruments still call it); `clear_animation_preserve_drivers(id)` is the single-ID version, which also detaches the action only and never touches drivers.
 
 ### 4.8 ui_utils.py — unified UI / main panel
 
@@ -510,7 +510,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 - `RIGHT_HAND_POSITIONS`: right-hand controllers; recorder names are computed from internal state + controller name (Spanish fingering mapping: `T_R→p`, `I_R→i`, `M_R→m`, `R_R→a`, `P_R→ch`; vibrato `Vibrato_*_H_R` etc.);
 - `OTHER_SETTING`: `is_unreal` / `use_vibrato_bar`.
 
-**Animation** (`animation.py`): left hand / right hand / string animation / controller-root offset (guitar offset) / generate all. Reads animation JSON (`[{frame, fingerInfos: {controller name: {position, rotation}}}]`), batch-writes fcurves, with quaternion sign-consistency handling.
+**Animation** (`animation.py`): left hand / right hand / strings and vibrato (shape keys) / controller-root offset (guitar offset) / generate all. Reads animation JSON (`[{frame, fingerInfos: {controller name: {position, rotation}}}]`), batch-writes fcurves, with quaternion sign-consistency handling. String vibration and vibrato data are merged into one channel table on the MusicDoll target instrument and written once into a single shape-key action on that object. Clearing keyframes before generation always keeps object drivers (ext and other helper controls do not lose their drivers when animation is generated).
 
 **Specific tools**: Create Strings (shape keys).
 
@@ -774,7 +774,7 @@ See chapter 11 and the *Instrument Module Migration Engineering Guide* in full. 
 | setup directly does `["addons"]` → crash when character not initialized | `_get_addons_collection()` find-only + precondition check |
 | Driver reads local coords after parenting | midpoint types WORLD_SPACE; same-parent relative quantities LOCAL_SPACE |
 | States as recorder objects → scene clutter | states always on the skeleton; only physical markers stay as objects |
-| Clearing keyframes destroys drivers | `clear_all_keyframe_preserve_drivers` or custom per-object clearing |
+| Clearing keyframes destroys drivers | use `clear_all_keyframe` / `clear_animation_preserve_drivers` (detaches the action only, never touches drivers) |
 | Import/export via file browser | switch to `SCENE_INFO_PATH`; the panel keeps only the animation file path |
 | Tool parameters stuffed into PropertyGroup | use scene-level properties (registered inside the tool module) |
 | ext drivers / root lost after duplicate/rename | finish with `add_ext_drivers` + `_organize_performer_root` |

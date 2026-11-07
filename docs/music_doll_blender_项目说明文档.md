@@ -333,9 +333,9 @@ Performers/                          ← 顶层根集合（演奏者注册表）
 - `get_or_create_fcurve(datablock, data_path, index)`：在动画 action 中查找或创建 fcurve（**兼容 Blender 4.x 与 5.x**：5.0 起 Action 不再暴露 fcurves 集合，需用 `Action.fcurve_ensure_for_datablock()`）；
 - `write_fcurve_points(fcurve, keyframes, clear_existing)`：批量写入 fcurve 关键帧点（比逐帧 frame_set + keyframe_insert 快得多；VECTOR 手柄 + BEZIER 插值）；
 - `reset_shape_keys(obj, value)` / `clear_shape_key_animation(obj)`：shape key 工具；
-- `backup_driver(driver)` / `restore_driver(new_driver, backup)`：driver 深度备份/恢复（清动画时保留驱动）；
-- `clear_all_keyframe(collection_names, exclude_names, suffix)`：清除关键帧（按演奏者后缀过滤，多演奏者隔离）；
-- `clear_all_keyframe_preserve_drivers(...)`：**清除关键帧但保留驱动器**（备份 → 清空 → 恢复），用于需要保留目标物体上驱动器的场景——迁移指南明确要求清动画时用此函数，逐对象 `animation_data_clear()` 会毁掉 ext / Middle_Hand 的 driver。
+- `backup_driver(driver)` / `restore_driver(new_driver, backup)`：driver 深度备份/恢复（供需要手工搬运驱动的场景使用）；
+- `clear_all_keyframe(collection_names, exclude_names, suffix)`：清除关键帧（按演奏者后缀过滤，多演奏者隔离）；**只摘掉 action / NLA，物体上的 driver 一律保留**，不依赖调用方事先排除物体；
+- `clear_all_keyframe_preserve_drivers(...)`：旧名字，行为与 `clear_all_keyframe` 相同（各乐器沿用此名调用）；`clear_animation_preserve_drivers(id)` 是单 ID 版本，同样只摘 action、不碰 driver。
 
 ### 4.8 ui_utils.py —— 统一 UI / 主面板
 
@@ -510,7 +510,7 @@ class ToolDef:
 - `RIGHT_HAND_POSITIONS`：右手控制器，recorder_name 由内部状态 + 控制器名计算（西班牙指法映射：`T_R→p`、`I_R→i`、`M_R→m`、`R_R→a`、`P_R→ch`；颤音 `Vibrato_*_H_R` 等）；
 - `OTHER_SETTING`：`is_unreal` / `use_vibrato_bar`。
 
-**动画**（`animation.py`）：左手 / 右手 / 弦动画 / controller_root 偏移（吉他偏移）/ 一键全部。读取动画 JSON（`[{frame, fingerInfos: {控制器名: {position, rotation}}}]`），fcurve 批量写入，四元数符号一致性处理。
+**动画**（`animation.py`）：左手 / 右手 / 弦与摇把（shape key）/ controller_root 偏移（吉他偏移）/ 一键全部。读取动画 JSON（`[{frame, fingerInfos: {控制器名: {position, rotation}}}]`），fcurve 批量写入，四元数符号一致性处理。弦振动与摇把两份数据按 MusicDoll 的「目标乐器」物体合成一张通道表，一次写进该物体的同一条 shape key 动作。生成前清关键帧一律保留物体上的 driver（ext 等辅助控件不会因生成动画而失去驱动）。
 
 **特有工具**：生成弦（shape key）。
 
@@ -757,7 +757,7 @@ class ToolDef:
 3. **导出格式不可变**：各乐器的导出文件（fret_dance JSON / `.avatar` / `.violinist` / `.zheng_master` / `.drummer` / `.harpist` / `.wind`）是 Rust/Unreal 侧的消费接口，迁移时**结构必须保持兼容**，只能改内部存储位置，不能改导出内容；
 4. **JSON 键用短名**：Rust 端消费的 JSON 键一律短名（`s0head`、`H_L_Normal_far`），场景内对象查找才用带后缀名；
 5. **状态存骨骼、位置标记存对象**：状态不再生成记录器物体；物理位置标记保留为场景对象；
-6. **清除关键帧必须保留 driver**：用 `animation_utils.clear_all_keyframe_preserve_drivers` 或自定义逐对象处理；逐对象 `animation_data_clear()` 会毁掉 ext / Middle_Hand 的 driver；
+6. **清除关键帧必须保留 driver**：用 `animation_utils.clear_all_keyframe`（默认只摘 action / NLA，不碰 driver）或 `clear_animation_preserve_drivers`；不要用 `animation_data_clear()`——它会把 ext / Middle_Hand 的 driver 一起毁掉；
 7. **坐标空间陷阱**：父级化后 `.location` 变局部坐标——中点类 driver 用 WORLD_SPACE，同父级相对量（`ext = 2×手指`）用 LOCAL_SPACE；
 8. **Blender 5.0 特性**：`bpy.types.Collection` 无 `.parent`（通过遍历反查父子）；Operator 不支持 PointerProperty（复用场景级指针属性）；EnumProperty items 回调 default 用整数索引；注册保护用 RNA 名（`MUSIC_DOLL_OT_create_performer` 带下划线）；
 9. **中文编码 bug**：Blender 5.0 场景枚举可能残留坏字节抛 UnicodeDecodeError，读取时捕获并自愈；枚举项跳过非 ASCII 名字；
@@ -774,7 +774,7 @@ class ToolDef:
 | setup 直接 `["addons"]` → 角色未初始化崩溃 | `_get_addons_collection()` find-only + 前置校验 |
 | 父级化后 driver 取到局部坐标 | 中点类用 WORLD_SPACE；同父级相对量用 LOCAL_SPACE |
 | 状态生成记录器物体 → 场景混乱 | 状态一律存骨骼；仅物理位置标记保留对象 |
-| 清除关键帧把 driver 毁了 | 用 `clear_all_keyframe_preserve_drivers` 或自定义逐对象清 |
+| 清除关键帧把 driver 毁了 | 用 `clear_all_keyframe` / `clear_animation_preserve_drivers`（只摘 action，不碰 driver） |
 | 导入导出用文件浏览器 | 改 `SCENE_INFO_PATH`，面板只留动画文件路径 |
 | 工具参数塞进 PropertyGroup | 用场景级属性（工具模块内注册） |
 | 复制/重命名后 ext driver / 根丢失 | 收尾 `add_ext_drivers` + `_organize_performer_root` |

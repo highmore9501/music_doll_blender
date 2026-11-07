@@ -175,8 +175,8 @@ class BlenderObjectManager:
         - 左右手掌与枢轴（H_L/HP_L/H_R/HP_R）→ controller_root_offset
         - 左手（所有吉他）：手指为手掌子级
         - 右手（指弹/bass）：全部手指是手掌的子级
-        - 右手（电吉他）：中指/无名指/小指是手掌的子级，
-          大拇指是手掌的平级（同挂 controller_root_offset 下），食指是大拇指的子级
+        - 右手（电吉他）：大拇指/中指/无名指/小指是手掌的子级，
+          食指是大拇指的子级（两指几乎重合，运行时借大拇指的 ext_T_R）
         """
         print("\n设置控制器父子层级...")
         h_r = self.obj("H_R")
@@ -198,9 +198,10 @@ class BlenderObjectManager:
 
         # 右手：按乐器类型设置
         if self.instruments == Instruments.ELECTRIC_GUITAR:
-            for name in ["M_R", "R_R", "P_R"]:
+            # 大拇指也是手掌的子级；食指挂在大拇指下（两指几乎重合，见
+            # add_finger_ext_and_poles 里"借 ext_T_R"那一条）
+            for name in ["T_R", "M_R", "R_R", "P_R"]:
                 self._set_parent(name, h_r)
-            self._set_parent("T_R", controller_root_offset)
             self._set_parent("I_R", t_r)
         else:
             for name in ["T_R", "I_R", "M_R", "R_R", "P_R"]:
@@ -208,7 +209,12 @@ class BlenderObjectManager:
         print("  ✓ 控制器父子层级设置完成")
 
     def _set_parent(self, child_name, parent_obj):
-        """将子控制器挂到指定父对象下（Blender 自动保持世界位置不变）"""
+        """将子控制器挂到指定父对象下
+
+        注意：Blender 的 `obj.parent = x` **不保持世界位置**（局部坐标原样不动），
+        所以改了父级的控件会在视口里跳一下。重新导入迁移后的角色数据、再"加载右手状态"
+        就回到原位。
+        """
         full_child = self.obj_name(child_name)
         if parent_obj is None:
             print(f"  • 父对象不存在，跳过 {full_child} 的父子设置")
@@ -225,6 +231,9 @@ class BlenderObjectManager:
 
     def add_finger_ext_and_poles(self):
         """为所有手指创建 ext 辅助控件与 pole，pole 挂对应 ext 下
+
+        ext 辅助控件一律挂在与该手指**同一个父级**下（右手电吉他的 `ext_T_R` 因此挂在
+        `H_R` 下），于是它的局部坐标与手指同尺度，驱动表达式才成立。
 
         例外：电吉他右手食指的 ext 就是大拇指的 `ext_T_R`（两指几乎重合，运行时不
         驱动 ext_I_R），所以**不创建** ext_I_R，`I_R_pole` 直接挂到 `ext_T_R` 下。
@@ -285,10 +294,7 @@ class BlenderObjectManager:
 
         位置基准按 Electric Guitar 的层级分别显式声明（不看场景层级猜）：
 
-        - 左手五指挂 H_L 下、右手（指弹 / bass）五指挂 H_R 下 → 手掌即父级，`2 × 手指`；
-        - 右手（电吉他）中 / 无名 / 小指挂 H_R 下 → 手掌即父级，`2 × 手指`；
-        - 右手（电吉他）拇指与手掌同挂在 controller_root_offset 下 → 手掌不是父级，
-          需要减去手掌：`2 × 手指 − 手掌`；
+        - 左手五指挂 H_L 下、右手五指挂 H_R 下 → 手掌即父级，`2 × 手指`；
         - 右手（电吉他）食指是**例外**：它与实际演奏用的大拇指几乎重合，运行时直接
           借用大拇指的 `ext_T_R`，所以既不创建 ext_I_R（见 add_finger_ext_and_poles），
           也不给它挂 driver / 约束；这里只清掉旧版本场景可能残留的 ext_I_R 驱动 / 约束。
@@ -300,12 +306,8 @@ class BlenderObjectManager:
                 if hand == "R" and is_electric_guitar and finger == "I":
                     # 电吉他食指：例外，不驱动 ext（复用大拇指 ext_T_R），清残留
                     ext_utils.clear_ext_driver(self, hand, finger)
-                elif hand == "R" and is_electric_guitar and finger == "T":
-                    # 电吉他拇指：与手掌平级（同挂 controller_root_offset）→ 减手掌
-                    ext_utils.add_ext_driver(
-                        self, hand, finger, palm=f"H_{hand}", hand_is_parent=False)
                 else:
-                    # 其余手指（含指弹 / bass 的右手五指）都挂手掌下 → 手掌即原点
+                    # 其余手指（含电吉他拇指）都挂手掌下 → 手掌即原点
                     ext_utils.add_ext_driver(self, hand, finger, hand_is_parent=True)
         print("  ✓ 手指 ext 控制器驱动设置完成")
 

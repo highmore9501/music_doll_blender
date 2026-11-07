@@ -6,7 +6,7 @@
 - fcurve 批量写入（预解析 + 批量写 keyframe_points，性能优化）；
 - 动作（action）的复用与回收：同名优先复用，清动画时把失去使用者的旧动作删除；
 - shape key 归零 / 清除动画；
-- driver 备份/恢复（清动画时保留驱动）；
+- driver 备份/恢复工具（可选，供需要手工搬运驱动的场景使用）；清动画默认保留 driver；
 - 清动画（按演奏者后缀过滤，多演奏者隔离）。
 """
 
@@ -139,6 +139,28 @@ def clear_animation_and_discard(owner) -> None:
     discard_action_if_unused(discarded_action)
 
 
+def clear_animation_preserve_drivers(owner) -> None:
+    """清除任意 ID（物体 / 形态键）上的关键帧动画，但完全不碰它的驱动器。
+
+    做法是把动作从 ID 上摘下来再回收，而不是 `animation_data_clear()`——
+    后者会把 drivers 一起清空。驱动因此保持原对象、原表达式，不需要重建。
+    """
+    if owner is None:
+        return
+    anim_data = getattr(owner, 'animation_data', None)
+    if anim_data is None:
+        return
+
+    discarded_action = anim_data.action
+    anim_data.action = None
+
+    # NLA 轨道也属于关键帧动画，一并清掉；drivers 不在这些轨道里
+    for track in list(anim_data.nla_tracks):
+        anim_data.nla_tracks.remove(track)
+
+    discard_action_if_unused(discarded_action)
+
+
 # ── shape key 工具 ────────────────────────────────────────────
 
 def reset_shape_keys(obj, value: float = 0.0) -> None:
@@ -234,7 +256,10 @@ def restore_driver(new_driver, backup) -> None:
 
 def clear_all_keyframe(collection_names=None, exclude_names=None,
                        suffix="") -> None:
-    """清除关键帧。
+    """清除关键帧，但保留物体上的驱动器。
+
+    生成动画前的清理只该动关键帧：物体动画数据里的 driver（ext 辅助控件、
+    Middle_Hand 等）一律原样保留，不依赖调用方事先排除。
 
     :param collection_names: 要处理的集合名称（短名，自动按演奏者后缀解析）
     :param exclude_names: 要排除的物体名称或集合名称列表
@@ -271,88 +296,16 @@ def clear_all_keyframe(collection_names=None, exclude_names=None,
         # 归零 shape key，并清除物体与 shape key 上的动画（用完的旧动作随即删掉）
         reset_shape_keys(ob, 0.0)
         clear_shape_key_animation(ob)
-        clear_animation_and_discard(ob)
+        clear_animation_preserve_drivers(ob)
 
     bpy.ops.object.select_all(action='DESELECT')
 
 
 def clear_all_keyframe_preserve_drivers(collection_names=None,
                                         exclude_names=None, suffix="") -> None:
-    """清除关键帧但保留驱动器（备份 → 清空 → 恢复）。
+    """清除关键帧但保留驱动器。
 
-    用于需要保留目标物体（如 Tar 开头物体）上驱动器的场景。
+    保留旧函数名供各乐器调用；实际清理与 `clear_all_keyframe` 相同，
+    物体上的 driver 一律不碰。
     """
-    if exclude_names is None:
-        exclude_names = []
-    if collection_names is None:
-        collection_names = []
-
-    object_names = []
-
-    if collection_names:
-        for collection_name in collection_names:
-            collection = bpy.data.collections.get(
-                performer_utils.resolve(collection_name, suffix))
-            if collection:
-                collect_collection_objects(
-                    collection, exclude_names, object_names)
-            else:
-                print(f"Collection '{collection_name}' not found")
-    else:
-        for obj in bpy.data.objects:
-            if suffix and not obj.name.endswith("_" + suffix):
-                continue
-            if obj.name not in exclude_names:
-                object_names.append(obj.name)
-
-    for obj_name in object_names:
-        ob = bpy.data.objects.get(obj_name)
-        if ob is None or ob.name in exclude_names:
-            continue
-
-        driver_backups = []
-        shape_key_driver_backups = []
-
-        # 阶段 1: 备份驱动器
-        if ob.animation_data and ob.animation_data.drivers:
-            for fcurve in ob.animation_data.drivers:
-                driver_backups.append({
-                    'data_path': fcurve.data_path,
-                    'array_index': fcurve.array_index,
-                    'driver': backup_driver(fcurve.driver)
-                })
-
-        if hasattr(ob.data, "shape_keys") and ob.data.shape_keys:
-            if ob.data.shape_keys.animation_data and ob.data.shape_keys.animation_data.drivers:
-                for fcurve in ob.data.shape_keys.animation_data.drivers:
-                    shape_key_driver_backups.append({
-                        'data_path': fcurve.data_path,
-                        'array_index': fcurve.array_index,
-                        'driver': backup_driver(fcurve.driver)
-                    })
-
-        # 阶段 2: 清空所有动画数据（旧动作失去使用者就一并删掉）
-        clear_animation_and_discard(ob)
-        if hasattr(ob.data, "shape_keys") and ob.data.shape_keys:
-            clear_animation_and_discard(ob.data.shape_keys)
-            for shape_key_block in ob.data.shape_keys.key_blocks:
-                shape_key_block.value = 0.0
-
-        # 阶段 3: 恢复备份的驱动器
-        if driver_backups:
-            if not ob.animation_data:
-                ob.animation_data_create()
-            for driver_backup in driver_backups:
-                fcurve = ob.driver_add(
-                    driver_backup['data_path'], driver_backup['array_index'])
-                restore_driver(fcurve.driver, driver_backup['driver'])
-
-        if shape_key_driver_backups and hasattr(ob.data, "shape_keys") and ob.data.shape_keys:
-            if not ob.data.shape_keys.animation_data:
-                ob.data.shape_keys.animation_data_create()
-            for driver_backup in shape_key_driver_backups:
-                fcurve = ob.data.shape_keys.driver_add(
-                    driver_backup['data_path'], driver_backup['array_index'])
-                restore_driver(fcurve.driver, driver_backup['driver'])
-
-    bpy.ops.object.select_all(action='DESELECT')
+    clear_all_keyframe(collection_names, exclude_names, suffix)

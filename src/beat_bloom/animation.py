@@ -31,7 +31,7 @@ def clear_all_keyframe(collection_names=None, exclude_names=None, suffix=""):
 
 def clear_all_keyframe_preserve_drivers(collection_names=None, exclude_names=None,
                                         suffix=""):
-    """清除关键帧但保留 driver（备份 → 清空 → 恢复）"""
+    """清除关键帧但保留 driver（只摘 action / NLA，不碰 driver）"""
     animation_utils.clear_all_keyframe_preserve_drivers(
         collection_names, exclude_names, suffix)
 

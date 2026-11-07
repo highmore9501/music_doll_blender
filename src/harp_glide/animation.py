@@ -37,8 +37,11 @@ def _get_obj(short: str, suffix: str):
 
 
 def _clear(obj) -> None:
-    """清除物体的动画数据，并把它原来的动作从文件里删掉。"""
-    animation_utils.clear_animation_and_discard(obj)
+    """清除物体的关键帧动画，并把它原来的动作从文件里删掉。
+
+    driver 一并保留（ext / Mid_Hand 等辅助控件的动画来自 driver）。
+    """
+    animation_utils.clear_animation_preserve_drivers(obj)
 
 
 def _ensure_action(obj) -> None:

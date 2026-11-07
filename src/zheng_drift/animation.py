@@ -20,9 +20,11 @@ write_fcurve_points = animation_utils.write_fcurve_points
 
 
 def _clear_object_animation(obj) -> None:
-    """清除物体的所有动画数据（约束器/驱动不属于 animation_data 的会保留），
-    并把这个物体原来的动作从文件里删掉，避免每跑一次插帧就多留一份。"""
-    animation_utils.clear_animation_and_discard(obj)
+    """清除物体的关键帧动画，并把它原来的动作从文件里删掉。
+
+    driver 一并保留（ext / Middle_Hand 等辅助控件的动画来自 driver）。
+    """
+    animation_utils.clear_animation_preserve_drivers(obj)
 
 
 # ── 左右手动画 ───────────────────────────────────────────────

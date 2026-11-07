@@ -36,13 +36,15 @@ def _hand_controller_shorts(config, side: str) -> list:
 
 
 def _clear_controller_animation(config, side: str, suffix: str = "") -> None:
-    """清除该侧全部控制器的动画数据（列表内无 driver 对象，animation_data_clear 安全），
-    并把这些控制器原来的动作从文件里删掉。"""
+    """清除该侧全部控制器的关键帧动画，并把这些控制器原来的动作从文件里删掉。
+
+    driver 一并保留（ext / 朝向辅助控件的动画来自 driver）。
+    """
     for short in _hand_controller_shorts(config, side):
         full = performer_utils.resolve(short, suffix)
         obj = bpy.data.objects.get(full)
         if obj is not None:
-            animation_utils.clear_animation_and_discard(obj)
+            animation_utils.clear_animation_preserve_drivers(obj)
 
 
 def _animate_hand_from_file(animation_file_path: str, side: str,

@@ -7,7 +7,7 @@
 
 from .tools import INSTRUMENT_TOOLS
 from .animation import (
-    clear_all_keyframe,
+    clear_all_keyframe_preserve_drivers,
     clear_string_animation,
     clear_controller_root_animation,
     animate_hand,
@@ -398,6 +398,12 @@ class FRET_DANCE_OT_select_animation_file(Operator, ImportHelper):
                 self.report(
                     {'WARNING'}, T("Following files not found: %s") % ', '.join(missing_files))
 
+            # 摇把 shape key 是可选产物（没有摇把动作时是空数组，老配置里可能没有这个键）
+            vibrato_shape_key_file = data.get("vibrato_shape_key_file")
+            if vibrato_shape_key_file and not os.path.exists(vibrato_shape_key_file):
+                self.report(
+                    {'WARNING'}, T("Following files not found: %s") % vibrato_shape_key_file)
+
             self.report({'INFO'}, T(
                 "Animation config file loaded successfully"))
             context.scene.fret_dance_animation_file = self.filepath
@@ -430,7 +436,8 @@ class FRET_DANCE_OT_generate_left_hand_animation(Operator):
             with open(config_path, 'r') as f:
                 config = json.load(f)
 
-            clear_all_keyframe(["Left_Hand_Controllers"], suffix=suffix)
+            clear_all_keyframe_preserve_drivers(
+                ["Left_Hand_Controllers"], suffix=suffix)
 
             if 'left_hand_animation_file' in config and os.path.exists(config['left_hand_animation_file']):
                 animate_hand(config['left_hand_animation_file'], suffix=suffix)
@@ -468,7 +475,8 @@ class FRET_DANCE_OT_generate_right_hand_animation(Operator):
             with open(config_path, 'r') as f:
                 config = json.load(f)
 
-            clear_all_keyframe(["Right_Hand_Controllers"], suffix=suffix)
+            clear_all_keyframe_preserve_drivers(
+                ["Right_Hand_Controllers"], suffix=suffix)
 
             if 'right_hand_animation_file' in config and os.path.exists(config['right_hand_animation_file']):
                 animate_hand(
@@ -508,14 +516,21 @@ class FRET_DANCE_OT_generate_string_animation(Operator):
                 config = json.load(f)
 
             clear_string_animation(
-                suffix=suffix, instrument=_get_active_instrument(context))
+                instrument=_get_active_instrument(context))
 
             if 'guitar_string_recorder_file' in config and os.path.exists(config['guitar_string_recorder_file']):
-                animate_string(
-                    config['guitar_string_recorder_file'], suffix=suffix,
+                summary = animate_string(
+                    config['guitar_string_recorder_file'],
+                    vibrato_shape_key_file=config.get(
+                        'vibrato_shape_key_file', ''),
+                    suffix=suffix,
                     instrument=_get_active_instrument(context))
-                self.report({'INFO'}, T(
-                    "String animation generation completed"))
+                if summary["shape_keys"] == 0:
+                    self.report(
+                        {'WARNING'}, T("No shape key in the target instrument matches the data"))
+                else:
+                    self.report({'INFO'}, T(
+                        "String animation generation completed"))
             else:
                 self.report(
                     {'WARNING'}, T("String animation file not found or specified"))
@@ -586,9 +601,9 @@ class FRET_DANCE_OT_generate_all_animation(Operator):
             with open(config_path, 'r') as f:
                 config = json.load(f)
 
-            clear_all_keyframe(["addons"], suffix=suffix)
+            clear_all_keyframe_preserve_drivers(["addons"], suffix=suffix)
             clear_string_animation(
-                suffix=suffix, instrument=_get_active_instrument(context))
+                instrument=_get_active_instrument(context))
 
             success_count = 0
 
@@ -608,10 +623,16 @@ class FRET_DANCE_OT_generate_all_animation(Operator):
                     {'WARNING'}, T("Right hand animation file not found or specified"))
 
             if 'guitar_string_recorder_file' in config and os.path.exists(config['guitar_string_recorder_file']):
-                animate_string(
-                    config['guitar_string_recorder_file'], suffix=suffix,
+                summary = animate_string(
+                    config['guitar_string_recorder_file'],
+                    vibrato_shape_key_file=config.get(
+                        'vibrato_shape_key_file', ''),
+                    suffix=suffix,
                     instrument=_get_active_instrument(context))
                 success_count += 1
+                if summary["shape_keys"] == 0:
+                    self.report(
+                        {'WARNING'}, T("No shape key in the target instrument matches the data"))
             else:
                 self.report(
                     {'WARNING'}, T("String animation file not found or specified"))
@@ -889,7 +910,8 @@ class FRET_DANCE_PT_main_panel(Panel):
 
         row = box.row(align=True)
         row.operator(
-            "music_doll.fret_dance_generate_string_animation", text=T("弦动画"))
+            "music_doll.fret_dance_generate_string_animation",
+            text=T("弦与摇把动画"))
         row.operator(
             "music_doll.fret_dance_generate_controller_root_animation",
             text=T("吉他偏移"))
@@ -1037,7 +1059,7 @@ def register():
                  "Generate Right Hand Animation")
     bpy.utils.register_class(FRET_DANCE_OT_generate_right_hand_animation)
     bl_label_set(FRET_DANCE_OT_generate_string_animation,
-                 "Generate String Animation")
+                 "Generate String and Vibrato Animation")
     bpy.utils.register_class(FRET_DANCE_OT_generate_string_animation)
     bl_label_set(FRET_DANCE_OT_generate_controller_root_animation,
                  "Generate Controller Root Animation")
