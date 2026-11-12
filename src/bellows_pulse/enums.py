@@ -35,6 +35,18 @@ FINGER_LABELS = {
     "P": "小指",
 }
 
+# ── 键区枢轴（风箱开合时要摆两种姿态的控件）──────────────────
+#
+# 风箱打开 / 合拢时，两个键区作为一个整体被推开或拉回，所以要采样的正是这两根枢轴；
+# `accordion_pivot` 只是风箱弯曲方向的静态极向（用户摆一次、不参与计算），不采样。
+
+PIVOT_SHORTS = ("pivot_left", "pivot_right")
+
+#: 风箱状态：打开 / 合拢（`.accordion` 的 pivots 段与骨骼里的枢轴姿态都用这两个键）
+PIVOT_POSE_OPEN = "open"
+PIVOT_POSE_CLOSED = "closed"
+PIVOT_POSES = (PIVOT_POSE_OPEN, PIVOT_POSE_CLOSED)
+
 # ── 右手键区类型（与 `.accordion` 的 right.layout 一一对应）──
 
 RIGHT_LAYOUT_KEYBOARD = "keyboard"

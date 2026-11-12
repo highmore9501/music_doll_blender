@@ -42,7 +42,7 @@ The instruments were merged in phases; 8 are currently included:
 | HarpGlide (Harp) | HG | Fixed | 47 strings (configurable); pedals, harp tilt, hand & head poses |
 | WindRise (Wind) | WR | Moving | Chinese dizi / flute / clarinet / saxophone etc.; states keyed by MIDI note |
 | StringFlow (Violin) | SF | Fixed | 4 strings; numbered fingers, "hand on bow" rig, three-point-plane string tool |
-| BellowsPulse (Accordion) | BP | Fixed | Right-hand keyboard or bayan buttons + left-hand Stradella; two key-zone pivots, bellows pivot, step-by-step settings panel |
+| BellowsPulse (Accordion) | BP | Fixed | Right-hand keyboard or bayan buttons + left-hand Stradella; two key-zone pivots, bellows pivot, bellows open/closed pose sampling, step-by-step settings panel, `.accordion` import/export |
 
 All instruments share the same common framework (performer management, state storage, animation writing, import/export, tool system).
 

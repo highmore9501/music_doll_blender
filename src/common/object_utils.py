@@ -54,10 +54,11 @@ def create_or_update_object(obj_name: str, obj_type: str = "cube",
     """创建或更新物体（幂等：已存在则复用并归位）。
 
     :param obj_name: 完整物体名（调用方负责加后缀）
-    :param obj_type: "cube" / "cone" / "sphere" / "cone_empty" / "single_arrow"
+    :param obj_type: "cube" / "cone" / "sphere" / "circle" / "axes" / "cone_empty" / "single_arrow"
     :param collection: 物体所属集合（可空）
     :param rotation_mode: 旋转模式，默认四元数
-    :param scale: 物体缩放（cube 用）
+    :param scale: 尺寸系数（sphere / circle / cone_empty 是半径倍率，cube 是缩放，
+                  axes 直接是 PLAIN_AXES 的显示尺寸）
     """
     # 已存在：归位并返回
     if obj_name in bpy.data.objects:
@@ -83,6 +84,9 @@ def create_or_update_object(obj_name: str, obj_type: str = "cube",
     elif obj_type == "circle":
         # 空环（IK 极向量/pole 用，半径放大以便拾取）
         bpy.ops.object.empty_add(type="CIRCLE", radius=0.1 * scale)
+    elif obj_type == "axes":
+        # 轴十字空物体（骨骼跟随器/标记用）：radius 就是显示尺寸
+        bpy.ops.object.empty_add(type="PLAIN_AXES", radius=scale)
     elif obj_type == "cone_empty":
         bpy.ops.object.empty_add(type="CONE", radius=0.01 * scale)
     elif obj_type == "single_arrow":

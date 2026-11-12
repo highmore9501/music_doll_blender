@@ -707,6 +707,7 @@ class ToolDef:
 | harp_glide | `.harpist` | `.harpglide` report | 对外扁平键名，内部嵌套 JSON |
 | wind_rise | `.wind` | `.wind_rise` 汇总文件 | config + note_info |
 | string_flow | `.violinist` | `.string_flow`（左右手/弦三个动画文件路径） | Rust Animator 字节级兼容 |
+| bellows_pulse | `.accordion` | 动画 JSON（未做） | 右手键盘 / 巴扬按钮 + 左手 Stradella；`points` / `hands` / `pivots` 三段的 `rotation_quaternion` 为外部格式，骨骼内仍存 `rotation` |
 
 **通用约定**：
 
@@ -720,8 +721,8 @@ class ToolDef:
 
 - 位置：`to_unreal_position([x,y,z]) → [x, -y, z]`（Y 轴取反）；
 - 旋转：`to_unreal_rotation([w,x,y,z]) → [w, -x, y, -z]`（反射共轭，`R_u = M·R_b·M`，M=diag(1,-1,1)）；
-- 各乐器 `for_unreal=True` 时应用转换并置 `config.is_unreal = true`（部分乐器 Rust 端据此处理，如 StringFlow 的指板平面法线方向）；
-- 普通导出为恒等变换、不写 `is_unreal`（缺省 false）。
+- 各乐器 `for_unreal=True` 时应用转换并置 `is_unreal = true`（部分乐器 Rust 端据此处理，如 StringFlow 的指板平面法线方向；BellowsPulse 没有 `config` 小节，`is_unreal` 直接写在 `.accordion` 顶层）；
+- 普通导出为恒等变换、不写 `is_unreal`（缺省 false；BellowsPulse 显式写 `false`，读端按「缺省 false」处理即可）。
 
 > 注意：各工具类 docstring 中"坐标 ×100，Y 轴取反，旋转取共轭"的描述与当前 `io_utils.to_unreal_position/rotation` 的代码存在出入——**以代码为准**（当前实现只做 Y 轴取反与旋转反射共轭，无 ×100 缩放）。如后续需要 ×100 需在导出路径显式加入。
 

@@ -6,9 +6,11 @@
 - `bellows_pulse_settings`：**乐器属性**。右手是键盘还是按钮、音域 / 排数 / 键数、
   左手排数…，由面板的「保存乐器属性到骨骼」写入；后续导出 `.accordion` 与生成动画
   一律读这里，不读面板（避免没保存的修改悄悄进入产物）。
-- `bellows_pulse_state_data`：**基准手型**（动画阶段用）。左右手各一份控制器位姿：
-  手掌 `H_*` 与手部枢轴 `HP_*` 存位置 + 旋转，五指存位置。
-  ext / Mid_Hand / Look_At / Head_Control 由 driver 与约束驱动，不存。
+- `bellows_pulse_state_data`：**基准手型**与**枢轴姿态**（动画阶段用）。
+  基准手型：左右手各一份控制器位姿，手掌 `H_*` 与手部枢轴 `HP_*` 存位置 + 旋转，五指存位置；
+  枢轴姿态：风箱「打开」「合拢」两种状态下，`pivot_left` / `pivot_right` 的位置 + 旋转
+  （`accordion_pivot` 是静态极向，不采样）。
+  ext 由 driver 与约束驱动，不存；骨骼跟随器与 hand_back 也不是位姿数据。
 
 数据键一律用**短名**（无演奏者后缀），场景控件才用带后缀的完整名——
 这样不同演奏者的骨骼数据结构完全一致。
@@ -23,6 +25,8 @@ from ..common import state_io as _sio
 
 from .enums import (
     FINGER_BASES,
+    PIVOT_POSES,
+    PIVOT_SHORTS,
     RIGHT_LAYOUT_KEYBOARD,
     RIGHT_LAYOUTS,
 )
@@ -290,3 +294,146 @@ def reference_hand_saved(skeleton, hand: str) -> bool:
     state_data = _reference_data(skeleton)
     controllers = (state_data.get("reference_hand") or {}).get(_hand_key(hand)) or {}
     return bool(controllers)
+
+
+def reference_hands(skeleton) -> dict:
+    """两只手的基准手型原始数据 `{"left": {短名: {location, rotation}}, "right": {...}}`。
+
+    没保存过的手不会出现在结果里；导出 `.accordion` 的 `hands` 段直接用它。
+    """
+    if skeleton is None:
+        return {}
+    reference = _reference_data(skeleton).get("reference_hand") or {}
+    return {hand_key: controllers for hand_key, controllers in reference.items()
+            if isinstance(controllers, dict)}
+
+
+def save_reference_hands(skeleton, hands: dict) -> dict:
+    """把导出的 `hands` 段整体写回骨骼，返回每只手写入的控制器数量。
+
+    文件只给了某一只手时，另一只手保持原样——导入别的角色的文件不该顺手清空
+    本角色已经摆好的那只手。
+    """
+    if skeleton is None or not hands:
+        return {}
+
+    state_data = _reference_data(skeleton)
+    reference = state_data.setdefault("reference_hand", {})
+    written = {}
+    for hand_key in ("left", "right"):
+        controllers = hands.get(hand_key) or {}
+        if not controllers:
+            continue
+        reference[hand_key] = controllers
+        written[hand_key] = len(controllers)
+
+    if not written:
+        return {}
+    _sio.set_state_data(skeleton, STATE_KEY, state_data)
+    print(f"  ✓ 基准手型已写入骨骼 {skeleton.name}：{written}")
+    return written
+
+
+# ── 枢轴姿态（风箱打开 / 合拢）────────────────────────────────
+#
+# 手风琴开合时，两个键区作为一个整体被推开或拉回，所以要采的正是 pivot_left / pivot_right
+# 在这两个状态下的位置 + 旋转；`accordion_pivot` 是静态极向（用户摆一次、不参与计算），不采样。
+
+def _pivot_pose_data(skeleton) -> dict:
+    return _reference_data(skeleton).get("pivots") or {}
+
+
+def save_pivot_pose(config, skeleton, pose_state: str) -> int:
+    """把当前两个键区枢轴的位置 + 旋转存成指定风箱状态，返回写入的枢轴数量。
+
+    存的是枢轴的**局部**位姿（枢轴挂在 controller_root 下），所以换角色、复制角色
+    都不用换算；一个枢轴都没找到（没跑过「设置所有对象」）时返回 0，由面板报错。
+    """
+    if skeleton is None:
+        print("  ⚠ 未指定目标骨骼，无法保存枢轴姿态")
+        return 0
+
+    pose_data = {}
+    for short in PIVOT_SHORTS:
+        pivot_obj = bpy.data.objects.get(config.obj_name(short))
+        if pivot_obj is None:
+            continue
+        _sio.copy_transfer_between_object_and_dict(
+            pivot_obj, pose_data, "set", key=short)
+
+    if not pose_data:
+        print("  ⚠ 没有找到键区枢轴，请先「设置所有对象」")
+        return 0
+
+    state_data = _reference_data(skeleton)
+    state_data.setdefault("pivots", {})[pose_state] = pose_data
+    _sio.set_state_data(skeleton, STATE_KEY, state_data)
+
+    print(f"  ✓ 已保存枢轴姿态 [{pose_state}]（{len(pose_data)} 个枢轴）")
+    return len(pose_data)
+
+
+def load_pivot_pose(config, skeleton, pose_state: str) -> int:
+    """把骨骼里某个风箱状态的枢轴姿态应用到两个键区枢轴，返回应用的枢轴数量。
+
+    没有该状态的姿态时抛 ValueError，由面板转成界面提示。
+    """
+    pose_data = _pivot_pose_data(skeleton).get(pose_state) or {}
+    if not pose_data:
+        raise ValueError("骨骼上还没有这个状态的枢轴姿态，请先保存")
+
+    applied = 0
+    for short in PIVOT_SHORTS:
+        pivot_obj = bpy.data.objects.get(config.obj_name(short))
+        if pivot_obj is None or short not in pose_data:
+            continue
+        _sio.copy_transfer_between_object_and_dict(
+            pivot_obj, pose_data, "load", key=short)
+        applied += 1
+
+    print(f"  ✓ 已加载枢轴姿态 [{pose_state}]（{applied} 个枢轴）")
+    return applied
+
+
+def pivot_pose_saved(skeleton, pose_state: str) -> bool:
+    """骨骼上是否已保存该风箱状态的枢轴姿态"""
+    if skeleton is None:
+        return False
+    return bool(_pivot_pose_data(skeleton).get(pose_state) or {})
+
+
+def pivot_poses(skeleton) -> dict:
+    """全部风箱状态的枢轴姿态 `{"open": {短名: {location, rotation}}, "closed": {...}}`。
+
+    导出 `.accordion` 的 `pivots` 段直接用它；没采过的状态不会出现在结果里。
+    """
+    if skeleton is None:
+        return {}
+    poses = _pivot_pose_data(skeleton)
+    return {pose_state: controllers for pose_state, controllers in poses.items()
+            if isinstance(controllers, dict)}
+
+
+def save_pivot_poses(skeleton, poses: dict) -> dict:
+    """把导出的 `pivots` 段整体写回骨骼，返回每个风箱状态写入的枢轴数量。
+
+    文件只带一个状态时，另一个状态保持原样（与基准手型同一套规则）。
+    """
+    if skeleton is None or not poses:
+        return {}
+
+    state_data = _reference_data(skeleton)
+    stored = state_data.setdefault("pivots", {})
+    written = {}
+    for pose_state in PIVOT_POSES:
+        pose_data = poses.get(pose_state) or {}
+        if not pose_data:
+            continue
+        stored[pose_state] = pose_data
+        written[pose_state] = len(pose_data)
+
+    if not written:
+        return {}
+    _sio.set_state_data(skeleton, STATE_KEY, state_data)
+    print(f"  ✓ 枢轴姿态已写入骨骼 {skeleton.name}：{written}")
+    return written

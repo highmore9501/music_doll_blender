@@ -939,6 +939,15 @@ _DICT: dict[str, dict[str, str]] = {
     "BellowsPulse": {"zh": "BellowsPulse", "en": "BellowsPulse"},
     "BellowsPulse 手风琴": {"zh": "BellowsPulse 手风琴", "en": "BellowsPulse Accordion"},
 
+    # ── 面板：基础设置区（可折叠）──
+    "basic_setting": {"zh": "basic_setting", "en": "basic_setting"},
+    "显示手风琴基础设置": {
+        "zh": "显示手风琴基础设置",
+        "en": "Show Accordion Basic Settings"},
+    "展开/折叠手风琴基础设置（①~⑤）": {
+        "zh": "展开/折叠手风琴基础设置（①~⑤）",
+        "en": "Expand/collapse accordion basic settings (①~⑤)"},
+
     # ── 面板：分步标题 ──
     "① 右手键区类型": {"zh": "① 右手键区类型", "en": "① Right Hand Layout"},
     "② 右键区范围": {"zh": "② 右键区范围", "en": "② Right Key Zone Range"},
@@ -1107,13 +1116,82 @@ _DICT: dict[str, dict[str, str]] = {
     "骨骼上还没有这只手的基准手型，请先保存": {
         "zh": "骨骼上还没有这只手的基准手型，请先保存",
         "en": "This hand has no saved reference hand yet, please save one first"},
-    "手掌存位置 + 旋转，五指存位置；ext 与朝向链由驱动/约束决定": {
-        "zh": "手掌存位置 + 旋转，五指存位置；ext 与朝向链由驱动/约束决定",
-        "en": "Palms store location + rotation, fingers store location; ext and aiming chain are driven by drivers/constraints"},
+    "手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定": {
+        "zh": "手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定",
+        "en": "Palms store location + rotation, fingers store location; ext is driven by drivers and constraints"},
+
+    # ── 导入 / 导出（.accordion）──
+    "导入 / 导出（.accordion）": {
+        "zh": "导入 / 导出（.accordion）",
+        "en": "Import / Export (.accordion)"},
+    "目标文件：%s": {"zh": "目标文件：%s", "en": "Target file: %s"},
+    "骨骼上还没有保存乐器属性，导出前请先保存": {
+        "zh": "骨骼上还没有保存乐器属性，导出前请先保存",
+        "en": "No instrument settings saved on this skeleton yet; save them before exporting"},
+    "导出 .accordion": {"zh": "导出 .accordion", "en": "Export .accordion"},
+    "导入 .accordion": {"zh": "导入 .accordion", "en": "Import .accordion"},
+    "已导出 .accordion → %s": {
+        "zh": "已导出 .accordion → %s",
+        "en": "Exported .accordion → %s"},
+    "已导入 .accordion ← %s": {
+        "zh": "已导入 .accordion ← %s",
+        "en": "Imported .accordion ← %s"},
+    "骨骼上还没有保存乐器属性，请先在面板里点「保存乐器属性到骨骼」": {
+        "zh": "骨骼上还没有保存乐器属性，请先在面板里点「保存乐器属性到骨骼」",
+        "en": "No instrument settings saved on this skeleton yet; click Save Instrument Settings to Skeleton first"},
+    "文件不存在：%s": {"zh": "文件不存在：%s", "en": "File not found: %s"},
+    "%s 不是有效的 JSON 文件": {
+        "zh": "%s 不是有效的 JSON 文件",
+        "en": "%s is not a valid JSON file"},
+    "文件格式不正确：顶层不是 JSON 对象": {
+        "zh": "文件格式不正确：顶层不是 JSON 对象",
+        "en": "Invalid file: the top level is not a JSON object"},
+    "文件格式不正确：缺少 right / left 段": {
+        "zh": "文件格式不正确：缺少 right / left 段",
+        "en": "Invalid file: missing the right / left sections"},
+    "文件里的乐器属性不合法：%s": {
+        "zh": "文件里的乐器属性不合法：%s",
+        "en": "The instrument settings in the file are invalid: %s"},
+
+    # ── 枢轴姿态（风箱开合）──
+    "枢轴姿态（风箱开合）": {
+        "zh": "枢轴姿态（风箱开合）",
+        "en": "Pivot Poses (Bellows Open / Closed)"},
+    "风箱状态": {"zh": "风箱状态", "en": "Bellows State"},
+    "打开": {"zh": "打开", "en": "Open"},
+    "合拢": {"zh": "合拢", "en": "Closed"},
+    "风箱打开时的枢轴姿态": {
+        "zh": "风箱打开时的枢轴姿态",
+        "en": "Pivot pose with the bellows open"},
+    "风箱合拢时的枢轴姿态": {
+        "zh": "风箱合拢时的枢轴姿态",
+        "en": "Pivot pose with the bellows closed"},
+    "要保存或加载哪一格枢轴姿态": {
+        "zh": "要保存或加载哪一格枢轴姿态",
+        "en": "Which pivot pose to save or load"},
+    "保存当前姿态": {"zh": "保存当前姿态", "en": "Save Current Pose"},
+    "加载该状态": {"zh": "加载该状态", "en": "Load This State"},
+    "保存枢轴姿态": {"zh": "保存枢轴姿态", "en": "Save Pivot Pose"},
+    "加载枢轴姿态": {"zh": "加载枢轴姿态", "en": "Load Pivot Pose"},
+    "枢轴姿态已保存：%s（%d 个枢轴）": {
+        "zh": "枢轴姿态已保存：%s（%d 个枢轴）",
+        "en": "Pivot pose saved: %s (%d pivots)"},
+    "枢轴姿态已加载：%s（%d 个枢轴）": {
+        "zh": "枢轴姿态已加载：%s（%d 个枢轴）",
+        "en": "Pivot pose loaded: %s (%d pivots)"},
+    "骨骼上还没有这个状态的枢轴姿态，请先保存": {
+        "zh": "骨骼上还没有这个状态的枢轴姿态，请先保存",
+        "en": "This bellows state has no saved pivot pose yet, please save one first"},
+    "没有找到键区枢轴，请先「设置所有对象」": {
+        "zh": "没有找到键区枢轴，请先「设置所有对象」",
+        "en": "Key-zone pivots not found; run Setup All Objects first"},
+    "记录 pivot_left / pivot_right 的位置 + 旋转；accordion_pivot 是静态极向，不采样": {
+        "zh": "记录 pivot_left / pivot_right 的位置 + 旋转；accordion_pivot 是静态极向，不采样",
+        "en": "Records location + rotation of pivot_left / pivot_right; accordion_pivot is a static pole target and is not sampled"},
 
     # ── 复制 / 重命名 ──
-    "复制完成，但重建驱动与朝向链失败: %s": {
-        "zh": "复制完成，但重建驱动与朝向链失败: %s",
-        "en": "Duplicated, but rebuilding drivers and aiming chain failed: %s"},
+    "复制完成，但重建驱动与约束失败: %s": {
+        "zh": "复制完成，但重建驱动与约束失败: %s",
+        "en": "Duplicated, but rebuilding drivers and constraints failed: %s"},
     "重命名失败: %s": {"zh": "重命名失败: %s", "en": "Rename failed: %s"},
 }

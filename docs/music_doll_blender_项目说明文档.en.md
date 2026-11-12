@@ -707,6 +707,7 @@ The following are the core profiles of the 7 instrument modules (controller layo
 | harp_glide | `.harpist` | `.harpglide` report | flat external keys; nested internal JSON |
 | wind_rise | `.wind` | `.wind_rise` manifest | config + note_info |
 | string_flow | `.violinist` | `.string_flow` (paths to three animation files: left/right hand, strings) | byte-level compatible with the Rust Animator |
+| bellows_pulse | `.accordion` | animation JSON (not implemented yet) | right-hand keyboard / bayan buttons + left-hand Stradella; the `rotation_quaternion` in `points` / `hands` / `pivots` is the external format, while the skeleton still stores `rotation` |
 
 **Common conventions**:
 
@@ -720,8 +721,8 @@ The following are the core profiles of the 7 instrument modules (controller layo
 
 - Position: `to_unreal_position([x,y,z]) → [x, -y, z]` (Y-axis negation);
 - Rotation: `to_unreal_rotation([w,x,y,z]) → [w, -x, y, -z]` (reflection conjugate, `R_u = M·R_b·M`, M=diag(1,-1,1));
-- With `for_unreal=True`, each instrument applies the conversion and sets `config.is_unreal = true` (some Rust sides rely on it, e.g. StringFlow's fretboard-plane normal direction);
-- Plain export is the identity transform and does not write `is_unreal` (defaults to false).
+- With `for_unreal=True`, each instrument applies the conversion and sets `is_unreal = true` (some Rust sides rely on it, e.g. StringFlow's fretboard-plane normal direction; BellowsPulse has no `config` section, so `is_unreal` sits at the top level of `.accordion`);
+- Plain export is the identity transform and does not write `is_unreal` (defaults to false; BellowsPulse writes an explicit `false`, which readers can treat exactly like the default).
 
 > Note: some tool docstrings mention "scale ×100, Y-axis negation, rotation conjugate", which differs from the current `io_utils.to_unreal_position/rotation` code — **the code wins** (the current implementation only does Y-axis negation and the rotation reflection-conjugate; there is no ×100 scale). If ×100 is ever needed it must be added explicitly on the export path.
 

@@ -1,12 +1,18 @@
 # bellows_pulse/ui.py
 """BellowsPulse 乐器模块 —— 面板与算子
 
-面板按「一步步填写」组织：
+面板按「一步步填写」组织，五步都收在一个可折叠的 `basic_setting` 区里
+（标题行点三角即可展开 / 收起）：
 
-    ① 右手键区类型   → ② 右键区范围 → ③ 左键区范围 → ④ 键区物体 → ⑤ 保存
+    basic_setting
+        ① 右手键区类型 → ② 右键区范围 → ③ 左键区范围 → ④ 键区物体 → ⑤ 保存
 
 每一步下面的「→」行是**算出来的结果**（键数、音域、每排数量、每排功能），
 让填写的人当场看出对不对；校验不通过时保存按钮直接拒绝。
+
+保存之后的两块是「控件与记录器」（建控件、按设置建键区记录器）与
+「导入 / 导出（.accordion）」（把设置、记录器坐标、基准手型写成一份文件，
+或从同一份文件读回来）。文件路径用角色操作面板的「人物信息路径」。
 
 无状态化：面板属性是编辑入口，数据源是演奏者骨骼上的 `bellows_pulse_settings`；
 切换角色时从骨骼回填一次（不每帧覆盖，免得擦掉正在输入的值），
@@ -16,6 +22,7 @@
 import bpy  # type: ignore
 from bpy.types import Panel, Operator, PropertyGroup  # type: ignore
 from bpy.props import (  # type: ignore
+    BoolProperty,
     EnumProperty,
     FloatProperty,
     IntProperty,
@@ -31,6 +38,7 @@ from ..common.tools import COMMON_TOOLS
 
 from . import state
 from .config import BellowsConfig
+from .io import export_accordion, import_accordion, target_file_name
 from .enums import (
     RIGHT_LAYOUT_BUTTONS,
     RIGHT_LAYOUT_KEYBOARD,
@@ -57,6 +65,15 @@ _SYNC_MARKER: dict = {"key": None}
 
 #: 基准手型算子的左右手参数
 _HAND_ITEMS = [('L', "左手", ""), ('R', "右手", "")]
+
+#: 枢轴姿态采样的风箱状态（打开 / 合拢）
+_PIVOT_STATE_ITEMS = [
+    ('open', T("打开"), T("风箱打开时的枢轴姿态")),
+    ('closed', T("合拢"), T("风箱合拢时的枢轴姿态")),
+]
+
+#: 风箱状态 → 面板上显示的名字
+_PIVOT_STATE_LABELS = {'open': "打开", 'closed': "合拢"}
 
 
 # ── 当前演奏者 / 骨骼 / 乐器 ─────────────────────────────────
@@ -182,20 +199,21 @@ def _write_left_instrument(context, settings: dict) -> None:
 
 
 def _rebuild_after_copy(new_suffix: str, skeleton, report) -> None:
-    """复制 / 重命名后的收尾：重建 ext 驱动、朝向链、演奏者根。
+    """复制 / 重命名后的收尾：重建 ext 驱动、控件约束、演奏者根。
 
     `performer_utils.duplicate_collection_tree` 只重映射**约束器**与 **modifier**
-    里的对象引用，**不重映射 driver**：副本的 Mid_Hand driver 还指着原角色的手。
-    所以整条朝向链必须清掉重建，ext 的位置驱动同理。
+    里的对象引用，**不重映射 driver**：副本的 ext 位置驱动还指着原角色的手指。
+    所以 ext 驱动必须清掉重建；骨骼跟随器的约束目标本来就是空的，重建一次只是
+    保证副本不会缺约束。
     """
     try:
         config = BellowsConfig(performer_suffix=new_suffix,
                                target_skeleton=skeleton)
         config.add_ext_drivers()
-        config._setup_special_controllers()
+        config._setup_control_constraints()
         config._organize_performer_root()
     except Exception as error:
-        report({'WARNING'}, T("复制完成，但重建驱动与朝向链失败: %s") % str(error))
+        report({'WARNING'}, T("复制完成，但重建驱动与约束失败: %s") % str(error))
     _SYNC_MARKER["key"] = None
 
 
@@ -204,6 +222,12 @@ def _rebuild_after_copy(new_suffix: str, skeleton, report) -> None:
 class BellowsPulseProperties(PropertyGroup):
     """BellowsPulse 面板属性（编辑入口；数据源是演奏者骨骼）"""
     __annotations__ = {
+        # 基础设置区展开 / 收起（只影响面板显示，不写进骨骼设置）
+        "show_basic_setting": BoolProperty(
+            name=T("显示手风琴基础设置"),
+            description=T("展开/折叠手风琴基础设置（①~⑤）"),
+            default=True),
+
         # ① 右手键区类型
         "right_layout": EnumProperty(
             name=T("右手键区类型"),
@@ -254,6 +278,13 @@ class BellowsPulseProperties(PropertyGroup):
             description=T("左键区（低音按钮区）的网格对象"),
             type=bpy.types.Object,
             poll=lambda self, obj: obj is not None and obj.type == 'MESH'),
+
+        # 枢轴姿态采样：选哪一格（只是面板选择，不存进骨骼设置）
+        "pivot_pose_state": EnumProperty(
+            name=T("风箱状态"),
+            description=T("要保存或加载哪一格枢轴姿态"),
+            items=_PIVOT_STATE_ITEMS,
+            default='open'),
     }
 
 
@@ -332,6 +363,123 @@ class BELLOWS_PULSE_OT_reload_settings(Operator):
     def execute(self, context):
         _sync_settings_from_skeleton(context, force=True)
         self.report({'INFO'}, T("已从骨骼重新读取乐器属性"))
+        return {'FINISHED'}
+
+
+# ── 算子：.accordion 导出 / 导入 ─────────────────────────────
+
+class BELLOWS_PULSE_OT_export_accordion(Operator):
+    """把乐器属性、键区记录器坐标、基准手型导出成 .accordion"""
+    bl_idname = "music_doll.bellows_pulse_export_accordion"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        # 路径由角色模块「角色操作」面板统一设置（导出只把扩展名换成 .accordion）
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if not file_path:
+            self.report(
+                {'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
+            return {'CANCELLED'}
+
+        skeleton = _get_active_skeleton(context)
+        if skeleton is None:
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
+            return {'CANCELLED'}
+
+        try:
+            result = export_accordion(
+                file_path, _get_config(context, skeleton=skeleton), skeleton)
+        except Exception as error:
+            self.report({'ERROR'}, T("导出失败: %s") % str(error))
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, T("已导出 .accordion → %s") % result["path"])
+        return {'FINISHED'}
+
+
+class BELLOWS_PULSE_OT_import_accordion(Operator):
+    """从 .accordion 读回乐器属性、键区记录器坐标、基准手型"""
+    bl_idname = "music_doll.bellows_pulse_import_accordion"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if not file_path:
+            self.report(
+                {'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
+            return {'CANCELLED'}
+
+        skeleton = _get_active_skeleton(context)
+        if skeleton is None:
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
+            return {'CANCELLED'}
+
+        try:
+            result = import_accordion(
+                file_path, _get_config(context, skeleton=skeleton), skeleton)
+        except Exception as error:
+            self.report({'ERROR'}, T("导入失败: %s") % str(error))
+            return {'CANCELLED'}
+
+        # 骨骼里换了一份设置：面板跟着刷新，并把左键区短名记到演奏者集合上
+        _sync_settings_from_skeleton(context, force=True)
+        _write_left_instrument(context, result["settings"])
+
+        self.report({'INFO'}, T("已导入 .accordion ← %s") % result["path"])
+        return {'FINISHED'}
+
+
+# ── 算子：枢轴姿态（风箱打开 / 合拢）─────────────────────────
+
+class BELLOWS_PULSE_OT_save_pivot_pose(Operator):
+    """把当前两个键区枢轴的位置与旋转存成选定的风箱状态"""
+    bl_idname = "music_doll.bellows_pulse_save_pivot_pose"
+    bl_options = {'REGISTER', 'UNDO'}
+    __annotations__ = {
+        "state": EnumProperty(items=_PIVOT_STATE_ITEMS, default='open'),
+    }
+
+    def execute(self, context):
+        skeleton = _get_active_skeleton(context)
+        if skeleton is None:
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
+            return {'CANCELLED'}
+
+        config = _get_config(context, skeleton=skeleton)
+        count = state.save_pivot_pose(config, skeleton, self.state)
+        if count <= 0:
+            self.report({'ERROR'}, T("没有找到键区枢轴，请先「设置所有对象」"))
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, T("枢轴姿态已保存：%s（%d 个枢轴）")
+                    % (T(_PIVOT_STATE_LABELS[self.state]), count))
+        return {'FINISHED'}
+
+
+class BELLOWS_PULSE_OT_load_pivot_pose(Operator):
+    """把骨骼里保存的枢轴姿态应用到两个键区枢轴"""
+    bl_idname = "music_doll.bellows_pulse_load_pivot_pose"
+    bl_options = {'REGISTER', 'UNDO'}
+    __annotations__ = {
+        "state": EnumProperty(items=_PIVOT_STATE_ITEMS, default='open'),
+    }
+
+    def execute(self, context):
+        skeleton = _get_active_skeleton(context)
+        if skeleton is None:
+            self.report({'ERROR'}, T("请先选择目标骨骼"))
+            return {'CANCELLED'}
+
+        config = _get_config(context, skeleton=skeleton)
+        try:
+            count = state.load_pivot_pose(config, skeleton, self.state)
+        except ValueError:
+            self.report(
+                {'ERROR'}, T("骨骼上还没有这个状态的枢轴姿态，请先保存"))
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, T("枢轴姿态已加载：%s（%d 个枢轴）")
+                    % (T(_PIVOT_STATE_LABELS[self.state]), count))
         return {'FINISHED'}
 
 
@@ -539,11 +687,8 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
         suffix = _get_active_suffix(context)
         settings = _props_to_settings(props, suffix)
 
-        self._draw_right_layout(layout, props)
-        self._draw_right_range(layout, props)
-        self._draw_left_range(layout, props)
-        self._draw_key_zone_objects(layout, context, props)
-        self._draw_save(layout, context, skeleton, settings)
+        # 手风琴基础设置（①~⑤，可折叠）
+        self._draw_basic_setting(layout, props, context, skeleton, settings)
 
         # 控件与记录器
         box = layout.box()
@@ -557,21 +702,46 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
                   icon='INFO')
         box.label(text=T("切换右手类型后请重新「设置所有对象」，另一套记录器会被删除"))
 
+        # 枢轴姿态（风箱打开 / 合拢）
+        self._draw_pivot_pose(layout, props, skeleton)
+
+        # 导入 / 导出（.accordion）
+        self._draw_accordion_io(layout, context, skeleton)
+
         # 工具（公共工具 + 本乐器独有工具）
         ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
         self._draw_reference_hand(layout, skeleton)
 
+    # ── 手风琴基础设置（①~⑤，可折叠）──
+    def _draw_basic_setting(self, layout, props, context, skeleton, settings):
+        """五步基础设置收在同一个 basic_setting 区里，标题行可展开 / 收起。"""
+        box = layout.box()
+        row = box.row()
+        row.prop(props, "show_basic_setting",
+                 icon="TRIA_DOWN" if props.show_basic_setting else "TRIA_RIGHT",
+                 icon_only=True, emboss=False)
+        row.label(text=T("basic_setting"), icon='SETTINGS')
+
+        if not props.show_basic_setting:
+            return
+
+        self._draw_right_layout(box, props)
+        self._draw_right_range(box, props)
+        self._draw_left_range(box, props)
+        self._draw_key_zone_objects(box, context, props)
+        self._draw_save(box, context, skeleton, settings)
+
     # ── ① 右手键区类型 ──
     def _draw_right_layout(self, layout, props):
         box = layout.box()
-        box.label(text=T("① 右手键区类型"), icon='TRIA_RIGHT')
+        box.label(text=T("① 右手键区类型"))
         box.row().prop(props, "right_layout", expand=True)
 
     # ── ② 右键区范围 ──
     def _draw_right_range(self, layout, props):
         box = layout.box()
-        box.label(text=T("② 右键区范围"), icon='TRIA_RIGHT')
+        box.label(text=T("② 右键区范围"))
 
         if props.right_layout == 'KEYBOARD':
             column = box.column(align=True)
@@ -608,7 +778,7 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
     # ── ③ 左键区范围 ──
     def _draw_left_range(self, layout, props):
         box = layout.box()
-        box.label(text=T("③ 左键区范围"), icon='TRIA_RIGHT')
+        box.label(text=T("③ 左键区范围"))
         column = box.column(align=True)
         column.prop(props, "left_rows")
         column.prop(props, "left_first_main_bass")
@@ -625,7 +795,7 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
     # ── ④ 键区物体 ──
     def _draw_key_zone_objects(self, layout, context, props):
         box = layout.box()
-        box.label(text=T("④ 键区物体"), icon='TRIA_RIGHT')
+        box.label(text=T("④ 键区物体"))
         column = box.column(align=True)
         instrument = _get_active_instrument(context)
         instrument_name = instrument.name if instrument is not None else T("（未设置）")
@@ -635,7 +805,7 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
     # ── ⑤ 保存 ──
     def _draw_save(self, layout, context, skeleton, settings):
         box = layout.box()
-        box.label(text=T("⑤ 保存"), icon='TRIA_RIGHT')
+        box.label(text=T("⑤ 保存"))
         row = box.row(align=True)
         row.operator("music_doll.bellows_pulse_save_settings",
                      text=T("保存乐器属性到骨骼"), icon='IMPORT')
@@ -654,6 +824,60 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
         else:
             box.label(text=T("状态：已保存"), icon='CHECKMARK')
 
+    # ── 枢轴姿态（风箱打开 / 合拢）──
+    def _draw_pivot_pose(self, layout, props, skeleton):
+        box = layout.box()
+        box.label(text=T("枢轴姿态（风箱开合）"), icon='EMPTY_DATA')
+
+        # 下拉切换打开 / 合拢；保存与加载都作用在当前选中的那一格
+        box.prop(props, "pivot_pose_state", text=T("风箱状态"))
+        row = box.row(align=True)
+        save_op = row.operator("music_doll.bellows_pulse_save_pivot_pose",
+                               text=T("保存当前姿态"))
+        save_op.state = props.pivot_pose_state
+        load_op = row.operator("music_doll.bellows_pulse_load_pivot_pose",
+                               text=T("加载该状态"))
+        load_op.state = props.pivot_pose_state
+
+        # 两种状态各存了没有，一眼可见（不必来回切下拉去确认）
+        status_row = box.row(align=True)
+        for pose_state, label_key in (('open', "打开"), ('closed', "合拢")):
+            status_row.label(text=T(label_key))
+            if state.pivot_pose_saved(skeleton, pose_state):
+                status_row.label(text=T("已保存"), icon='CHECKMARK')
+            else:
+                status_row.label(text=T("未保存"), icon='INFO')
+
+        box.label(
+            text=T("记录 pivot_left / pivot_right 的位置 + 旋转；"
+                   "accordion_pivot 是静态极向，不采样"),
+            icon='INFO')
+
+    # ── 导入 / 导出（.accordion）──
+    def _draw_accordion_io(self, layout, context, skeleton):
+        box = layout.box()
+        box.label(text=T("导入 / 导出（.accordion）"), icon='EXPORT')
+
+        file_path = getattr(context.scene, ui_utils.SCENE_INFO_PATH, "")
+        if file_path:
+            box.label(text=T("目标文件：%s") % target_file_name(file_path),
+                      icon='FILE')
+        else:
+            box.label(text=T("请先在「角色操作」面板中设置人物信息路径"),
+                      icon='INFO')
+
+        row = box.row(align=True)
+        row.operator("music_doll.bellows_pulse_import_accordion",
+                     text=T("导入"), icon='IMPORT')
+        row.operator("music_doll.bellows_pulse_export_accordion",
+                     text=T("导出"), icon='EXPORT')
+        box.operator("music_doll.bellows_pulse_export_to_unreal",
+                     text=T("导出到 Unreal"), icon='EXPORT')
+
+        if skeleton is not None and not state.has_settings(skeleton):
+            box.label(text=T("骨骼上还没有保存乐器属性，导出前请先保存"),
+                      icon='ERROR')
+
     # ── 基准手型 ──
     def _draw_reference_hand(self, layout, skeleton):
         box = layout.box()
@@ -671,7 +895,7 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
                 row.label(text=T("已保存"), icon='CHECKMARK')
             else:
                 row.label(text=T("未保存"), icon='INFO')
-        box.label(text=T("手掌存位置 + 旋转，五指存位置；ext 与朝向链由驱动/约束决定"),
+        box.label(text=T("手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定"),
                   icon='INFO')
 
 
@@ -682,6 +906,10 @@ _CLASSES = (
     BELLOWS_PULSE_OT_check_status,
     BELLOWS_PULSE_OT_save_settings,
     BELLOWS_PULSE_OT_reload_settings,
+    BELLOWS_PULSE_OT_export_accordion,
+    BELLOWS_PULSE_OT_import_accordion,
+    BELLOWS_PULSE_OT_save_pivot_pose,
+    BELLOWS_PULSE_OT_load_pivot_pose,
     BELLOWS_PULSE_OT_save_reference_hand,
     BELLOWS_PULSE_OT_load_reference_hand,
     BELLOWS_PULSE_OT_duplicate_performer,
@@ -695,6 +923,10 @@ _CLASS_LABELS = {
     BELLOWS_PULSE_OT_check_status: "检查状态",
     BELLOWS_PULSE_OT_save_settings: "保存乐器属性到骨骼",
     BELLOWS_PULSE_OT_reload_settings: "从骨骼重新读取",
+    BELLOWS_PULSE_OT_export_accordion: "导出 .accordion",
+    BELLOWS_PULSE_OT_import_accordion: "导入 .accordion",
+    BELLOWS_PULSE_OT_save_pivot_pose: "保存枢轴姿态",
+    BELLOWS_PULSE_OT_load_pivot_pose: "加载枢轴姿态",
     BELLOWS_PULSE_OT_save_reference_hand: "保存基准手型",
     BELLOWS_PULSE_OT_load_reference_hand: "加载基准手型",
     BELLOWS_PULSE_OT_duplicate_performer: "复制角色",
