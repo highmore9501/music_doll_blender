@@ -14,6 +14,9 @@
 「导入 / 导出（.accordion）」（把设置、记录器坐标、基准手型写成一份文件，
 或从同一份文件读回来）。文件路径用角色操作面板的「人物信息路径」。
 
+最后一块是「动画（读 Rust 产物）」：选 Rust 侧写出的 `.bellows` 清单，
+把清单里的手部、枢轴、按键形变三份动画写进控制器与键区网格。
+
 无状态化：面板属性是编辑入口，数据源是演奏者骨骼上的 `bellows_pulse_settings`；
 切换角色时从骨骼回填一次（不每帧覆盖，免得擦掉正在输入的值），
 后续导出与动画一律读骨骼里已保存的值。
@@ -37,6 +40,7 @@ from ..common import i18n
 from ..common.tools import COMMON_TOOLS
 
 from . import state
+from .animation import MANIFEST_EXTENSION, generate_animation
 from .config import BellowsConfig
 from .io import export_accordion, import_accordion, target_file_name
 from .enums import (
@@ -285,6 +289,12 @@ class BellowsPulseProperties(PropertyGroup):
             description=T("要保存或加载哪一格枢轴姿态"),
             items=_PIVOT_STATE_ITEMS,
             default='open'),
+
+        # 动画产物清单（Rust 侧 `output/final_result/{stem}.bellows`）
+        "animation_manifest_path": StringProperty(
+            name=T("动画产物清单"),
+            description=T("Rust 侧写出的 .bellows 产物清单，动画按它写进场景"),
+            subtype='FILE_PATH'),
     }
 
 
@@ -540,6 +550,52 @@ class BELLOWS_PULSE_OT_load_reference_hand(Operator):
         return {'FINISHED'}
 
 
+# ── 算子：动画写入（读 Rust 产物）─────────────────────────────
+
+class BELLOWS_PULSE_OT_generate_animation(Operator):
+    """按 .bellows 产物清单把动画写进控制器与键区网格"""
+    bl_idname = "music_doll.bellows_pulse_generate_animation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = getattr(context.scene, _PROPS_ATTR)
+        # 文件浏览器可能存成相对 .blend 的 "//…"，先换成本机绝对路径
+        manifest_path = bpy.path.abspath(props.animation_manifest_path)
+        if not manifest_path:
+            self.report({'ERROR'}, T("请先选择 .bellows 动画产物清单"))
+            return {'CANCELLED'}
+        if not manifest_path.lower().endswith(MANIFEST_EXTENSION):
+            self.report({'ERROR'}, T("选中的不是 .bellows 产物清单：%s")
+                        % manifest_path)
+            return {'CANCELLED'}
+
+        skeleton = _get_active_skeleton(context)
+        config = _get_config(context, skeleton=skeleton)
+        settings = (state.load_settings(skeleton)
+                    if state.has_settings(skeleton) else {})
+
+        # 左键区以骨骼里保存的短名为准，没保存过时退回面板上选的那个
+        left_instrument = state.resolve_left_instrument(
+            settings.get("left_instrument", ""), config.suffix)
+        if left_instrument is None:
+            left_instrument = props.left_instrument_obj
+        right_instrument = _get_active_instrument(context)
+
+        try:
+            result = generate_animation(
+                manifest_path, config, left_instrument, right_instrument)
+        except Exception as error:
+            self.report({'ERROR'}, T("生成动画失败: %s") % str(error))
+            return {'CANCELLED'}
+
+        self.report(
+            {'INFO'},
+            T("动画已写入：手部 %d 个控制器 / 枢轴 %d 个 / 按键 %d 条曲线")
+            % (result["hand"]["objects"], result["pivot"]["objects"],
+               result["key"]["curves"]))
+        return {'FINISHED'}
+
+
 # ── 算子：复制 / 重命名角色 ──────────────────────────────────
 
 class BELLOWS_PULSE_OT_duplicate_performer(Operator):
@@ -712,6 +768,8 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
         ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
         self._draw_reference_hand(layout, skeleton)
+
+        self._draw_animation(layout, context)
 
     # ── 手风琴基础设置（①~⑤，可折叠）──
     def _draw_basic_setting(self, layout, props, context, skeleton, settings):
@@ -898,6 +956,23 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
         box.label(text=T("手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定"),
                   icon='INFO')
 
+    # ── 动画（读 Rust 产物）──
+    def _draw_animation(self, layout, context):
+        box = layout.box()
+        box.label(text=T("动画（读 Rust 产物）"), icon='ANIM_DATA')
+
+        props = getattr(context.scene, _PROPS_ATTR)
+        box.prop(props, "animation_manifest_path",
+                 text=T("产物清单 (.bellows)"))
+        box.operator("music_doll.bellows_pulse_generate_animation",
+                     text=T("生成动画"), icon='PLAY')
+
+        box.label(text=T("读清单里的手部 / 枢轴 / 按键形变三份文件；"
+                         "写入前先清掉上一次的关键帧与 shape key 曲线"),
+                  icon='INFO')
+        box.label(text=T("控制器与键区网格要已就位（先「设置所有对象」并加载基准手型）"),
+                  icon='INFO')
+
 
 # ── 注册 / 注销 ──────────────────────────────────────────────
 
@@ -912,6 +987,7 @@ _CLASSES = (
     BELLOWS_PULSE_OT_load_pivot_pose,
     BELLOWS_PULSE_OT_save_reference_hand,
     BELLOWS_PULSE_OT_load_reference_hand,
+    BELLOWS_PULSE_OT_generate_animation,
     BELLOWS_PULSE_OT_duplicate_performer,
     BELLOWS_PULSE_OT_rename_performer,
     BELLOWS_PULSE_PT_main_panel,
@@ -929,6 +1005,7 @@ _CLASS_LABELS = {
     BELLOWS_PULSE_OT_load_pivot_pose: "加载枢轴姿态",
     BELLOWS_PULSE_OT_save_reference_hand: "保存基准手型",
     BELLOWS_PULSE_OT_load_reference_hand: "加载基准手型",
+    BELLOWS_PULSE_OT_generate_animation: "生成动画",
     BELLOWS_PULSE_OT_duplicate_performer: "复制角色",
     BELLOWS_PULSE_OT_rename_performer: "重命名当前角色",
     BELLOWS_PULSE_PT_main_panel: "BellowsPulse",

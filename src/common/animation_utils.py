@@ -10,6 +10,8 @@
 - 清动画（按演奏者后缀过滤，多演奏者隔离）。
 """
 
+import math
+
 import bpy  # type: ignore
 
 from . import performer_utils
@@ -82,6 +84,122 @@ def write_fcurve_points(fcurve, keyframes, clear_existing=True) -> None:
         point.handle_left_type = 'VECTOR'
         point.handle_right_type = 'VECTOR'
     fcurve.update()
+
+
+# ── 把 `.animation` 帧记录写成物体关键帧 ──────────────────────
+#
+# 各乐器产物的 `.animation` 都是同一个形状：
+#
+#     [{"frame": 0, "hand_infos": {"H_L": [x, y, z, w, i, j, k]}}]
+#
+# 一个控制器 7 个数：位置 3 个 + 四元数 4 个（四元数 w 在前）。只写位置（3 个）或
+# 只写朝向（4 个）的条目也认。这里只负责把数值写进 fcurve，短名怎么换算成场景对象名
+# 由调用方给——各乐器的手指、控制器命名与演奏者后缀规则不同。
+
+def _animation_frame_number(raw_frame):
+    """帧号 → 整数；不是有限数值、或落在负帧上时返回 None（那一条整条跳过）。"""
+    try:
+        frame = float(raw_frame)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(frame) or frame < 0:
+        return None
+    return int(round(frame))
+
+
+def _continuous_quaternion(previous_quaternion, quaternion):
+    """与上一帧点积为负就把四个数一起取反：同一段旋转插值走最短路径。"""
+    if previous_quaternion is None:
+        return quaternion
+    dot_product = sum(
+        previous * current
+        for previous, current in zip(previous_quaternion, quaternion))
+    if dot_product < 0:
+        return [-component for component in quaternion]
+    return quaternion
+
+
+def apply_transform_animation(frame_records, object_name_of,
+                              action_suffix="_anim"):
+    """把一份 `.animation` 帧记录写成物体关键帧（位置 + 四元数）。
+
+    位置与朝向分开收集：某个控制器只写了位置时，它的朝向不会被上一次的残值带跑。
+
+    :param frame_records: `[{"frame": 0, "hand_infos": {短名: [数值...]}}]`
+    :param object_name_of: 短名 → 场景对象名的函数（多演奏者时补后缀）
+    :param action_suffix: 动作名 = 对象名 + 它；同名动作会被复用，重跑不会留多份
+    :return: `{"objects": 写入的对象数, "missing": [找不到的对象名...]}`
+    """
+    channel_data = {}
+    previous_quaternions = {}
+
+    for frame_record in frame_records or []:
+        if not isinstance(frame_record, dict):
+            continue
+        frame = _animation_frame_number(frame_record.get("frame"))
+        if frame is None:
+            continue
+
+        for short_name, transform_data in (frame_record.get("hand_infos") or {}).items():
+            if not isinstance(transform_data, (list, tuple)):
+                print(f"警告: 控制器 {short_name} 的数据不是数值数组，跳过")
+                continue
+            if len(transform_data) not in (3, 4, 7):
+                print(f"警告: 控制器 {short_name} 的数据维度 "
+                      f"{len(transform_data)} 无法识别，跳过")
+                continue
+
+            object_name = object_name_of(short_name)
+            entry = channel_data.setdefault(object_name, {
+                "location_frames": [], "locations": [],
+                "quaternion_frames": [], "quaternions": [],
+            })
+
+            if len(transform_data) in (3, 7):
+                entry["location_frames"].append(frame)
+                entry["locations"].append(
+                    [float(component) for component in transform_data[:3]])
+
+            if len(transform_data) in (4, 7):
+                quaternion = _continuous_quaternion(
+                    previous_quaternions.get(object_name),
+                    [float(component) for component in transform_data[-4:]])
+                previous_quaternions[object_name] = quaternion
+                entry["quaternion_frames"].append(frame)
+                entry["quaternions"].append(quaternion)
+
+    written_count = 0
+    missing_names = []
+    for object_name, entry in channel_data.items():
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            missing_names.append(object_name)
+            print(f"警告: 物体 {object_name} 不存在于场景中，跳过")
+            continue
+
+        if not obj.animation_data:
+            obj.animation_data_create()
+        get_or_create_action(obj, f"{object_name}{action_suffix}")
+
+        if entry["locations"]:
+            for axis_index in range(3):
+                fcurve = get_or_create_fcurve(obj, "location", index=axis_index)
+                write_fcurve_points(fcurve, zip(
+                    entry["location_frames"],
+                    [location[axis_index] for location in entry["locations"]]))
+
+        if entry["quaternions"]:
+            obj.rotation_mode = 'QUATERNION'
+            for axis_index in range(4):
+                fcurve = get_or_create_fcurve(
+                    obj, "rotation_quaternion", index=axis_index)
+                write_fcurve_points(fcurve, zip(
+                    entry["quaternion_frames"],
+                    [quaternion[axis_index] for quaternion in entry["quaternions"]]))
+
+        written_count += 1
+
+    return {"objects": written_count, "missing": missing_names}
 
 
 # ── 动作（action）的复用与回收 ────────────────────────────────
