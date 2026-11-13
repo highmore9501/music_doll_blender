@@ -1086,9 +1086,9 @@ _DICT: dict[str, dict[str, str]] = {
     "控件已就绪，详见控制台": {
         "zh": "控件已就绪，详见控制台",
         "en": "Controllers are ready, see console for details"},
-    "记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3": {
-        "zh": "记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3",
-        "en": "Recorders follow the saved right hand layout: 4 + 3 for keyboard, 6 + 3 for buttons"},
+    "记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3；另加左右各一对按下 / 未按下位置": {
+        "zh": "记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3；另加左右各一对按下 / 未按下位置",
+        "en": "Recorders follow the saved right hand layout: 4 + 3 (keyboard) or 6 + 3 (buttons), plus a pressed / unpressed pair on each hand"},
     "切换右手类型后请重新「设置所有对象」，另一套记录器会被删除": {
         "zh": "切换右手类型后请重新「设置所有对象」，另一套记录器会被删除",
         "en": "After switching the right hand layout, run Setup All Objects again; the other recorder set is deleted"},

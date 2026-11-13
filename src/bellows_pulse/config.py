@@ -81,6 +81,11 @@ HAND_BACK_DISPLAY_SIZE = 1.0
 #   右手键盘（`kbd_*`，钢琴式键区）4 点 = 最低白键近端 / 远端、最高白键、黑键高度；
 #   右手按钮（`rb*`，巴扬键区）6 点 = 第 1/2/3 排各自的最低音 / 最高音；
 #   左手按钮（`lb*`）3 点 = 第 1 排最低音 / 最高音、最后一排最高音。
+#
+# 另外左右各有一对「按下 / 未按下」位置（`*_out` / `*_in`）：取**同一颗**按钮（或键）
+# 未按下时上表面的中心、以及按到底时同一个中心。它们不参与键区几何插值，只给 Rust 端
+# 算**按下方向与行程**（两点连线的方向 / 长度）——按钮往哪个方向走、走多深，只有这一对
+# 说得准，键区平面的法线顶替不了。换右手类型时这一对**不删**：两种键区都需要它。
 
 LEFT_RECORDERS = (
     ("lb1_low", "left_bone", (0.0, 0.0, 0.0)),
@@ -104,6 +109,16 @@ RIGHT_BUTTON_RECORDERS = (
     ("rb3_high", "right_bone", (0.5, -0.12, 0.0)),
 )
 
+PRESS_RECORDERS_LEFT = (
+    ("lb_out", "left_bone", (0.3, -0.3, 0.0)),
+    ("lb_in", "left_bone", (0.3, -0.3, -0.03)),
+)
+
+PRESS_RECORDERS_RIGHT = (
+    ("rb_out", "right_bone", (0.75, 0.0, 0.0)),
+    ("rb_in", "right_bone", (0.75, 0.0, -0.03)),
+)
+
 
 def right_recorders_for_layout(layout: str):
     """右手类型 → 该建的那一组记录器（keyboard / buttons）。"""
@@ -113,8 +128,14 @@ def right_recorders_for_layout(layout: str):
 
 
 def recorders_for_layout(layout: str):
-    """某个右手类型下**应该存在**的全部记录器（左手 3 个 + 右侧对应的一组）。"""
-    return tuple(LEFT_RECORDERS) + tuple(right_recorders_for_layout(layout))
+    """某个右手类型下**应该存在**的全部记录器。
+
+    左手 3 个 + 右侧对应的一组 + 左右各一对按下 / 未按下位置。
+    按下那一对与右手类型无关（键盘的键也有行程方向），所以永远在名单里。
+    """
+    return (tuple(LEFT_RECORDERS) + tuple(PRESS_RECORDERS_LEFT)
+            + tuple(right_recorders_for_layout(layout))
+            + tuple(PRESS_RECORDERS_RIGHT))
 
 
 class BellowsConfig:
@@ -418,6 +439,8 @@ class BellowsConfig:
         """按已保存的设置创建键区记录器，并删掉与当前设置不符的那一组。
 
         - 右手键盘 → 左 3 + 键盘 4；右手按钮 → 左 3 + 右按钮 6；
+        - 两种类型都再建左右各一对按下 / 未按下位置（`lb_out`/`lb_in`、`rb_out`/`rb_in`），
+          它们与右手类型无关，切换类型时**不删**；
         - 另一组（`kbd_*` 或 `rb*`）如果存在就删掉：它已经和设置对不上，
           留着只会让人分不清哪些是有用的点；
         - 已存在的记录器**保持原位**（重复 Setup 不会把摆好的点归零）；
@@ -474,7 +497,7 @@ class BellowsConfig:
                 created_count += 1
 
         print(f"  ✓ 记录器就绪（新建 {created_count} 个，删除 {removed_count} 个，"
-              f"共 {len(active_entries)} 个）")
+              f"共 {len(active_entries)} 个；含左右各一对按下 / 未按下位置）")
 
     # ── 状态检查 ────────────────────────────────────────────
 

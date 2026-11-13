@@ -698,7 +698,7 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
                      text=T("设置所有对象"), icon='OBJECT_DATA')
         row.operator("music_doll.bellows_pulse_check_status",
                      text=T("检查状态"), icon='CHECKMARK')
-        box.label(text=T("记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3"),
+        box.label(text=T("记录器按已保存的右手类型创建：键盘 4 + 左 3，或按钮 6 + 左 3；另加左右各一对按下 / 未按下位置"),
                   icon='INFO')
         box.label(text=T("切换右手类型后请重新「设置所有对象」，另一套记录器会被删除"))
 

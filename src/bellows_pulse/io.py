@@ -49,7 +49,8 @@ FILE_VERSION = 1
 #: 写进文件的字段说明（给拿到文件的人看，不参与解析）
 FILE_NOTE = (
     "MusicDoll Blender 插件的 BellowsPulse 导出：right / left 是 Rust 指法阶段读的键区配置，"
-    "points 是键区记录器的局部坐标（左右各自相对键区骨骼跟随器），"
+    "points 是键区记录器的局部坐标（左右各自相对键区骨骼跟随器；其中 lb_out/lb_in、rb_out/rb_in "
+    "是同一颗按钮未按下与按到底时的表面中心，用来算按下方向与行程），"
     "hands 是左右手基准手型，pivots 是风箱打开 / 合拢时两根键区枢轴的位姿。"
 )
 
@@ -176,6 +177,9 @@ def recorder_points(config, settings: dict) -> dict:
 
     左右按记录器**父级**分组（左键区挂 `left_bone`、右键区挂 `right_bone`），
     不按名字前缀猜。坐标取 `.location`：记录器的父级就是键区跟随器，这已经是枢轴坐标系里的值。
+
+    名单里除了键区基准点，还有左右各一对按下 / 未按下位置（`lb_out`/`lb_in`、`rb_out`/`rb_in`），
+    Rust 端用它们算按下方向与行程。
     """
     layout = (settings.get("right") or {}).get(
         "layout", RIGHT_LAYOUT_KEYBOARD)
@@ -190,7 +194,26 @@ def recorder_points(config, settings: dict) -> dict:
         points[side][short] = {
             "location": [round(value, 6) for value in recorder_obj.location],
         }
+    _warn_press_pairs(points, config)
     return points
+
+
+def _warn_press_pairs(points: dict, config) -> None:
+    """按下 / 未按下两点重合时提醒：Rust 端算不出方向与行程，整条按下动作会退化成原地不动"""
+    press_pairs = (("left", "lb_out", "lb_in"), ("right", "rb_out", "rb_in"))
+    for side, unpressed_short, pressed_short in press_pairs:
+        entries = points.get(side) or {}
+        if unpressed_short not in entries or pressed_short not in entries:
+            continue
+        unpressed_point = entries[unpressed_short]["location"]
+        pressed_point = entries[pressed_short]["location"]
+        travel_distance = sum(
+            (pressed_point[axis] - unpressed_point[axis]) ** 2
+            for axis in range(3)) ** 0.5
+        if travel_distance < 1e-4:
+            print(f"  • {config.obj_name(unpressed_short)} 与 "
+                  f"{config.obj_name(pressed_short)} 位置重合：算不出按下方向与行程，"
+                  f"请把两点分别放到同一颗按钮未按下 / 按到底时的表面中心")
 
 
 # ── 位姿（基准手型 / 枢轴姿态）→ 文件里的写法 ────────────────
