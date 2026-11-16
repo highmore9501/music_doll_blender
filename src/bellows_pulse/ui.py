@@ -796,16 +796,15 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
                   icon='INFO')
         box.label(text=T("切换右手类型后请重新「设置所有对象」，另一套记录器会被删除"))
 
-        # 枢轴姿态（风箱打开 / 合拢）
-        self._draw_pivot_pose(layout, props, skeleton)
-
-        # 导入 / 导出（.accordion）
-        self._draw_accordion_io(layout, context, skeleton)
-
         # 工具（公共工具 + 本乐器独有工具）
         ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
+        # 状态设置：枢轴姿态（风箱打开 / 合拢）+ 基准手型
+        self._draw_pivot_pose(layout, props, skeleton)
         self._draw_reference_hand(layout, props, skeleton)
+
+        # 导入 / 导出（.accordion）
+        self._draw_accordion_io(layout, context, skeleton)
 
         self._draw_animation(layout, context)
 
