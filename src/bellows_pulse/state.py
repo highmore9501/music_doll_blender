@@ -7,9 +7,9 @@
   左手排数…，由面板的「保存乐器属性到骨骼」写入；后续导出 `.accordion` 与生成动画
   一律读这里，不读面板（避免没保存的修改悄悄进入产物）。
 - `bellows_pulse_state_data`：**基准手型**与**枢轴姿态**（动画阶段用）。
-  基准手型：左右手各一份控制器位姿，手掌 `H_*` 与手部枢轴 `HP_*` 存位置 + 旋转，五指存位置；
-  枢轴姿态：风箱「打开」「合拢」两种状态下，`pivot_left` / `pivot_right` 的位置 + 旋转
-  （`accordion_pivot` 是静态极向，不采样）。
+  基准手型：左右手各有两格（`low` 低位 / `high` 高位）的控制器位姿，手掌 `H_*` 与手部枢轴
+  `HP_*` 存位置 + 旋转，五指只存位置；枢轴姿态：风箱「打开」「合拢」两种状态下，
+  `pivot_left` / `pivot_right` 的位置 + 旋转（`accordion_pivot` 是静态极向，不采样）。
   ext 由 driver 与约束驱动，不存；骨骼跟随器与 hand_back 也不是位姿数据。
 
 数据键一律用**短名**（无演奏者后缀），场景控件才用带后缀的完整名——
@@ -25,6 +25,8 @@ from ..common import state_io as _sio
 
 from .enums import (
     FINGER_BASES,
+    HAND_POSE_LABELS,
+    HAND_POSES,
     PIVOT_POSES,
     PIVOT_SHORTS,
     RIGHT_LAYOUT_KEYBOARD,
@@ -225,6 +227,13 @@ def resolve_left_instrument(short: str, suffix: str = ""):
 
 
 # ── 基准手型（动画阶段用）──────────────────────────────────────
+#
+# 一只手的基准手型存两格：
+#
+# - `low`（低位）：手指按在按钮上的演奏姿态，按下时的手指取它的形状；
+# - `high`（高位）：手指放松的休息姿态，闲置与离键的手指取它的形状。
+#
+# 两格各自独立覆盖，互不影响——采完低位再采高位不会把低位顶掉。
 
 def hand_controller_shorts(hand: str) -> list[str]:
     """一只手里要记录进基准手型的控制器短名：手掌、手部枢轴、五指"""
@@ -237,82 +246,166 @@ def _hand_key(hand: str) -> str:
     return "left" if hand == "L" else "right"
 
 
+def _is_finger_short(short: str) -> bool:
+    """这个短名是不是五指控制器（`I_L` 这种）；`H_L` / `HP_L` 不是"""
+    return short.split("_")[0] in FINGER_BASES
+
+
 def _reference_data(skeleton) -> dict:
     return _sio.get_state_data(skeleton, STATE_KEY, {}) or {}
 
 
-def save_reference_hand(config, skeleton, hand: str) -> int:
-    """把当前一只手的控制器位姿存成基准手型，返回写入的控制器数量。"""
-    if skeleton is None:
-        print("  ⚠ 未指定目标骨骼，无法保存基准手型")
-        return 0
+def _normalize_cell(controllers: dict) -> dict:
+    """一格手型整理成存盘口径：手掌与极向量存位置 + 旋转，五指只存位置。
 
+    手指控制器的朝向不参与动画（写关键帧时也只写位置），存下来只会让人以为它生效。
+    """
+    cell = {}
+    for short, pose in (controllers or {}).items():
+        if not isinstance(pose, dict):
+            continue
+        location = pose.get("location")
+        if not isinstance(location, (list, tuple)) or len(location) != 3:
+            continue
+        entry = {"location": [float(value) for value in location]}
+        if not _is_finger_short(short):
+            rotation = pose.get("rotation") or pose.get("rotation_quaternion")
+            if isinstance(rotation, (list, tuple)) and len(rotation) == 4:
+                entry["rotation"] = [float(value) for value in rotation]
+        cell[short] = entry
+    return cell
+
+
+def _hand_cells(raw_controllers) -> dict:
+    """一只手的存储 → 两格 `{low: {...}, high: {...}}`。
+
+    老数据是平铺的一格（外层直接就是 `H_L` 这种短名），那种情况当成两格相同——
+    老资产没有"演奏 / 休息"之分，两格同源等于退回改之前的行为。
+    """
+    if not isinstance(raw_controllers, dict) or not raw_controllers:
+        return {}
+    if any(pose in raw_controllers for pose in HAND_POSES):
+        return {
+            pose: _normalize_cell(raw_controllers.get(pose))
+            for pose in HAND_POSES
+            if isinstance(raw_controllers.get(pose), dict)
+        }
+    flat = _normalize_cell(raw_controllers)
+    if not flat:
+        return {}
+    return {pose: copy.deepcopy(flat) for pose in HAND_POSES}
+
+
+def _save_cell(config, hand: str) -> dict:
+    """把场景里当前这只手的状态读成一格手型。"""
     controllers = {}
     for short in hand_controller_shorts(hand):
         ctrl_obj = bpy.data.objects.get(config.obj_name(short))
         if ctrl_obj is None:
             continue
-        _sio.copy_transfer_between_object_and_dict(
-            ctrl_obj, controllers, "set", key=short)
+        if _is_finger_short(short):
+            # 五指只取位置：约束算在内（ext 的跟随是约束给的），朝向不用。
+            location = _sio.get_true_transform_value(ctrl_obj, "location")
+            controllers[short] = {
+                "location": [location.x, location.y, location.z]}
+        else:
+            _sio.copy_transfer_between_object_and_dict(
+                ctrl_obj, controllers, "set", key=short)
+    return controllers
+
+
+def save_reference_hand(config, skeleton, hand: str, pose: str) -> int:
+    """把当前一只手这一端的状态存成基准手型，返回写入的控制器数量。
+
+    `pose` 是 [`HAND_POSES`] 里的一个（低位 / 高位）；只覆盖这一格，另一格原样保留。
+    """
+    if skeleton is None:
+        print("  ⚠ 未指定目标骨骼，无法保存基准手型")
+        return 0
+    if pose not in HAND_POSES:
+        print(f"  ⚠ 不认识的基准手型端点：{pose}")
+        return 0
+
+    controllers = _save_cell(config, hand)
+    if not controllers:
+        return 0
 
     state_data = _reference_data(skeleton)
-    state_data.setdefault("reference_hand", {})[_hand_key(hand)] = controllers
+    reference = state_data.setdefault("reference_hand", {})
+    cells = _hand_cells(reference.get(_hand_key(hand)))
+    cells[pose] = controllers
+    reference[_hand_key(hand)] = cells
     _sio.set_state_data(skeleton, STATE_KEY, state_data)
 
-    print(f"  ✓ 已保存{'左' if hand == 'L' else '右'}手基准手型"
-          f"（{len(controllers)} 个控制器）")
+    print(f"  ✓ 已保存{'左' if hand == 'L' else '右'}手"
+          f"{HAND_POSE_LABELS[pose]}基准手型（{len(controllers)} 个控制器）")
     return len(controllers)
 
 
-def load_reference_hand(config, skeleton, hand: str) -> int:
-    """把骨骼里的基准手型应用到一只手的控制器，返回应用的控制器数量。
+def load_reference_hand(config, skeleton, hand: str, pose: str) -> int:
+    """把骨骼里这一端的手型应用到一只手的控制器，返回应用的控制器数量。
 
-    没有数据时抛 ValueError，由面板转成界面提示。
+    没有这一端的数据时抛 ValueError，由面板转成界面提示。
     """
     state_data = _reference_data(skeleton)
-    controllers = (state_data.get("reference_hand") or {}).get(_hand_key(hand)) or {}
+    cells = _hand_cells(
+        (state_data.get("reference_hand") or {}).get(_hand_key(hand)))
+    controllers = cells.get(pose) or {}
     if not controllers:
-        raise ValueError("骨骼上还没有这只手的基准手型，请先保存")
+        label = HAND_POSE_LABELS.get(pose, pose)
+        raise ValueError(f"骨骼上还没有这只手的{label}手型，请先保存")
 
     applied = 0
     for short in hand_controller_shorts(hand):
         ctrl_obj = bpy.data.objects.get(config.obj_name(short))
         if ctrl_obj is None or short not in controllers:
             continue
+        entry = controllers[short]
+        # 五指只摆位置：把手型里的位置单独交给搬运函数，它就不会去动朝向。
+        transfer = (entry if not _is_finger_short(short)
+                    else {"location": entry.get("location")})
         _sio.copy_transfer_between_object_and_dict(
-            ctrl_obj, controllers, "load", key=short)
+            ctrl_obj, {short: transfer}, "load", key=short)
         applied += 1
 
-    print(f"  ✓ 已加载{'左' if hand == 'L' else '右'}手基准手型（{applied} 个控制器）")
+    print(f"  ✓ 已加载{'左' if hand == 'L' else '右'}手"
+          f"{HAND_POSE_LABELS[pose]}基准手型（{applied} 个控制器）")
     return applied
 
 
-def reference_hand_saved(skeleton, hand: str) -> bool:
-    """骨骼上是否已保存该手的基准手型"""
+def reference_hand_saved(skeleton, hand: str, pose: str) -> bool:
+    """骨骼上是否已保存这只手这一端的基准手型"""
     if skeleton is None:
         return False
     state_data = _reference_data(skeleton)
-    controllers = (state_data.get("reference_hand") or {}).get(_hand_key(hand)) or {}
-    return bool(controllers)
+    cells = _hand_cells(
+        (state_data.get("reference_hand") or {}).get(_hand_key(hand)))
+    return bool(cells.get(pose))
 
 
 def reference_hands(skeleton) -> dict:
-    """两只手的基准手型原始数据 `{"left": {短名: {location, rotation}}, "right": {...}}`。
+    """两只手的基准手型 `{手: {low: {短名: ...}, high: {短名: ...}}}`。
 
-    没保存过的手不会出现在结果里；导出 `.accordion` 的 `hands` 段直接用它。
+    没保存过的手不会出现在结果里；老数据（平铺的一格）展开成两格相同。
+    导出 `.accordion` 的 `hands` 段直接用它。
     """
     if skeleton is None:
         return {}
     reference = _reference_data(skeleton).get("reference_hand") or {}
-    return {hand_key: controllers for hand_key, controllers in reference.items()
-            if isinstance(controllers, dict)}
+    hands = {}
+    for hand_key, controllers in reference.items():
+        cells = _hand_cells(controllers)
+        if cells:
+            hands[hand_key] = cells
+    return hands
 
 
 def save_reference_hands(skeleton, hands: dict) -> dict:
-    """把导出的 `hands` 段整体写回骨骼，返回每只手写入的控制器数量。
+    """把导出的 `hands` 段整体写回骨骼，返回每只手、每端写入的控制器数量。
 
-    文件只给了某一只手时，另一只手保持原样——导入别的角色的文件不该顺手清空
-    本角色已经摆好的那只手。
+    新形状（`{left: {low: {...}, high: {...}}}`）与老形状（平铺的一格）都收，
+    老形状展开成两格相同。文件只给了某一端时，另一端保持原样——导入别人的文件
+    不该顺手清空本角色已经摆好的那一端。
     """
     if skeleton is None or not hands:
         return {}
@@ -321,11 +414,17 @@ def save_reference_hands(skeleton, hands: dict) -> dict:
     reference = state_data.setdefault("reference_hand", {})
     written = {}
     for hand_key in ("left", "right"):
-        controllers = hands.get(hand_key) or {}
-        if not controllers:
+        incoming = hands.get(hand_key) or {}
+        if not isinstance(incoming, dict) or not incoming:
             continue
-        reference[hand_key] = controllers
-        written[hand_key] = len(controllers)
+        incoming_cells = _hand_cells(incoming)
+        if not incoming_cells:
+            continue
+        cells = _hand_cells(reference.get(hand_key))
+        cells.update(incoming_cells)
+        reference[hand_key] = cells
+        written[hand_key] = {pose: len(controllers)
+                             for pose, controllers in incoming_cells.items()}
 
     if not written:
         return {}

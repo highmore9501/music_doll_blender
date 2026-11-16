@@ -7,8 +7,8 @@ Rust 侧 `cargo run -- gen` 一次写出四份产物，其中三份要进 Blende
   五指挂在 `H_*` 下面，文件里存的就是手腕局部坐标，直接写 `location` 即可；
 - `.pivot_animation`：`pivot_left` / `pivot_right` 的位置 + 四元数。风箱的形变由场景里
   现成的约束解算，Rust 只给这两个枢轴；
-- `.key_animation`：按键形变。每颗按钮一条 shape key 曲线，名字 `L{排}_{列}_pressed` /
-  `R{排}_{列}_pressed`：左边那套在左键区网格上，右边那套在右键区网格（目标乐器）上。
+- `.key_animation`：按键形变。每颗按钮一条 shape key 曲线，名字 `L{排}_{列:02}_pressed` /
+  `R{排}_{列:02}_pressed`（列号补到两位，排号不补）：左边那套在左键区网格上，右边那套在右键区网格（目标乐器）上。
 
 `.activity_curve` **不读**：枢轴的开合已经按活动曲线烘焙进 `.pivot_animation`，
 Blender 侧没有第二处要用它。
@@ -58,7 +58,7 @@ HAND_EXTENSION = ".animation"
 PIVOT_EXTENSION = ".pivot_animation"
 KEY_EXTENSION = ".key_animation"
 
-#: 按键形变 shape key 名的手别前缀（`L3_5_pressed` 的 `L`）
+#: 按键形变 shape key 名的手别前缀（`L3_05_pressed` 的 `L`）
 LEFT_SHAPE_KEY_PREFIX = "L"
 
 #: 场景里必须存在的控制器短名：缺了这些就没法写动画（其余手指只提示）

@@ -47,6 +47,20 @@ PIVOT_POSE_OPEN = "open"
 PIVOT_POSE_CLOSED = "closed"
 PIVOT_POSES = (PIVOT_POSE_OPEN, PIVOT_POSE_CLOSED)
 
+# ── 基准手型的两端（`.accordion` 的 hands 段、骨骼里的 reference_hand 都用这两个键）──
+#
+# 一只手的基准手型采两份：高位那份是手指放松搭在琴上的休息姿态，低位那份是手指按在
+# 按钮上的演奏姿态。按下时用低位（指形贴键），闲置与离键时用高位（放松）；手掌位姿按
+# 手掌锚点列在两份之间插值，于是"整条键区 × 两种手部状态"用两份采样就覆盖了。
+
+HAND_POSE_LOW = "low"
+HAND_POSE_HIGH = "high"
+HAND_POSES = (HAND_POSE_LOW, HAND_POSE_HIGH)
+
+#: 面板上显示的名字（-文件键 → 中文）
+HAND_POSE_LABELS = {HAND_POSE_LOW: "低位", HAND_POSE_HIGH: "高位"}
+
+
 # ── 右手键区类型（与 `.accordion` 的 right.layout 一一对应）──
 
 RIGHT_LAYOUT_KEYBOARD = "keyboard"

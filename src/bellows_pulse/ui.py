@@ -44,6 +44,9 @@ from .animation import MANIFEST_EXTENSION, generate_animation
 from .config import BellowsConfig
 from .io import export_accordion, import_accordion, target_file_name
 from .enums import (
+    HAND_POSE_HIGH,
+    HAND_POSE_LABELS,
+    HAND_POSE_LOW,
     RIGHT_LAYOUT_BUTTONS,
     RIGHT_LAYOUT_KEYBOARD,
     keyboard_key_count,
@@ -67,8 +70,27 @@ _PROPS_ATTR = "md_bp_props"
 #: 面板 ↔ 骨骼同步标记：(角色名, 骨骼名)。变了才从骨骼回填面板。
 _SYNC_MARKER: dict = {"key": None}
 
-#: 基准手型算子的左右手参数
-_HAND_ITEMS = [('L', "左手", ""), ('R', "右手", "")]
+#: 基准手型算子的左右手参数（面板下拉与算子共用）
+_HAND_ITEMS = [('L', T("左手"), ""), ('R', T("右手"), "")]
+
+#: 基准手型算子的端点参数：低位是手指按在按钮上的演奏姿态，高位是手指放松的休息姿态
+_HAND_POSE_ITEMS = [
+    ('LOW', T("低位"), T("手指按在按钮上的演奏姿态")),
+    ('HIGH', T("高位"), T("手指放松的休息姿态")),
+]
+
+#: 算子里的端点取值 → 数据里的键
+_HAND_POSE_KEYS = {'LOW': HAND_POSE_LOW, 'HIGH': HAND_POSE_HIGH}
+
+
+def _hand_label(hand: str) -> str:
+    """算子/面板上的手别 → 当前语言的名字"""
+    return T("左手") if hand == 'L' else T("右手")
+
+
+def _hand_pose_label(pose: str) -> str:
+    """算子里的端点取值 → 当前语言的名字"""
+    return T(HAND_POSE_LABELS[_HAND_POSE_KEYS[pose]])
 
 #: 枢轴姿态采样的风箱状态（打开 / 合拢）
 _PIVOT_STATE_ITEMS = [
@@ -290,6 +312,18 @@ class BellowsPulseProperties(PropertyGroup):
             items=_PIVOT_STATE_ITEMS,
             default='open'),
 
+        # 基准手型采样：选哪只手、哪一端（同样只是面板选择，不存进骨骼设置）
+        "reference_hand": EnumProperty(
+            name=T("手"),
+            description=T("要保存或加载哪只手的基准手型"),
+            items=_HAND_ITEMS,
+            default='L'),
+        "reference_hand_pose": EnumProperty(
+            name=T("位置"),
+            description=T("要保存或加载哪一端的基准手型"),
+            items=_HAND_POSE_ITEMS,
+            default='LOW'),
+
         # 动画产物清单（Rust 侧 `output/final_result/{stem}.bellows`）
         "animation_manifest_path": StringProperty(
             name=T("动画产物清单"),
@@ -496,11 +530,13 @@ class BELLOWS_PULSE_OT_load_pivot_pose(Operator):
 # ── 算子：基准手型（动画用）──────────────────────────────────
 
 class BELLOWS_PULSE_OT_save_reference_hand(Operator):
-    """把当前一只手的控制器位姿存成基准手型"""
+    """把当前一只手这一端的状态存成基准手型"""
     bl_idname = "music_doll.bellows_pulse_save_reference_hand"
     bl_options = {'REGISTER', 'UNDO'}
     __annotations__ = {
         "hand": EnumProperty(items=_HAND_ITEMS, default='L'),
+        "pose": EnumProperty(items=_HAND_POSE_ITEMS, default='LOW',
+                             description=T("要保存或加载哪一端的基准手型")),
     }
 
     def execute(self, context):
@@ -510,24 +546,26 @@ class BELLOWS_PULSE_OT_save_reference_hand(Operator):
             return {'CANCELLED'}
 
         config = _get_config(context, skeleton=skeleton)
-        count = state.save_reference_hand(config, skeleton, self.hand)
+        count = state.save_reference_hand(
+            config, skeleton, self.hand, _HAND_POSE_KEYS[self.pose])
         if count <= 0:
             self.report(
                 {'ERROR'}, T("没有找到这只手的控制器，请先「设置所有对象」"))
             return {'CANCELLED'}
 
-        hand_label = T("左手") if self.hand == 'L' else T("右手")
-        self.report({'INFO'}, T("基准手型已保存：%s（%d 个控制器）")
-                    % (hand_label, count))
+        self.report({'INFO'}, T("基准手型已保存：%s（%s，%d 个控制器）")
+                    % (_hand_label(self.hand), _hand_pose_label(self.pose), count))
         return {'FINISHED'}
 
 
 class BELLOWS_PULSE_OT_load_reference_hand(Operator):
-    """把骨骼里保存的基准手型应用到一只手的控制器"""
+    """把骨骼里这一端的手型应用到一只手的控制器"""
     bl_idname = "music_doll.bellows_pulse_load_reference_hand"
     bl_options = {'REGISTER', 'UNDO'}
     __annotations__ = {
         "hand": EnumProperty(items=_HAND_ITEMS, default='L'),
+        "pose": EnumProperty(items=_HAND_POSE_ITEMS, default='LOW',
+                             description=T("要保存或加载哪一端的基准手型")),
     }
 
     def execute(self, context):
@@ -538,15 +576,15 @@ class BELLOWS_PULSE_OT_load_reference_hand(Operator):
 
         config = _get_config(context, skeleton=skeleton)
         try:
-            count = state.load_reference_hand(config, skeleton, self.hand)
+            count = state.load_reference_hand(
+                config, skeleton, self.hand, _HAND_POSE_KEYS[self.pose])
         except ValueError:
             self.report(
-                {'ERROR'}, T("骨骼上还没有这只手的基准手型，请先保存"))
+                {'ERROR'}, T("骨骼上还没有这只手的该端手型，请先保存"))
             return {'CANCELLED'}
 
-        hand_label = T("左手") if self.hand == 'L' else T("右手")
-        self.report({'INFO'}, T("基准手型已加载：%s（%d 个控制器）")
-                    % (hand_label, count))
+        self.report({'INFO'}, T("基准手型已加载：%s（%s，%d 个控制器）")
+                    % (_hand_label(self.hand), _hand_pose_label(self.pose), count))
         return {'FINISHED'}
 
 
@@ -767,7 +805,7 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
         # 工具（公共工具 + 本乐器独有工具）
         ui_utils.draw_tools(layout, scene, tools=TOOLS)
 
-        self._draw_reference_hand(layout, skeleton)
+        self._draw_reference_hand(layout, props, skeleton)
 
         self._draw_animation(layout, context)
 
@@ -937,23 +975,41 @@ class BELLOWS_PULSE_PT_main_panel(Panel):
                       icon='ERROR')
 
     # ── 基准手型 ──
-    def _draw_reference_hand(self, layout, skeleton):
+    def _draw_reference_hand(self, layout, props, skeleton):
         box = layout.box()
-        box.label(text=T("基准手型（动画用）"), icon='ARMATURE_DATA')
-        for hand, hand_label in (("L", T("左手")), ("R", T("右手"))):
-            row = box.row(align=True)
-            row.label(text=hand_label)
-            save_op = row.operator(
-                "music_doll.bellows_pulse_save_reference_hand", text=T("保存"))
-            save_op.hand = hand
-            load_op = row.operator(
-                "music_doll.bellows_pulse_load_reference_hand", text=T("加载"))
-            load_op.hand = hand
-            if state.reference_hand_saved(skeleton, hand):
-                row.label(text=T("已保存"), icon='CHECKMARK')
-            else:
-                row.label(text=T("未保存"), icon='INFO')
-        box.label(text=T("手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定"),
+        box.label(text=T("基准手型（两套：演奏 / 休息）"), icon='ARMATURE_DATA')
+
+        # 两个下拉选「哪只手」与「哪一端」，保存 / 加载都作用在当前这一格
+        column = box.column(align=True)
+        column.prop(props, "reference_hand", text=T("手"))
+        column.prop(props, "reference_hand_pose", text=T("位置"))
+
+        row = box.row(align=True)
+        save_op = row.operator(
+            "music_doll.bellows_pulse_save_reference_hand", text=T("保存"))
+        save_op.hand = props.reference_hand
+        save_op.pose = props.reference_hand_pose
+        load_op = row.operator(
+            "music_doll.bellows_pulse_load_reference_hand", text=T("加载"))
+        load_op.hand = props.reference_hand
+        load_op.pose = props.reference_hand_pose
+
+        # 当前这一格存了没有（换下拉即换格子，不必来回点确认）
+        status_row = box.row(align=True)
+        status_row.label(text="%s · %s" % (
+            _hand_label(props.reference_hand),
+            _hand_pose_label(props.reference_hand_pose)))
+        if state.reference_hand_saved(
+                skeleton, props.reference_hand,
+                _HAND_POSE_KEYS[props.reference_hand_pose]):
+            status_row.label(text=T("已保存"), icon='CHECKMARK')
+        else:
+            status_row.label(text=T("未保存"), icon='INFO')
+
+        box.label(text=T("低位那份管按下的手指，高位那份管闲置与离键的手指"),
+                  icon='INFO')
+        box.label(text=T("两端都要采，两次的手腕朝向也要真的不同"
+                         "（只平移整只手的话位置插值看不出效果）"),
                   icon='INFO')
 
     # ── 动画（读 Rust 产物）──

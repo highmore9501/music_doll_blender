@@ -1093,9 +1093,31 @@ _DICT: dict[str, dict[str, str]] = {
         "zh": "切换右手类型后请重新「设置所有对象」，另一套记录器会被删除",
         "en": "After switching the right hand layout, run Setup All Objects again; the other recorder set is deleted"},
 
-    # ── 基准手型（动画用）──
+    # ── 基准手型（动画用，每只手两套：低位演奏 / 高位休息）──
     "基准手型": {"zh": "基准手型", "en": "Reference Hand"},
-    "基准手型（动画用）": {"zh": "基准手型（动画用）", "en": "Reference Hand (for animation)"},
+    "基准手型（两套：演奏 / 休息）": {
+        "zh": "基准手型（两套：演奏 / 休息）",
+        "en": "Reference Hand (two sets: playing / resting)"},
+    "低位": {"zh": "低位", "en": "Low"},
+    "高位": {"zh": "高位", "en": "High"},
+    "手指按在按钮上的演奏姿态": {
+        "zh": "手指按在按钮上的演奏姿态",
+        "en": "Playing pose with the fingers on the buttons"},
+    "手指放松的休息姿态": {
+        "zh": "手指放松的休息姿态",
+        "en": "Resting pose with the fingers relaxed"},
+    "要保存或加载哪一端的基准手型": {
+        "zh": "要保存或加载哪一端的基准手型",
+        "en": "Which end of the reference hand to save or load"},
+    "要保存或加载哪只手的基准手型": {
+        "zh": "要保存或加载哪只手的基准手型",
+        "en": "Which hand's reference hand to save or load"},
+    "低位那份管按下的手指，高位那份管闲置与离键的手指": {
+        "zh": "低位那份管按下的手指，高位那份管闲置与离键的手指",
+        "en": "The low set shapes pressed fingers; the high set shapes idle and lifted fingers"},
+    "两端都要采，两次的手腕朝向也要真的不同（只平移整只手的话位置插值看不出效果）": {
+        "zh": "两端都要采，两次的手腕朝向也要真的不同（只平移整只手的话位置插值看不出效果）",
+        "en": "Capture both ends, and make the wrist orientations really differ (moving the whole hand alone shows no effect in the position blend)"},
     "左手": {"zh": "左手", "en": "Left Hand"},
     "右手": {"zh": "右手", "en": "Right Hand"},
     "保存": {"zh": "保存", "en": "Save"},
@@ -1104,21 +1126,18 @@ _DICT: dict[str, dict[str, str]] = {
     "加载基准手型": {"zh": "加载基准手型", "en": "Load Reference Hand"},
     "已保存": {"zh": "已保存", "en": "Saved"},
     "未保存": {"zh": "未保存", "en": "Not Saved"},
-    "基准手型已保存：%s（%d 个控制器）": {
-        "zh": "基准手型已保存：%s（%d 个控制器）",
-        "en": "Reference hand saved: %s (%d controllers)"},
-    "基准手型已加载：%s（%d 个控制器）": {
-        "zh": "基准手型已加载：%s（%d 个控制器）",
-        "en": "Reference hand loaded: %s (%d controllers)"},
+    "基准手型已保存：%s（%s，%d 个控制器）": {
+        "zh": "基准手型已保存：%s（%s，%d 个控制器）",
+        "en": "Reference hand saved: %s (%s, %d controllers)"},
+    "基准手型已加载：%s（%s，%d 个控制器）": {
+        "zh": "基准手型已加载：%s（%s，%d 个控制器）",
+        "en": "Reference hand loaded: %s (%s, %d controllers)"},
     "没有找到这只手的控制器，请先「设置所有对象」": {
         "zh": "没有找到这只手的控制器，请先「设置所有对象」",
         "en": "No controllers found for this hand; run Setup All Objects first"},
-    "骨骼上还没有这只手的基准手型，请先保存": {
-        "zh": "骨骼上还没有这只手的基准手型，请先保存",
-        "en": "This hand has no saved reference hand yet, please save one first"},
-    "手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定": {
-        "zh": "手掌存位置 + 旋转，五指存位置；ext 由驱动与约束决定",
-        "en": "Palms store location + rotation, fingers store location; ext is driven by drivers and constraints"},
+    "骨骼上还没有这只手的该端手型，请先保存": {
+        "zh": "骨骼上还没有这只手的该端手型，请先保存",
+        "en": "This hand has no saved reference hand for the selected end yet, please save it first"},
 
     # ── 导入 / 导出（.accordion）──
     "导入 / 导出（.accordion）": {

@@ -7,7 +7,8 @@
 - **乐器属性**（骨骼 `bellows_pulse_settings`）→ `right` / `left` 段，字段名照 Rust 代码写；
 - **键区记录器的局部坐标**（记录器挂在键区骨骼跟随器下，`.location` 就是枢轴坐标系里的值）
   → `points` 段；
-- **左右手基准手型**（骨骼 `bellows_pulse_state_data` 的 `reference_hand`）→ `hands` 段。
+- **左右手基准手型**（骨骼 `bellows_pulse_state_data` 的 `reference_hand`，每只手两格：
+  低位 `low` / 高位 `high`）→ `hands` 段。
 
 `pivots`（枢轴姿态 / 周期 / max_range）要到动画阶段才有数据，这里写成空占位，
 让 Rust 侧和后续动画阶段都能直接按同一份文件布局取值。
@@ -28,6 +29,8 @@ from ..common import i18n
 
 from .config import recorders_for_layout
 from .enums import (
+    HAND_POSE_LABELS,
+    HAND_POSES,
     PIVOT_POSES,
     RIGHT_BUTTON_ROWS,
     RIGHT_LAYOUT_BUTTONS,
@@ -44,14 +47,16 @@ T = i18n.T
 FILE_EXTENSION = ".accordion"
 
 #: 文件格式版本（本模块自己写、自己读；Rust 端按路径取字段，不认识这个键会忽略）
-FILE_VERSION = 1
+FILE_VERSION = 2
 
 #: 写进文件的字段说明（给拿到文件的人看，不参与解析）
 FILE_NOTE = (
     "MusicDoll Blender 插件的 BellowsPulse 导出：right / left 是 Rust 指法阶段读的键区配置，"
     "points 是键区记录器的局部坐标（左右各自相对键区骨骼跟随器；其中 lb_out/lb_in、rb_out/rb_in "
     "是同一颗按钮未按下与按到底时的表面中心，用来算按下方向与行程），"
-    "hands 是左右手基准手型，pivots 是风箱打开 / 合拢时两根键区枢轴的位姿。"
+    "hands 是左右手在键区两端的基准手型：low 是手指按在按钮上的演奏姿态，high 是手指放松的"
+    "休息姿态（五指只记位置，手掌与极向量记位置 + 旋转），"
+    "pivots 是风箱打开 / 合拢时两根键区枢轴的位姿。"
 )
 
 #: 基准手型的默认旋转（四元数恒等），文件里没写旋转时用它
@@ -221,26 +226,75 @@ def _warn_press_pairs(points: dict, config) -> None:
 # 骨骼内部把旋转存在 `rotation` 键下；对外的文件格式跟其它乐器一致，
 # 用 `rotation_quaternion`，导入时再转回骨骼结构。手型和枢轴共用一个转换。
 
-def _pose_entries_to_file(controllers: dict) -> dict:
-    """骨骼里的位姿 dict → 文件里的位姿 dict（旋转改键名、数值四舍五入）"""
+def _pose_entries_to_file(controllers: dict, rotation_shorts=None) -> dict:
+    """骨骼里的位姿 dict → 文件里的位姿 dict（旋转改键名、数值四舍五入）。
+
+    `rotation_shorts` 给了就只给这些短名写旋转，其余条目只写位置（基准手型的五指
+    不参与动画的朝向，写进去只会让人以为它生效）；不给表示每一条都写（枢轴）。
+    """
     entries = {}
     for short, pose in (controllers or {}).items():
         if not isinstance(pose, dict):
             continue
-        entries[short] = {
+        entry = {
             "location": [round(value, 6)
                          for value in (pose.get("location") or [0.0, 0.0, 0.0])],
-            "rotation_quaternion": [round(value, 6)
-                                    for value in (pose.get("rotation")
-                                                  or IDENTITY_ROTATION)],
         }
+        if rotation_shorts is None or short in rotation_shorts:
+            entry["rotation_quaternion"] = [round(value, 6)
+                                            for value in (pose.get("rotation")
+                                                          or IDENTITY_ROTATION)]
+        entries[short] = entry
     return entries
 
 
+def _hand_rotation_shorts(hand_key: str) -> set[str]:
+    """这只手里带旋转的短名：手掌 `H_*` 与手部枢轴 `HP_*`，五指只记位置"""
+    suffix = "L" if hand_key == "left" else "R"
+    return {f"H_{suffix}", f"HP_{suffix}"}
+
+
+def _expanded_cells(cells: dict) -> dict:
+    """一只手的 `hands` 内容 → `{低/高位: {短名: 位姿}}`。
+
+    新格式就是这两格；老格式（外层直接是控制器短名）展开成两格相同。
+    """
+    if not isinstance(cells, dict) or not cells:
+        return {}
+    if any(pose in cells for pose in HAND_POSES):
+        return {pose: controllers for pose, controllers in cells.items()
+                if pose in HAND_POSES and isinstance(controllers, dict)}
+    return {pose: cells for pose in HAND_POSES}
+
+
 def hands_section(skeleton) -> dict:
-    """骨骼里的基准手型 → `hands` 段（`{left: {...}, right: {...}}`）"""
-    return {hand_key: _pose_entries_to_file(controllers)
-            for hand_key, controllers in (state.reference_hands(skeleton) or {}).items()}
+    """骨骼里的基准手型 → `hands` 段（`{left: {low: {...}, high: {...}}, right: {...}}`）"""
+    section = {}
+    for hand_key, cells in (state.reference_hands(skeleton) or {}).items():
+        rotation_shorts = _hand_rotation_shorts(hand_key)
+        section[hand_key] = {
+            pose: _pose_entries_to_file(controllers, rotation_shorts)
+            for pose, controllers in (cells or {}).items()
+        }
+    return section
+
+
+def convert_hands(hands: dict, position_to, rotation_to) -> dict:
+    """把 `hands` 段换到目标空间。
+
+    比 [`convert_pose_groups`] 多一层：外层手别（left / right）、中层端点
+    （low / high）、内层控制器短名；最后两层正好是 `convert_pose_groups` 的形状，
+    所以逐只手交给它。老格式（平铺的一格）先展开成两格相同。
+    """
+    converted = {}
+    for hand_key, cells in (hands or {}).items():
+        if not isinstance(cells, dict):
+            continue
+        entries = convert_pose_groups(
+            _expanded_cells(cells), position_to, rotation_to)
+        if entries:
+            converted[hand_key] = entries
+    return converted
 
 
 def pivots_section(skeleton) -> dict:
@@ -250,6 +304,22 @@ def pivots_section(skeleton) -> dict:
     """
     return {pose_state: _pose_entries_to_file(controllers)
             for pose_state, controllers in (state.pivot_poses(skeleton) or {}).items()}
+
+
+def _warn_missing_hand_pose(hands: dict) -> None:
+    """某只手只采了一端（低位 / 高位）时提醒。
+
+    两端缺一端的资产在 Rust 那边会报"资产缺项"，动画整个不生成；这里不拦导出，
+    只把缺的是哪一只手的哪一端说清楚，让人回去补采。
+    """
+    for hand_key, cells in (hands or {}).items():
+        missing = [pose for pose in HAND_POSES if pose not in (cells or {})]
+        if not missing:
+            continue
+        hand_label = "左手" if hand_key == "left" else "右手"
+        missing_label = "、".join(HAND_POSE_LABELS[pose] for pose in missing)
+        print(f"  ⚠ {hand_label}只采了一端基准手型（缺{missing_label}）："
+              f"Rust 侧会报资产缺项，请把两端都采一遍")
 
 
 # ── 导出 ──────────────────────────────────────────────────────
@@ -275,10 +345,10 @@ def export_accordion(file_path: str, config, skeleton,
     settings = state.normalize_settings(state.load_settings(skeleton))
     points = convert_pose_groups(recorder_points(config, settings),
                                  position_to, rotation_to)
-    hands = convert_pose_groups(hands_section(skeleton),
-                                position_to, rotation_to)
+    hands = convert_hands(hands_section(skeleton), position_to, rotation_to)
     pivots = convert_pose_groups(pivots_section(skeleton),
                                  position_to, rotation_to)
+    _warn_missing_hand_pose(hands)
 
     export_data = {
         "version": FILE_VERSION,
@@ -298,8 +368,9 @@ def export_accordion(file_path: str, config, skeleton,
         json.dump(export_data, handle, ensure_ascii=False, indent=2)
 
     recorder_count = len(points["right"]) + len(points["left"])
-    hand_counts = {hand_key: len(controllers)
-                   for hand_key, controllers in hands.items()}
+    hand_counts = {hand_key: {pose: len(controllers)
+                              for pose, controllers in cells.items()}
+                   for hand_key, cells in hands.items()}
     pivot_counts = {pose_state: len(controllers)
                     for pose_state, controllers in pivots.items()}
     coordinate_note = "（Unreal 坐标系）" if for_unreal else ""
@@ -424,10 +495,20 @@ def _pose_entries_from_file(controllers: dict) -> dict:
 
 
 def apply_hands(skeleton, hands: dict) -> dict:
-    """把 `hands` 段写回骨骼，返回每只手写入的控制器数量。"""
-    converted = {hand_key: _pose_entries_from_file(hands.get(hand_key))
-                 for hand_key in ("left", "right")
-                 if isinstance(hands.get(hand_key), dict)}
+    """把 `hands` 段写回骨骼，返回每只手、每端写入的控制器数量。
+
+    新形状（`{left: {low: {...}, high: {...}}}`）与老形状（平铺的一格）都收；
+    老形状展开成两格相同，于是老资产导入后两端都有数据。
+    """
+    converted = {}
+    for hand_key in ("left", "right"):
+        cells = hands.get(hand_key)
+        if not isinstance(cells, dict) or not cells:
+            continue
+        converted[hand_key] = {
+            pose: _pose_entries_from_file(controllers)
+            for pose, controllers in _expanded_cells(cells).items()
+        }
     return state.save_reference_hands(skeleton, converted)
 
 
@@ -492,8 +573,8 @@ def import_accordion(file_path: str, config, skeleton) -> dict:
         config, convert_pose_groups(file_data.get("points") or {},
                                     position_to, rotation_to))
     hands = apply_hands(
-        skeleton, convert_pose_groups(file_data.get("hands") or {},
-                                      position_to, rotation_to))
+        skeleton, convert_hands(file_data.get("hands") or {},
+                                position_to, rotation_to))
     pivots = apply_pivots(
         skeleton, convert_pose_groups(file_data.get("pivots") or {},
                                       position_to, rotation_to))
