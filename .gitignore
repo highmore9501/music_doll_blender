@@ -2,6 +2,8 @@ __pycache__/
 docs/*
 !docs/music_doll_blender_项目说明文档.md
 !docs/music_doll_blender_项目说明文档.en.md
-scripts/
+# 只忽略仓库根目录的 scripts/（那一份是本机部署用、不入库）；
+# 技能包里的 scripts/（skills/music-doll-rig/scripts/）是要随插件发布的，不能一起忽略。
+/scripts/
 music_doll_blender.zip
 temp/
