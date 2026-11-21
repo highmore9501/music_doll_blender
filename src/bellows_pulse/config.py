@@ -14,16 +14,20 @@
 层级（固定乐器，没有 controller_root_offset）：
 
     controller_root                  （Copy Location + Copy Rotation，目标留空）
-    ├── HP_L / HP_R                  手部 IK 枢轴
     ├── F_L / FP_L / F_R / FP_R      双脚与脚部极向量（摆姿势用）
     ├── pivot_left / pivot_right     键区枢轴（风箱 IK 的两端）
     └── accordion_pivot              风箱 IK 的 pole target
 
     left_bone / right_bone           （Copy Transforms 跟随键区骨骼，目标留空）
-    └── H_L / H_R                    手掌
-        ├── 五指 + ext（ext 的位置由 driver 取 2 × 手指）
-        │   └── *_pole               IK 极向量
-        └── hand_back                （背带曲线的 Hook 目标，只在左手）
+    ├── H_L / H_R                    手掌
+    │   ├── 五指 + ext（ext 的位置由 driver 取 2 × 手指）
+    │   │   └── *_pole               IK 极向量
+    │   └── hand_back                （背带曲线的 Hook 目标，只在左手）
+    ├── HP_L / HP_R                  手部 IK 枢轴（与手掌同级）
+    └── 键区位置记录器                （记局部坐标）
+
+    left_bone_root / right_bone_root （Copy Location + Copy Rotation 跟随键区骨骼；
+                                      键区网格的挂点，目标留空）
 
 所有对象名都接演奏者后缀（`performer_utils.resolve`），集合名同理由
 `get_or_create_collection` 统一加后缀，保证一个 Blender 文件里多个演奏者互不干扰。
@@ -52,6 +56,10 @@ CONTROL_CONSTRAINTS = (
     ("controller_root", "COPY_ROTATION"),
     ("left_bone", "COPY_TRANSFORMS"),
     ("right_bone", "COPY_TRANSFORMS"),
+    ("left_bone_root", "COPY_LOCATION"),
+    ("left_bone_root", "COPY_ROTATION"),
+    ("right_bone_root", "COPY_LOCATION"),
+    ("right_bone_root", "COPY_ROTATION"),
 )
 
 #: 约束名（固定英文名，只影响可读性；识别与去重都按类型判断）
@@ -63,6 +71,9 @@ CONTROL_CONSTRAINT_NAMES = {
 
 #: 键区骨骼跟随器的显示尺寸（PLAIN_AXES 的半径，大一点好在视口里点中）
 BONE_FOLLOWER_DISPLAY_SIZE = 100.0
+
+#: 键区网格挂点的显示尺寸（和跟随器一样大，视口里一眼能认出它们是一对）
+BONE_ROOT_DISPLAY_SIZE = 100.0
 
 #: hand_back 的显示尺寸
 HAND_BACK_DISPLAY_SIZE = 1.0
@@ -182,6 +193,12 @@ class BellowsConfig:
             "right_bone": "right_bone",
         }
 
+        # ── 键区网格挂点（世界对象，Copy Location + Copy Rotation 跟随键区骨骼）──
+        self.bone_root_controllers = {
+            "left_bone_root": "left_bone_root",
+            "right_bone_root": "right_bone_root",
+        }
+
         # ── 左掌辅助（背带曲线的 Hook 目标）──
         self.hand_helper_controllers = {
             "hand_back": "hand_back",
@@ -230,6 +247,7 @@ class BellowsConfig:
         shorts.extend(self.foot_pole_controllers.values())
         shorts.extend(self.key_zone_controllers.values())
         shorts.extend(self.bone_follower_controllers.values())
+        shorts.extend(self.bone_root_controllers.values())
         shorts.extend(self.hand_helper_controllers.values())
         for hand in HANDS:
             for finger_short in self.finger_shorts(hand):
@@ -298,13 +316,21 @@ class BellowsConfig:
         self.create_or_update_object(
             self.obj_name("HP_R"), "sphere", right_hand_collection)
 
-        # 键区骨骼跟随器：Copy Transforms 指向键区骨骼（目标留空），双手挂在它下面
+        # 键区骨骼跟随器：Copy Transforms 指向键区骨骼（目标留空），手与记录器挂在它下面
         left_bone_obj = self.create_or_update_object(
             self.obj_name("left_bone"), "axes", left_hand_collection,
             scale=BONE_FOLLOWER_DISPLAY_SIZE)
         right_bone_obj = self.create_or_update_object(
             self.obj_name("right_bone"), "axes", right_hand_collection,
             scale=BONE_FOLLOWER_DISPLAY_SIZE)
+
+        # 键区网格挂点：Copy Location + Copy Rotation 跟随键区骨骼（目标留空），
+        # 键区的按钮板 / 外壳 / 背带曲线挂在这两个空物体下面，跟着键区一起动
+        bone_root_collection = self._get_body_collection() or controllers_collection
+        for short in self.bone_root_controllers.values():
+            self.create_or_update_object(
+                self.obj_name(short), "axes", bone_root_collection,
+                scale=BONE_ROOT_DISPLAY_SIZE)
 
         # 五指 → 手掌；ext → 手掌；极向量 → ext（局部 (0,0,1)）
         for hand, collection in (("L", left_hand_collection),
@@ -358,15 +384,15 @@ class BellowsConfig:
         self.create_or_update_object(
             self.obj_name("accordion_pivot"), "circle", key_zone_collection)
 
-        # 手掌 / 手部枢轴 / 双脚 / 键区枢轴 / 风箱极向 → controller_root
-        for short in ("HP_L", "HP_R",
-                      "F_L", "FP_L", "F_R", "FP_R",
+        # 双脚 / 键区枢轴 / 风箱极向 → controller_root
+        for short in ("F_L", "FP_L", "F_R", "FP_R",
                       "pivot_left", "pivot_right", "accordion_pivot"):
             self._set_parent(short, controller_root)
 
-        # 双手挂在键区骨骼跟随器下（风箱开合、键区移动时手跟着走）
-        self._set_parent("H_L", left_bone_obj)
-        self._set_parent("H_R", right_bone_obj)
+        # 手掌与手部 IK 枢轴同级，都挂在键区骨骼跟随器下（风箱开合、键区移动时手跟着走）
+        for hand, follower_obj in (("L", left_bone_obj), ("R", right_bone_obj)):
+            self._set_parent(f"H_{hand}", follower_obj)
+            self._set_parent(f"HP_{hand}", follower_obj)
 
         # 跟骨骼走的控件补上约束（目标留空，由使用者接自己的骨骼）
         self._setup_control_constraints()
@@ -642,15 +668,21 @@ class BellowsConfig:
             return None
         return performer.target_skeleton
 
-    def _organize_body(self):
-        """把目标骨骼和它的 Mesh 归位到 Body_<后缀>（仅后缀模式）"""
+    def _get_body_collection(self):
+        """当前的 Body_<后缀> 集合（仅后缀模式；角色未初始化返回 None）"""
         if not self.suffix:
-            return
+            return None
         performer = self._get_performer_collection()
         if performer is None:
-            return
-        body_collection = performer_utils.get_or_create_collection(
+            return None
+        return performer_utils.get_or_create_collection(
             self.suffix, "Body", parent=performer.collection)
+
+    def _organize_body(self):
+        """把目标骨骼和它的 Mesh 归位到 Body_<后缀>（仅后缀模式）"""
+        body_collection = self._get_body_collection()
+        if body_collection is None:
+            return
         skeleton = self._target_skeleton()
         if skeleton is None:
             print("  • 未指定目标骨骼，跳过 Body 归位")

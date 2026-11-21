@@ -6,7 +6,8 @@
 
 - **控件**：双手（手掌 / 五指 / ext / 极向量 / 手部 IK 枢轴）、双脚、
   左右键区枢轴 `pivot_left` / `pivot_right`、键区位置记录器、
-  键区骨骼跟随器 `left_bone` / `right_bone`、背带 Hook 目标 `hand_back`、
+  键区骨骼跟随器 `left_bone` / `right_bone`、键区网格挂点
+  `left_bone_root` / `right_bone_root`、背带 Hook 目标 `hand_back`、
   风箱极向 `accordion_pivot`；
 - **属性**：分步填写的乐器属性面板（右手键盘/按钮、音域、排数、键数…），
   连同左右手各一份基准手型，存到演奏者骨骼的自定义属性上；
