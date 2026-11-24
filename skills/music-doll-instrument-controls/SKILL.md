@@ -173,6 +173,19 @@ config.setup_all_objects()
 | `MD_IK_leg.L/R` | `F_*_test` | `FP_*_test` |
 | `MD_Rot_leg.L/R` | `F_*_test` | — |
 | `MD_IK_index/middle/ring/pinky/thumb.L/R` | `I/M/R/P/T_*_test` | `I/M/R/P/T_*_pole_test` |
+| `MD_IK_upper`（2026-11-25 起） | `Head_Control_test` | `Look_At_test` |
+| `MD_Rot_upper`（2026-11-25 起） | `Head_Control_test` | — |
+
+> ⚠ **`MD_IK_upper` / `MD_Rot_upper` 是 rig 阶段新加的躯干 + 头部链**（"腰→胸→颈"IK + 头骨世界复制旋转）。
+> 它们的两个 test 控件 `Head_Control_test` / `Look_At_test` **不在现有 28 项映射表里**，
+> 所以现在的安装脚本既不会替换它们、也不会删除它们 —— 跑完 verify 会报"还有 test 控件"，
+> 而头部那两个引用仍指向 test 控件。处理它们时注意两点：
+>
+> 1. 乐器模块自己会建 `Head_Control_<后缀>` / `Look_At_<后缀>`（`Look_At` 挂在 `Middle_Hand` 下，
+>    `Middle_Hand` 是左右手世界坐标中点的 driver）。对齐规则与其它控件相同：位置/旋转抄 test、
+>    缩放留自己的；但 `Look_At` 的位置是**父级 + 驱动**算出来的，摆完 `Middle_Hand` 之后要复核一次。
+> 2. `Head_Control` 上有一条第 3 方也想要的 `Track_To`（rig 阶段挂在 test 上、模块 setup 又给实际控件挂了一条）。
+>    实际控件自己的那条必须留着（它指向模块的 `Look_At`），把 rig 阶段挂在 test 上的那条连同 test 一起删掉即可。
 
 替换时要扫**所有引用**，不只 `constraint.target`：
 

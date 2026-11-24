@@ -15,6 +15,9 @@
 
 不带 `--chains` 时验全部十四条链（两臂 + 十指 + 两腿）；`status` 只有"这一轮把十四条都验过且全过"
 才写成 DONE —— 只跑了一部分的，写多少条都不会把文件标成 DONE。
+
+装了上半身 / 头部控制链（`MD_IK_upper`）的文件，会自动多验一条 `upper`：
+颈 / 上胸 / 胸的 IK 链 + 头骨的复制旋转 + 视点。它也算进"齐全"——差它也不标 DONE。
 """
 import json
 import math
@@ -36,6 +39,16 @@ POLE_ALIGN_TOLERANCE_DEG = 5.0
 WRIST_TOLERANCE = 0.002
 HAND_ROTATION_TOLERANCE_DEG = 1.0
 REST_MESH_TOLERANCE = 1e-5
+
+# 上半身 / 头部控制链（rig_upper.py 的产物）
+UPPER_PART = "upper"
+UPPER_IK_NAME = "MD_IK_upper"
+UPPER_ROT_NAME = "MD_Rot_upper"
+REACH_TOLERANCE_RATIO = 0.02
+HEAD_ROTATION_TOLERANCE_DEG = 1.0
+HEAD_AIM_TOLERANCE_DEG = 2.0
+UPPER_BEND_TOLERANCE_DEG = 5.0
+UPPER_REST_MESH_TOLERANCE = 0.005
 
 
 def parse_args():
@@ -169,10 +182,10 @@ REQUIRED_PARTS = ("arm.L", "arm.R", "leg.L", "leg.R") + tuple(
     for finger in ("thumb", "index", "middle", "ring", "pinky"))
 
 
-def parts_complete(rows):
+def parts_complete(rows, required=None):
     """进度表里的链都做完且都通过，才算这个文件 DONE（只看已记录的链，缺的链视为没做）。"""
     marks = {row["part"]: row for row in rows}
-    for part in REQUIRED_PARTS:
+    for part in (required or REQUIRED_PARTS):
         row = marks.get(part)
         if row is None:
             return False
@@ -523,6 +536,171 @@ def verify_legacy_constraints(part, armature_object, chain_names, checker, label
                   else "原件约束全部 mute，只剩 MD_*")
 
 
+# ── 上半身 / 头部控制链 ─────────────────────────────────────────────────
+def upper_spine(armature_object):
+    """认这条人物身上的躯干链（颈 / 上胸 / 胸 + 头）；认不出返回 None。
+
+    认链口径与 `rig_upper.py` 共用一处，避免"执行器认一套、验收器认另一套"。
+    """
+    import rig_upper
+
+    return rig_upper.detect_spine_quiet(armature_object)
+
+
+def has_upper_chain(armature_object):
+    """文件里装过上半身 / 头部控制链吗（按 `MD_IK_upper` 这条约束判断）。"""
+    spine = upper_spine(armature_object)
+    if spine is None:
+        return False
+    pose_bone = armature_object.pose.bones.get(spine["neck"])
+    if pose_bone is None:
+        return False
+    return pose_bone.constraints.get(UPPER_IK_NAME) is not None
+
+
+def upper_group_names(armature_object):
+    """躯干链上所有可能带权重的顶点组名（含影子变体），用来把躯干顶点分出来单独比。"""
+    import rig_upper
+
+    spine = upper_spine(armature_object)
+    if spine is None:
+        return []
+    return sorted(rig_upper.upper_group_names(armature_object, spine))
+
+
+def upper_chain_root_first(spine):
+    """躯干链按"根 → 颈 → 头"的顺序排（`chain_joint_report` 要求父在前、子在后）。"""
+    return list(reversed(spine["chain"])) + [spine["head"]]
+
+
+def verify_upper(armature_object, reference, checker):
+    """验"上半身 + 头部朝向"这条链（`rig_upper.py` 的产物）。
+
+    判据与四肢同构：结构（链条对接 / IK 参数 / 复制旋转 / 只留自己的约束）、
+    功能（头跟控制器、头看向视点、躯干往极向量那边弯）、职责（rest 网格）。
+    差别在于它的"极向量"就是视点控制器 —— 视点在人的正前方，胸颈才会往前弯。
+    """
+    import rig_upper
+
+    part = UPPER_PART
+    spine = upper_spine(armature_object)
+    if spine is None:
+        checker.info("struct", "%s 躯干链" % part, "认不出颈骨 / 头骨，跳过（用 rig_upper --neck/--head 指定）")
+        return False
+    pose_bones = armature_object.pose.bones
+    neck_pose_bone = pose_bones[spine["neck"]]
+    ik_constraint = neck_pose_bone.constraints.get(UPPER_IK_NAME)
+    rotation_constraint = pose_bones[spine["head"]].constraints.get(UPPER_ROT_NAME)
+    checker.check("struct", "%s 躯干链（颈 / 上胸 / 胸 + 头骨）" % part,
+                  ik_constraint is not None,
+                  "链 = %s；%s IK 约束%s" % (
+                      " → ".join(upper_chain_root_first(spine)), UPPER_IK_NAME,
+                      "在" if ik_constraint is not None else "不在（这一段没做过）"))
+    if ik_constraint is None:
+        return False
+
+    head_control = ik_constraint.target
+    look_at = ik_constraint.pole_target
+    checker.check("struct", "%s IK 参数（链长 / 目标 / 极向量 / 用尾端）" % part,
+                  head_control is not None and look_at is not None
+                  and ik_constraint.chain_count == len(spine["chain"])
+                  and ik_constraint.use_tail,
+                  "chain=%d（链上有 %d 节）target=%s pole=%s pole_angle=%.1f°" % (
+                      ik_constraint.chain_count, len(spine["chain"]),
+                      head_control.name if head_control else "?",
+                      look_at.name if look_at else "?",
+                      math.degrees(ik_constraint.pole_angle)))
+    checker.check("struct", "%s 复制旋转（世界空间 REPLACE）" % part,
+                  rotation_constraint is not None
+                  and rotation_constraint.target is head_control
+                  and rotation_constraint.owner_space == "WORLD"
+                  and rotation_constraint.target_space == "WORLD"
+                  and rotation_constraint.mix_mode == "REPLACE"
+                  and not rotation_constraint.mute,
+                  "目标 = %s" % (rotation_constraint.target.name
+                                if rotation_constraint is not None and rotation_constraint.target else "?"))
+    checker.check("struct", "%s 控制器独立（没有父级）" % part,
+                  head_control is not None and look_at is not None
+                  and head_control.parent is None and look_at.parent is None,
+                  "%s.parent=%s，%s.parent=%s" % (
+                      head_control.name if head_control else "?",
+                      head_control.parent.name if head_control is not None and head_control.parent else "无",
+                      look_at.name if look_at else "?",
+                      look_at.parent.name if look_at is not None and look_at.parent else "无"))
+    verify_chain_connect(part, armature_object, upper_chain_root_first(spine), checker)
+    verify_legacy_constraints(part, armature_object,
+                              list(spine["chain"]) + [spine["head"]], checker)
+
+    if head_control is None or look_at is None:
+        checker.info("func", "%s 功能" % part, "IK 的目标 / 极向量丢了，功能项跳过")
+        return True
+
+    bone_index = common.build_bone_index(armature_object)
+    geometry = {
+        "chain_length": (armature_object.matrix_world @ bone_index[spine["chain"][-1]]["head"]
+                         - armature_object.matrix_world @ bone_index[spine["neck"]]["tail"]).length,
+        "front_axis": front_axis_of(bone_index),
+    }
+    probes = rig_upper.measure_poses(armature_object, spine, head_control, look_at, geometry)
+    reach = max(item["gap"] for item in probes)
+    rotation = max(item["rotation_error"] for item in probes)
+    aims = [item["aim_error"] for item in probes if item["aim_error"] is not None]
+    bends = [item["bend_error"] for item in probes if item["bend_error"] is not None]
+    aim = max(aims) if aims else 0.0
+    bend = max(bends) if bends else 0.0
+    checker.check("func", "%s 颈尾跟住头部控制器" % part,
+                  reach <= geometry["chain_length"] * REACH_TOLERANCE_RATIO,
+                  "4 个位置最大差 %.5f m（容差 %.5f）" % (
+                      reach, geometry["chain_length"] * REACH_TOLERANCE_RATIO))
+    checker.check("func", "%s 头骨朝向 = 头部控制器" % part,
+                  rotation <= HEAD_ROTATION_TOLERANCE_DEG,
+                  "最大 %.3f°（容差 %.1f°）" % (rotation, HEAD_ROTATION_TOLERANCE_DEG))
+    checker.check("func", "%s 头骨 Z 轴指向视点" % part,
+                  aim <= HEAD_AIM_TOLERANCE_DEG,
+                  "最大 %.2f°（容差 %.1f°）" % (aim, HEAD_AIM_TOLERANCE_DEG))
+    checker.check("func", "%s 躯干往极向量那侧弯" % part,
+                  bend <= UPPER_BEND_TOLERANCE_DEG,
+                  "最大偏 %.1f°（容差 %.1f°）" % (bend, UPPER_BEND_TOLERANCE_DEG))
+
+    if reference is None:
+        checker.info("duty", "%s 职责" % part, "没给 --reference，只做形状核对")
+        return True
+    groups = set(upper_group_names(armature_object))
+    worst = 0.0
+    counted = 0
+    for mesh_name, reference_vertices in reference["meshes"].items():
+        obj = bpy.data.objects.get(mesh_name)
+        if obj is None or len(obj.data.vertices) != len(reference_vertices):
+            continue
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        group_indices = {group.index for group in obj.vertex_groups if group.name in groups}
+        for index, reference_point in enumerate(reference_vertices):
+            if not group_indices:
+                continue
+            source = obj.data.vertices[index]
+            if not any(member.group in group_indices and member.weight > 0.01
+                       for member in source.groups):
+                continue
+            counted += 1
+            worst = max(worst, (mesh.vertices[index].co - reference_point).length)
+        evaluated.to_mesh_clear()
+    checker.check("duty", "%s rest 网格位移（躯干顶点）" % part,
+                  worst <= UPPER_REST_MESH_TOLERANCE,
+                  "最大 %.5f m（%d 个躯干顶点；容差 %.3f —— IK 把链解回 rest 时本应为 0）" % (
+                      worst, counted, UPPER_REST_MESH_TOLERANCE))
+    return True
+
+
+def front_axis_of(bone_index):
+    foot_names = [name for name in bone_index
+                  if common.role_from_name(name)["role"] == "foot"
+                  and common.role_from_name(name)["variant"] in ("plain", "shadow")]
+    front_axis, _evidence = common.detect_front_axis(bone_index, foot_names)
+    return front_axis
+
+
 def verify_arm(armature_object, part, arm, front_axis, reference, checker):
     """验一条两节链（手臂 / 腿）。两者结构相同（三段直接父子 + 中节 IK 链长 2 + 末端世界复制旋转），
     差别只在齿轮：骨的键名、复制旋转挂在哪、有没有扭转复制、拱形朝哪边。"""
@@ -747,6 +925,11 @@ def verify_arm(armature_object, part, arm, front_axis, reference, checker):
         else:
             leg_groups = {group.index for group in obj.vertex_groups
                           if group.name in set(reference.get("leg_groups") or [])}
+            # 只有装了上半身链的文件才把躯干顶点分出去（那条链由 verify_upper 单独按自己的容差量）。
+            # 没装的照旧按严格容差比 —— 别因为"模型有颈骨"就把一批顶点悄悄从断言里漏掉。
+            upper_groups = ({group.index for group in obj.vertex_groups
+                             if group.name in set(upper_group_names(armature_object))}
+                            if has_upper_chain(armature_object) else set())
             worst_other = 0.0
             worst_leg = 0.0
             leg_vertices = 0
@@ -755,12 +938,18 @@ def verify_arm(armature_object, part, arm, front_axis, reference, checker):
                 source_vertex = obj.data.vertices[index]
                 is_leg = any(group.group in leg_groups and group.weight > 0.01
                              for group in source_vertex.groups)
+                is_upper = any(group.group in upper_groups and group.weight > 0.01
+                               for group in source_vertex.groups)
                 if is_leg:
                     leg_vertices += 1
                     worst_leg = max(worst_leg, delta)
+                elif is_upper:
+                    # 躯干顶点由 `verify_upper` 单独按自己的容差量（IK 解算会把它归位到新姿势）
+                    continue
                 else:
                     worst_other = max(worst_other, delta)
-            checker.check("duty", "%s rest 网格不变（腿部以外）" % part, worst_other <= REST_MESH_TOLERANCE,
+            checker.check("duty", "%s rest 网格不变（腿部 / 躯干以外）" % part,
+                          worst_other <= REST_MESH_TOLERANCE,
                           "最大顶点位移 %.7f m（容差 %.0e）" % (worst_other, REST_MESH_TOLERANCE))
             if leg_groups:
                 # 腿按配方要重建 IK（拱形 + 用我们的 IK 取代 MMD 的），腿部顶点必然变一点：
@@ -793,11 +982,23 @@ def main():
 
     checker = Checker()
     parts = options["chains"] or list(REQUIRED_PARTS)
+    upper_present = has_upper_chain(armature_object)
+    if upper_present and UPPER_PART not in parts:
+        # 装了这条链就一定一起验：它是"上半身怎么摆、头朝哪看"的唯一把手，
+        # 只验四肢却说"文件 DONE"就等于把它漏掉了。
+        parts = list(parts) + [UPPER_PART]
     rows = []
     verified_parts = []
     for part in parts:
         print("")
         print("== %s ==" % part)
+        if part == UPPER_PART:
+            if not upper_present:
+                checker.info("struct", UPPER_PART, "没装上半身 / 头部控制链，跳过")
+                continue
+            verify_upper(armature_object, reference, checker)
+            verified_parts.append(part)
+            continue
         if part.startswith("arm.") or part.startswith("leg."):
             arm, front_axis = chain_from_armature(armature_object, part)
             if arm is None:
@@ -824,7 +1025,9 @@ def main():
     if not options["no_progress"]:
         for part in parts:
             part_items = [item for item in checker.items if part in item["name"]]
-            if not part_items:
+            # 这一条根本没验（认不出链 / 没装这条链）时不写进度行：
+            # 写了会留下 "upper 全部 -、notes=verified" 这种假记录。
+            if not part_items or all(item["ok"] is None for item in part_items):
                 continue
 
             def mark(keyword):
@@ -849,8 +1052,10 @@ def main():
         merged = progress.merge_rows(existing["rows"], rows)
         # DONE 要三件事同时成立：这一轮没有任何失败、这一轮把十四条链都验过、进度表里十四条都齐全。
         # 只验了一部分（比如只跑两臂）时即使全过也不能标 DONE —— 那会把"没验过"写成"做完了"。
-        uncovered = [part for part in REQUIRED_PARTS if part not in verified_parts]
-        status = "DONE" if (not failed and not uncovered and parts_complete(merged)) else "IN PROGRESS"
+        # 装了上半身 / 头部控制链的文件还要多验一条 upper（它不在十四条里，但同样是"必须验过"）。
+        required = list(REQUIRED_PARTS) + ([UPPER_PART] if upper_present else [])
+        uncovered = [part for part in required if part not in verified_parts]
+        status = "DONE" if (not failed and not uncovered and parts_complete(merged, required)) else "IN PROGRESS"
         progress.write(armature_object, 'armature "%s"' % armature_object.name, status, merged, "rig_verify.py")
         if uncovered:
             print("这一轮没验的链（%d 条）：%s" % (len(uncovered), ", ".join(uncovered)))

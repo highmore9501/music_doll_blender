@@ -293,6 +293,7 @@ class FRET_DANCE_OT_export_info(Operator):
         if not filepath:
             self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        filepath = ui_utils.resolve_info_path(context, filepath)
 
         base_state = _build_base_state(context)
         target_skeleton = _get_active_skeleton(context)
@@ -335,6 +336,7 @@ class FRET_DANCE_OT_import_info(Operator):
         if not filepath:
             self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        filepath = ui_utils.resolve_info_path_for_import(context, filepath)
 
         base_state = _build_base_state(context)
         target_skeleton = _get_active_skeleton(context)

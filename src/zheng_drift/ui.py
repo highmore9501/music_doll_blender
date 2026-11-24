@@ -340,6 +340,7 @@ class ZHENG_OT_export_info(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path(context, file_path)
         config = _get_zheng_config(
             context.scene.zhengdrift_props, suffix=_get_active_suffix(context))
         skel = _get_active_skeleton(context)
@@ -367,6 +368,7 @@ class ZHENG_OT_import_info(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path_for_import(context, file_path)
         config = _get_zheng_config(
             context.scene.zhengdrift_props, suffix=_get_active_suffix(context))
         skel = _get_active_skeleton(context)

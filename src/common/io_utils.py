@@ -9,6 +9,8 @@ import json
 import os
 from collections import defaultdict
 
+from . import instrument_base
+
 
 def nested_dict():
     """递归嵌套的 defaultdict，用于构建分层导出结构。"""
@@ -20,6 +22,22 @@ def ensure_extension(file_path: str, ext: str) -> str:
     if not file_path.endswith(ext):
         file_path = os.path.splitext(file_path)[0] + ext
     return file_path
+
+
+def normalize_info_path(file_path: str, instrument: str) -> str:
+    """人物信息路径 → 当前乐器的标准文件名。
+
+    用户在资源浏览器里选好目录后往往只写文件名（如 `file_name`），
+    落盘时按乐器补上固定后缀（如 `.zheng_master`）；已经带了别的后缀
+    （比如从别的乐器那里复制来的路径）则换成当前乐器的后缀。
+    空路径、未登记的乐器、以及只选到目录（结尾是分隔符）时原样返回。
+    """
+    if not file_path or file_path.endswith(("/", "\\")):
+        return file_path
+    ext = instrument_base.info_file_extension(instrument)
+    if not ext:
+        return file_path
+    return ensure_extension(file_path, ext)
 
 
 def save_json(file_path: str, data: dict) -> None:

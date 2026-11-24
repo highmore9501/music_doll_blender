@@ -242,6 +242,7 @@ class WR_OT_export_wind(Operator):
         if not path:
             self.report({"ERROR"}, T("请先在「角色操作」设置人物信息路径"))
             return {"CANCELLED"}
+        path = ui_utils.resolve_info_path(context, path)
         skel = _skeleton(context)
         if skel is None:
             self.report({"ERROR"}, T("请先选择目标骨骼"))
@@ -277,6 +278,7 @@ class WR_OT_import_wind(Operator):
         if not path:
             self.report({"ERROR"}, T("请先在「角色操作」设置人物信息路径"))
             return {"CANCELLED"}
+        path = ui_utils.resolve_info_path_for_import(context, path)
         if not os.path.exists(path):
             self.report({"ERROR"}, T("文件不存在: %s") % path)
             return {"CANCELLED"}

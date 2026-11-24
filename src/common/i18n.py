@@ -182,6 +182,9 @@ _DICT: dict[str, dict[str, str]] = {
     "人物信息保存路径（导入/导出）": {
         "zh": "人物信息保存路径（导入/导出）",
         "en": "Path to save/load performer info (import/export)"},
+    "导出文件名：%s": {
+        "zh": "导出文件名：%s",
+        "en": "Export file name: %s"},
 
     # ═══════════════════════════════════════════════════════════
     # FretDance UI

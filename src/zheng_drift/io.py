@@ -91,6 +91,10 @@ def export_recorder_info(file_path: str, config, skeleton,
     _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
     _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
 
+    # 落盘文件名固定为 .zheng_master：面板上只写了文件名、或从别的乐器换了路径时，
+    # 都在这里补成标准后缀，免得写出一份没有扩展名、Rust/Unreal 端认不出的文件。
+    file_path = io_utils.ensure_extension(file_path, ".zheng_master")
+
     print("\n开始导出记录器信息...")
     print(f"目标文件：{file_path}")
 

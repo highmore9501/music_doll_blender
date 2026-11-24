@@ -12,12 +12,15 @@
 - 场景级公共属性（当前演奏者 / 目标骨骼 / 目标乐器 / 路径 / 工具 / 折叠位）。
 """
 
+import os
+
 import bpy  # type: ignore
 from bpy.types import Panel, Operator  # type: ignore
 from bpy.props import EnumProperty, StringProperty  # type: ignore
 
 from . import performer_utils
 from . import instrument_base
+from . import io_utils
 from .tools import ToolDef, find_tool
 from . import i18n
 
@@ -157,6 +160,36 @@ def on_info_path_update(self, context):
         instrument_base.set_coll_attr(p.collection, "info_path", path)
 
 
+def _store_info_path(context, path: str) -> None:
+    """把路径写回面板属性（更新回调会同步到演奏者集合）。"""
+    if path and path != getattr(context.scene, SCENE_INFO_PATH, ""):
+        setattr(context.scene, SCENE_INFO_PATH, path)
+
+
+def resolve_info_path(context, file_path: str) -> str:
+    """导出用：把人物信息路径补成当前乐器的标准文件名，并写回面板。
+
+    选目录 + 只写文件名时，真正的后缀在这里补上（`.zheng_master` 等）；
+    写回面板是为了下一步「导入」拿到的就是刚写出的那个文件名。
+    """
+    normalized = io_utils.normalize_info_path(
+        file_path, active_instrument(context))
+    _store_info_path(context, normalized)
+    return normalized
+
+
+def resolve_info_path_for_import(context, file_path: str) -> str:
+    """导入用：优先按标准文件名找；只有标准文件名不存在、而用户写的原路径
+    确实有文件时，才按原路径读（兼容修复前导出、没带后缀的老文件）。"""
+    normalized = io_utils.normalize_info_path(
+        file_path, active_instrument(context))
+    if (normalized != file_path and file_path
+            and os.path.exists(file_path) and not os.path.exists(normalized)):
+        return file_path
+    _store_info_path(context, normalized)
+    return normalized
+
+
 def performer_of(obj):
     """任意对象 → 所属演奏者（按后缀反查；读 ID 属性，不受枚举编码问题影响）"""
     if obj is None:
@@ -264,6 +297,16 @@ def draw_performer_generator(layout, context):
     box.operator("music_doll.create_performer", text=T("新建角色"))
 
 
+def _draw_effective_info_name(column, scene, context):
+    """路径没带本乐器的扩展名时，提示导出真正会写出的文件名。"""
+    file_path = getattr(scene, SCENE_INFO_PATH, "")
+    effective = io_utils.normalize_info_path(
+        file_path, active_instrument(context))
+    if effective and effective != file_path:
+        column.label(
+            text=T("导出文件名：%s") % os.path.basename(effective), icon="INFO")
+
+
 def draw_performer_basic_info(layout, context, performer=None):
     """角色基础属性（名字+乐器身份 + 关联对象/路径）。
 
@@ -282,6 +325,7 @@ def draw_performer_basic_info(layout, context, performer=None):
     col.prop(scene, SCENE_TARGET_SKELETON, text=T("目标骨骼"))
     col.prop(scene, SCENE_TARGET_INSTRUMENT, text=T("目标乐器"))
     col.prop(scene, SCENE_INFO_PATH, text=T("人物信息路径"))
+    _draw_effective_info_name(col, scene, context)
 
 
 def draw_performer_ops(layout, context):

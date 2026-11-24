@@ -317,9 +317,7 @@ class STRINGFLOW_OT_export_info(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
-        # 确保文件扩展名为 .violinist
-        if not file_path.endswith('.violinist'):
-            file_path = os.path.splitext(file_path)[0] + '.violinist'
+        file_path = ui_utils.resolve_info_path(context, file_path)
 
         config = _get_string_flow_config(
             context.scene.stringflow_props,
@@ -344,10 +342,7 @@ class STRINGFLOW_OT_import_info(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
-        if not file_path.endswith('.violinist'):
-            self.report(
-                {'ERROR'}, f"文件扩展名不正确，请选择 .violinist 文件（当前: {os.path.splitext(file_path)[1]}）")
-            return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path_for_import(context, file_path)
 
         config = _get_string_flow_config(
             context.scene.stringflow_props,

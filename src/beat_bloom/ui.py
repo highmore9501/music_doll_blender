@@ -367,8 +367,7 @@ class BB_OT_export(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
-        if not file_path.endswith(".drummer"):
-            file_path = os.path.splitext(file_path)[0] + ".drummer"
+        file_path = ui_utils.resolve_info_path(context, file_path)
 
         try:
             export_drummer(file_path, skel, dk)
@@ -389,10 +388,7 @@ class BB_OT_import(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板设置人物信息路径"))
             return {'CANCELLED'}
-        if not file_path.endswith(".drummer"):
-            self.report({'ERROR'}, T("文件扩展名不正确，请使用 .drummer 文件（当前: %s）") %
-                        os.path.splitext(file_path)[1])
-            return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path_for_import(context, file_path)
 
         skel = _get_active_skeleton(context)
         if skel is None:

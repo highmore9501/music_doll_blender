@@ -32,6 +32,27 @@ LEGACY_KEYS = {
     "md_instrument_obj": "target_instrument",
 }
 
+# ── 乐器类型 → 人物信息文件扩展名 ─────────────────────────────
+# 「角色操作 > 人物信息路径」导出的文件格式由乐器决定，用户只写文件名时按这里补后缀。
+# 未登记的乐器返回空串（不限定后缀，保持原样）。
+
+INFO_FILE_EXTENSION = {
+    "fret_dance": ".json",
+    "string_flow": ".violinist",
+    "key_ripple": ".avatar",
+    "zheng_drift": ".zheng_master",
+    "harp_glide": ".harpist",
+    "wind_rise": ".wind",
+    "beat_bloom": ".drummer",
+    "bellows_pulse": ".accordion",
+}
+
+
+def info_file_extension(instrument: str) -> str:
+    """乐器类型 → 人物信息文件的固定扩展名；未登记的乐器返回空串。"""
+    return INFO_FILE_EXTENSION.get(instrument, "")
+
+
 # ── 乐器类型 → 缩写前缀（根空物体命名）────────────────────────
 
 INSTRUMENT_PREFIX = {

@@ -60,6 +60,25 @@ ROLE_KEYWORDS = (
     ("toe", ("toe", "toes")),
 )
 
+# 躯干骨的角色（上半身 / 头部控制链用）。与四肢分开：四肢是三段主骨，躯干是一条
+# "腰 → 胸 → 颈"的串联，名字体系也完全不一样（MMD 叫 上半身/上半身2/首/頭，
+# 欧美骨架叫 spine/chest/neck/head）。这里只认**主干精确命中**与英文关键词，
+# 不做包含匹配 —— `腰キャンセル`、`上半身2补助` 这类派生骨必须落回"未分类"。
+SPINE_ROLE_STEMS = {
+    "neck": ("首", "頸", "颈", "首根元"),
+    "head": ("頭", "头", "頭部"),
+    "chest": ("上半身", "上半身2", "上半身3", "胸", "胸部", "胴"),
+    "spine": ("背骨", "腹", "腹部", "下腹"),
+    "waist": ("腰", "下半身", "骨盤", "胴体"),
+}
+SPINE_ROLE_KEYWORDS = {
+    "neck": ("neck",),
+    "head": ("head", "skull"),
+    "chest": ("chest", "upperchest", "torso", "spine2", "spine3", "spine02", "spine03"),
+    "spine": ("spine", "spine1", "spine01", "abdomen", "belly"),
+    "waist": ("waist", "hips", "pelvis", "hip"),
+}
+
 TWIST_MARKERS = ("捩", "twist", "Twist")
 AUX_MARKERS = ("Aux", "aux", "補助", "helper", "Helper", "stretch", "Stretch", "scale_fix", "pole", "Pole", "_track_")
 LEAF_MARKERS = ("先", "先端", "tip", "Tip", "末端", "Nub", "nub", "Leaf", "leaf", "End", "end")
@@ -191,3 +210,28 @@ def role_from_name(name):
         return result(None, "segment", None, "numeric-segment")
 
     return result(role, variant_from_prefix, confidence)
+
+
+def spine_role_from_name(name):
+    """躯干骨的角色：neck / head / chest / spine / waist（认不出返回 (None, None)）。
+
+    只给"上半身 / 头部控制链"用，与 `role_from_name` 分开：四肢那套是"三段主骨"，
+    躯干是串联骨，两套判据混在同一个函数里会互相干扰（`上半身2` 在四肢口径下是分段骨）。
+    返回 (角色, 置信度)，置信度 `high` = 主干精确命中，`low` = 英文关键词命中。
+    """
+    _tags, stem, _side = parse_bone_name(name)
+    if not stem:
+        return None, None
+    for role, stems in SPINE_ROLE_STEMS.items():
+        if stem in stems:
+            return role, "high"
+    bare_stem = stem.lower().replace("_", "").replace(".", "").replace(" ", "")
+    # 分段躯干骨常带编号（Rigify 的 `spine.003`、UE 的 `spine_02`）：先按原样查，
+    # 再去掉末尾数字查一次，这样 `spine.003` / `spine3` / `spine` 都算胸段。
+    without_digits = bare_stem.rstrip("0123456789")
+    for role, keywords in SPINE_ROLE_KEYWORDS.items():
+        if bare_stem in keywords:
+            return role, "low"
+        if without_digits and without_digits != bare_stem and without_digits in keywords:
+            return role, "low"
+    return None, None

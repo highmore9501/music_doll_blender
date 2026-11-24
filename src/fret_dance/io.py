@@ -91,6 +91,9 @@ class IOManager:
 
         for_unreal=True 时坐标转换为 Unreal 空间，is_unreal 字段随之置 True。
         """
+        # 面板上只写文件名（或从别的乐器换了路径）时补成 .json，避免写出一份没有后缀的文件
+        file_name = io_utils.ensure_extension(file_name, ".json")
+
         # 坐标转换函数：for_unreal 时使用 common 公共转换，否则原样返回
         _pos = io_utils.to_unreal_position if for_unreal else (lambda p: p)
         _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)

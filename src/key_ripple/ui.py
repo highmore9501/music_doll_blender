@@ -339,6 +339,7 @@ class KEYRIPPLE_OT_export_avatar(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path(context, file_path)
         if skel is None:
             self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
@@ -364,6 +365,7 @@ class KEYRIPPLE_OT_import_avatar(Operator):
         if not file_path:
             self.report({'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path_for_import(context, file_path)
         if skel is None:
             self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}

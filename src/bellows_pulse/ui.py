@@ -424,6 +424,7 @@ class BELLOWS_PULSE_OT_export_accordion(Operator):
             self.report(
                 {'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path(context, file_path)
 
         skeleton = _get_active_skeleton(context)
         if skeleton is None:
@@ -452,6 +453,7 @@ class BELLOWS_PULSE_OT_import_accordion(Operator):
             self.report(
                 {'ERROR'}, T("请先在「角色操作」面板中设置人物信息路径"))
             return {'CANCELLED'}
+        file_path = ui_utils.resolve_info_path_for_import(context, file_path)
 
         skeleton = _get_active_skeleton(context)
         if skeleton is None:
