@@ -93,6 +93,115 @@ def angle_between(vector_a, vector_b):
 
 
 # ── 链结构 ──────────────────────────────────────────────────────────────
+# 链条关节"算不算重合"的阈值（骨架空间单位）。MMD 换算过来的模型 1 单位 = 1 cm，
+# 这个阈值约 10 μm：比它对得上的都当重合，比它大的就是真的错开了（实测错开的是厘米级）。
+CHAIN_JOINT_TOLERANCE = 1e-3
+
+
+def chain_joints(chain_names):
+    """一条链上相邻两骨的 (父, 子) 对。只认同一个列表里的相邻骨。
+
+    并列的变体（`足D` / `_dummy_` / `MCH_`）不要塞进同一个列表 —— 它们不是上一节的延续，
+    该怎么连由调用方按各自的链分别给。
+    """
+    return [(chain_names[index - 1], chain_names[index]) for index in range(1, len(chain_names))]
+
+
+# 脚趾骨的名字线索：MMD 的 `つま先`（脚掌中段长出去的分支）与 `足先EX`（沿腿延伸的那一节）。
+TOE_HINTS = ("つま先", "足先EX", "足先", "toe", "Toe", "Toes", "toes")
+
+# "沿腿延伸的那一节"的名字线索 —— 它是 Unreal 重定向 LeftLeg 链的最后一节。
+CHAIN_TOE_HINTS = ("足先", "toe", "Toe", "Toes", "toes")
+
+
+def is_chain_toe(name):
+    """这根脚趾骨是不是"沿腿延伸的那一节"（重定向链的最后一节）。
+
+    `足先EX` / `toe` 是；`つま先` 不是 —— 后者在 MMD 里通常是脚掌中段长出去的分支。
+    这个区分不能靠"头离脚掌尾端多近"来判：实测有模型的 `足先EX` 头就在脚掌中段（差 18 cm），
+    它照样是链的下一节，该迁就的是脚掌的尾端。
+    """
+    return any(hint in name for hint in CHAIN_TOE_HINTS)
+
+
+def looks_like_toe(name):
+    """名字像不像脚趾骨（角色判定或名字线索，两条中一条即可）。"""
+    if role_from_name(name)["role"] == "toe":
+        return True
+    return any(hint in name for hint in TOE_HINTS)
+
+
+def toe_candidates(bone_index, foot_name):
+    """脚掌上"像脚趾"的子骨，以及它们到脚掌尾端的距离（跳过影子 / 机制变体）。
+
+    MMD 的腿常常同时有两根：`つま先` 的头在脚掌中段（分支）、`足先EX` 的头正好在脚掌尾端（沿腿延伸）。
+    哪一根算"链条下一节"只能看几何 —— head 落在脚掌尾端上的那根才是。
+    """
+    entry = bone_index.get(foot_name) or {}
+    candidates = []
+    for child_name in entry.get("children", []):
+        child = bone_index.get(child_name)
+        if child is None:
+            continue
+        if role_from_name(child_name)["variant"] in ("shadow", "mechanism"):
+            continue
+        if not looks_like_toe(child_name):
+            continue
+        candidates.append((child_name, (entry["tail"] - child["head"]).length))
+    return candidates
+
+
+def toe_continuation(bone_index, foot_name, tolerance=CHAIN_JOINT_TOLERANCE):
+    """脚掌后面那一节脚趾骨（重定向链的最后一节）；没有就返回 None。
+
+    这一节不是"可选的装饰骨"：Unreal 做 animation retarget 时，`足D→ひざD→足首D→足先EX`
+    是一条 LeftLeg 链，链上任何一节不连续，重定向出来的腿就是错的 —— 而在 Blender 里，
+    脚掌与脚趾之间看不出这种特殊关系，所以最容易漏。
+
+    选法（作者 2026-11-24 定）：优先"沿腿延伸"的那一根（`足先EX` / `toe`），**不管它的头在哪**。
+    它的头不在脚掌尾端时，要迁就的是脚掌的尾端 —— `rig_apply` 直接把尾端挪到它头上，
+    `rig_connect --fix-tails --reanchor-drive` 做同一件事。只有这类脚趾骨不存在时，
+    才退回到"自己正好落在脚掌尾端上"的 `つま先`（此时它才是唯一的延续）。
+    """
+    candidates = toe_candidates(bone_index, foot_name)
+    chain_candidates = [(name, gap) for name, gap in candidates if is_chain_toe(name)]
+    if chain_candidates:
+        chain_candidates.sort(key=lambda item: item[1])
+        return chain_candidates[0][0]
+    aligned = [(name, gap) for name, gap in candidates if gap <= tolerance]
+    if not aligned:
+        return None
+    aligned.sort(key=lambda item: item[1])
+    return aligned[0][0]
+
+
+def chain_joint_report(bone_index, chain_names, tolerance=CHAIN_JOINT_TOLERANCE):
+    """每对关节的对接状态：是否父子、头尾差多少、是否够近、是否 `use_connect`。
+
+    IK 是按"关节链"解算的：后一根的头必须压在前一根的尾上，中间关节一转两段才不会裂开；
+    Blender 里还要 `use_connect = True`，否则子骨仍能被单独平移，链条照样会散。
+    """
+    items = []
+    for parent_name, child_name in chain_joints(chain_names):
+        parent_entry = bone_index.get(parent_name)
+        child_entry = bone_index.get(child_name)
+        if parent_entry is None or child_entry is None:
+            items.append({"parent": parent_name, "child": child_name, "exists": False,
+                          "gap": None, "connected": False, "parent_ok": False, "coincident": False})
+            continue
+        gap = (parent_entry["tail"] - child_entry["head"]).length
+        items.append({
+            "parent": parent_name,
+            "child": child_name,
+            "exists": True,
+            "gap": gap,
+            "connected": bool(child_entry["connected"]),
+            "parent_ok": child_entry["parent"] == parent_name,
+            "coincident": gap <= tolerance,
+        })
+    return items
+
+
 def single_chain(bone_index, start_name, max_depth=6):
     """从 start 往下走，只要每层恰好一个子骨就继续。
 

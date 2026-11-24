@@ -44,7 +44,7 @@ import os
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -353,6 +353,134 @@ def align_aux_tails(edit_bones, chain, dry_run, report):
             edit_bone.tail = target.copy()
 
 
+def chain_connect_names(edit_bones, chain):
+    """这条链上真正要对接的那串骨（有 MCH 主骨时是主骨链 + 手掌）。
+
+    形变骨与它自己的 MCH 主骨是"同一个头复制出来"的两根（head 对 head），不是关节的延续，
+    所以不能把形变骨连到主骨上 —— 那会把它的头拽到主骨的尾上去。
+    """
+    upper_name = chain.get("upper")
+    forearm_name = chain.get("forearm")
+    hand_name = chain.get("hand")
+    upper_mch = edit_bones.get("MCH_" + upper_name) if upper_name else None
+    forearm_mch = edit_bones.get("MCH_" + forearm_name) if forearm_name else None
+    if upper_mch is not None and forearm_mch is not None:
+        return [name for name in (upper_mch.name, forearm_mch.name, hand_name) if name]
+    return [name for name in (upper_name, forearm_name, hand_name) if name]
+
+
+def append_toe_joint(edit_bones, connect_names, chain, dry_run, report):
+    """腿：把脚掌后面那一节脚趾骨也接进链里。
+
+    Unreal 做 animation retarget 时，`足D→ひざD→足首D→足先EX` 是一条 LeftLeg 链，链上任何一节
+    不连续，重定向出来的腿就是错的。而在 Blender 里，脚掌与脚趾之间看不出这层关系，最容易漏。
+
+    MMD 的腿常同时有 `つま先`（脚掌中段长出去的分支）与 `足先EX`（沿腿延伸的那一节）。
+    只把"沿腿延伸"的那一根接进来：`足先EX` / `toe` 型的一律算链的下一节，**它的头不在脚掌尾端时
+    把脚掌的尾端挪过去**（作者 2026-11-24 定：该迁就的是脚掌的尾端，不是脚趾的头）；
+    `つま先` 型是分支，既不连、也不掰脚掌的尾。
+    """
+    if chain.get("kind") != "leg" or not connect_names:
+        return connect_names
+    foot_name = connect_names[-1]
+    foot_bone = edit_bones.get(foot_name)
+    if foot_bone is None:
+        return connect_names
+
+    candidates = []
+    for edit_bone in edit_bones:
+        if edit_bone.parent != foot_bone:
+            continue
+        if common.role_from_name(edit_bone.name)["variant"] in ("shadow", "mechanism"):
+            continue
+        if not common.looks_like_toe(edit_bone.name):
+            continue
+        candidates.append((edit_bone.name, (foot_bone.tail - edit_bone.head).length))
+    if not candidates:
+        return connect_names
+
+    chain_candidates = [item for item in candidates if common.is_chain_toe(item[0])]
+    pool = chain_candidates or candidates
+    pool.sort(key=lambda item: item[1])
+    toe_name, toe_gap = pool[0]
+
+    if chain_candidates:
+        if toe_gap > common.CHAIN_JOINT_TOLERANCE:
+            report("connect", "脚掌 %s 的尾端 %s → 脚趾 %s 的头 %s（原来差 %.5f；重定向的 LeftLeg 链要连续）" % (
+                foot_name, _fmt(foot_bone.tail), toe_name, _fmt(edit_bones[toe_name].head), toe_gap))
+            if not dry_run:
+                foot_bone.tail = edit_bones[toe_name].head.copy()
+        else:
+            report("connect", "脚掌 %s → 脚趾 %s 直接接进链里（重定向的 LeftLeg 链要连续）" % (
+                foot_name, toe_name))
+        return connect_names + [toe_name]
+
+    if toe_gap > common.CHAIN_JOINT_TOLERANCE:
+        report("connect", "脚掌 %s 上只有分支脚趾骨 %s（头离脚掌尾 %.5f）—— 不连、也不掰尾端" % (
+            foot_name, toe_name, toe_gap))
+        return connect_names
+    report("connect", "脚掌 %s → 脚趾 %s 接进链里（重定向的 LeftLeg 链要连续）" % (foot_name, toe_name))
+    return connect_names + [toe_name]
+
+
+def enforce_chain_connect(edit_bones, chain_names, dry_run, report, fix_tails=True,
+                          planned_reparent=False):
+    """链条对接：后一根的 head 落在前一根的 tail 上，并且 `use_connect = True`。
+
+    不重合时改**前一根的 tail**（后一根的 head 才是关节位置，动它等于把整段肢体挪走）。
+    这一步必须排在拱形之后：拱形会把中间关节顶出去（本例 9 mm），先连后拱形的话关节又错开。
+
+    `planned_reparent`：dry-run 里主骨还没造出来，链上的父级还是"改之前"的样子。
+    这时不该报"不是子级、不连"（真实执行会连上），只说这一轮的对接规划留给真实执行。
+    """
+    counts = {"already": 0, "new": 0, "moved_tail": 0, "skipped": 0}
+    for parent_name, child_name in common.chain_joints(chain_names):
+        parent_bone = edit_bones.get(parent_name)
+        child_bone = edit_bones.get(child_name)
+        if parent_bone is None or child_bone is None:
+            report("connect", "跳过 %s → %s（这一轮没有这根骨，多半是还没建出来）" % (
+                parent_name, child_name))
+            counts["skipped"] += 1
+            continue
+        if child_bone.parent != parent_bone:
+            if planned_reparent:
+                report("connect", "%s → %s 的父级这一轮会改（dry-run 造不出主骨），对接交给真实执行" % (
+                    parent_name, child_name))
+                counts["skipped"] += 1
+                continue
+            report("connect", "%s 不是 %s 的子级（父级是 %s），不连" % (
+                child_name, parent_name, child_bone.parent.name if child_bone.parent else "-"))
+            counts["skipped"] += 1
+            continue
+        gap = (parent_bone.tail - child_bone.head).length
+        if gap > common.CHAIN_JOINT_TOLERANCE:
+            if not fix_tails:
+                report("connect", "%s 的尾端离 %s 的头 %.5f，没动（--keep-tails）" % (
+                    parent_name, child_name, gap))
+                counts["skipped"] += 1
+                continue
+            report("connect", "%s 的尾端 %s → %s（对齐 %s 的头，原来差 %.5f）" % (
+                parent_name, _fmt(parent_bone.tail), _fmt(child_bone.head), child_name, gap))
+            if not dry_run:
+                parent_bone.tail = child_bone.head.copy()
+            counts["moved_tail"] += 1
+        if child_bone.use_connect:
+            counts["already"] += 1
+            continue
+        report("connect", "%s 连到 %s（connect=1）" % (child_name, parent_name))
+        if not dry_run:
+            child_bone.use_connect = True
+        counts["new"] += 1
+    if counts["new"] or counts["moved_tail"]:
+        report("connect", "这条链接好了 %d 处（原本已连 %d 处，跳过 %d 处）" % (
+            counts["new"], counts["already"], counts["skipped"]))
+    elif counts["skipped"]:
+        report("connect", "没有改动（%d 处跳过）" % counts["skipped"])
+    else:
+        report("connect", "这条链的 %d 处关节本来就对得上且已连" % counts["already"])
+    return counts
+
+
 def shape_arch(edit_bones, chain, front_axis, percent, dry_run, report):
     """拱形：把中间关节沿凸侧顶出去（按弦长的百分比），两端不动。"""
     upper_name = chain.get("upper")
@@ -534,8 +662,15 @@ def apply_finger(armature_object, chain, front_axis, options, report):
                          options["dry_run"], report, part)
     # 指尖骨放在拱形之后：拱形会改末节方向，先做的话指尖骨的朝向又对不上了
     tip_name = ensure_leaf_bone(edit_bones, segments, chain, options["dry_run"], report)
+    finger_chain = list(segments)
+    if tip_name and tip_name in edit_bones:
+        finger_chain.append(tip_name)
+    enforce_chain_connect(edit_bones, finger_chain, options["dry_run"], report)
     align_roll_to(edit_bones, segments, direction, options["dry_run"], report)
     enter_object(armature_object)
+
+    # 手指这一串关节上也不许有原件的约束在抢（MMD 的手指常挂 mmd_ik_limit_override）
+    mute_legacy_constraints(armature_object, finger_chain, options["dry_run"], report)
 
     if options["skip_constraints"]:
         report("ik", "%s 按 --skip-constraints 跳过约束" % part)
@@ -926,6 +1061,43 @@ def handle_mmd_ik(armature_object, chain, action, dry_run, report):
                     constraint.mute = True
 
 
+def mute_legacy_constraints(armature_object, chain_bone_names, dry_run, report):
+    """链上"决定姿势"的骨，原件带的约束一律 mute，只留我们自己的 `MD_`。
+
+    MMD 原件在这些骨上挂着 `IK`、`mmd_additional_rotation`、`mmd_ik_limit_override`、
+    `mmd_tools_at_dummy` 等；它们和我们加的 IK / 复制旋转抢同一根骨，谁说了算取决于算的先后，
+    调起来像玄学。规矩是：改造过的链上只让自己加的约束生效，其余全部静音（保留可回溯，不删）。
+
+    只管"关节骨"（上臂/前臂/手掌/大腿/小腿/脚掌/手指各节及其影子变体）。像 `ひじ補助`、`肩C`、
+    `腰キャンセル`、`目` 这类"跟着别人动"的辅助骨，它们的约束没有替代品，关掉会掉形变，不在范围内。
+    """
+    muted = []
+    expanded = []
+    for bone_name in chain_bone_names:
+        if bone_name not in expanded:
+            expanded.append(bone_name)
+        for prefix in ("_shadow_", "_dummy_"):
+            twin = prefix + bone_name
+            if twin not in expanded and twin in armature_object.pose.bones:
+                expanded.append(twin)
+    for bone_name in expanded:
+        pose_bone = armature_object.pose.bones.get(bone_name)
+        if pose_bone is None:
+            continue
+        for constraint in pose_bone.constraints:
+            if constraint.name.startswith(CONSTRAINT_PREFIX) or constraint.mute:
+                continue
+            muted.append("%s.%s" % (bone_name, constraint.name))
+            if not dry_run:
+                constraint.mute = True
+    if muted:
+        report("mute", "%d 条原件约束静音（只留 %s*）：%s" % (
+            len(muted), CONSTRAINT_PREFIX, ", ".join(muted)))
+    else:
+        report("mute", "链上没有需要静音的原件约束")
+    return muted
+
+
 def handle_mmd_twist(armature_object, bone_names, action, dry_run, report):
     """处理 MMD 自带的扭转机制（`mmd_additional_rotation`），只动这条链上的扭转骨。
 
@@ -1108,6 +1280,10 @@ def apply_chain(armature_object, chain, front_axis, options, report):
         shape_arch(edit_bones, chain, front_axis, arch_percent, options["dry_run"], report)
 
     align_aux_tails(edit_bones, chain, options["dry_run"], report)
+    chain_names = chain_connect_names(edit_bones, chain)
+    chain_names = append_toe_joint(edit_bones, chain_names, chain, options["dry_run"], report)
+    enforce_chain_connect(edit_bones, chain_names, options["dry_run"], report,
+                          planned_reparent=bool(chain.get("create_mch")) and options["dry_run"])
     upper_twists, forearm_twists = find_twist_bones(edit_bones, chain)
     twist_names = (chain.get("between_upper_forearm", []) + chain.get("between_forearm_hand", [])
                    + upper_twists + forearm_twists)
@@ -1121,6 +1297,15 @@ def apply_chain(armature_object, chain, front_axis, options, report):
             roll_names.append(name)
     align_roll_to(edit_bones, roll_names, z_axis_vector(chain, front_axis), options["dry_run"], report)
     enter_object(armature_object)
+
+    # 链上只留我们自己的约束：原件挂在关节骨上的 IK / 附加旋转 / 角度限制 / 影子拷贝全部静音
+    joint_names = [name for name in (chain.get("upper"), chain.get("forearm"), chain.get("hand"))
+                   if name]
+    joint_names += [name for name in chain_names if name not in joint_names]
+    for name in list(joint_names):
+        if name.startswith("MCH_"):
+            joint_names.append(name[4:])
+    mute_legacy_constraints(armature_object, joint_names, options["dry_run"], report)
 
     if chain.get("create_mch") and not options["dry_run"]:
         move_to_collection(armature_object, ["MCH_" + chain["upper"], "MCH_" + chain["forearm"]],
@@ -1160,6 +1345,81 @@ def save_file(filepath, copy=True):
             print("存盘时 Blender 报了一条错（文件已写出，多半是缺贴图）：%s" % message)
         else:
             raise
+
+
+POLE_SWEEP_BEND_DEGREES = 60.0
+POLE_SWEEP_STEP_DEGREES = 5
+
+
+def evaluated_bone_head(armature_object, bone_name):
+    """当前姿势下（约束解算之后）某根骨的头在世界空间的位置。"""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = armature_object.evaluated_get(depsgraph)
+    return evaluated.matrix_world @ evaluated.pose.bones[bone_name].head
+
+
+def resweep_pole_angle(armature_object, constraint, root_name, mid_name, end_name,
+                       convex_world):
+    """极向量挪走之后重标 `pole_angle`，返回 (角度, 中间关节朝极向量的偏离)。
+
+    判据与 `rig_verify` 一致：中间关节相对"根→目标"这根弦的垂直偏移，与极向量相对同一根弦的
+    垂直偏移之间的夹角最小者胜。
+
+    **必须先把链摆弯**：链几乎笔直时（腿的 rest 就是这样），任何 `pole_angle` 解出来的关节位置
+    都只差几毫米，扫描等于在给噪声排名 —— 实测把一条腿标成 0°、另一条标成 180°。
+    所以这里绕弯曲平面法线把弦转 60° 当探针姿势，扫完再把控制器还原。
+    """
+    bones = armature_object.data.bones
+    controller = constraint.target
+    if controller is None or constraint.pole_target is None:
+        return None, None
+    if not all(name in bones for name in (root_name, mid_name, end_name)):
+        return None, None
+
+    root_local = bones[root_name].head_local.copy()
+    chord = bones[end_name].head_local - root_local
+    if chord.length < 1e-6:
+        return None, None
+    chord_unit = chord.normalized()
+    convex_local = armature_object.matrix_world.inverted().to_3x3() @ Vector(convex_world)
+    convex_perp = convex_local - chord_unit * convex_local.dot(chord_unit)
+    if convex_perp.length < 1e-6:
+        return None, None
+    convex_perp.normalize()
+    bend_axis = chord_unit.cross(convex_perp).normalized()
+    bent_unit = Matrix.Rotation(math.radians(POLE_SWEEP_BEND_DEGREES), 4, bend_axis) @ chord_unit
+    chain_length = bones[root_name].length + bones[mid_name].length
+    probe_world = armature_object.matrix_world @ (root_local + bent_unit * (chain_length * 0.75))
+
+    saved_matrix = controller.matrix_world.copy()
+    probe_matrix = saved_matrix.copy()
+    probe_matrix.translation = probe_world
+    controller.matrix_world = probe_matrix
+    bpy.context.view_layer.update()
+
+    root_world = armature_object.matrix_world @ root_local
+    chord_world = probe_world - root_world
+    chord_world_unit = chord_world.normalized() if chord_world.length > 1e-9 else chord_unit
+    pole_point = constraint.pole_target.matrix_world.translation.copy()
+    pole_offset = (pole_point - root_world) - chord_world_unit * (pole_point - root_world).dot(chord_world_unit)
+
+    original_angle = constraint.pole_angle
+    best_angle, best_error = None, None
+    for degrees in range(-180, 181, POLE_SWEEP_STEP_DEGREES):
+        constraint.pole_angle = math.radians(degrees)
+        bpy.context.view_layer.update()
+        joint = evaluated_bone_head(armature_object, mid_name)
+        joint_offset = (joint - root_world) - chord_world_unit * (joint - root_world).dot(chord_world_unit)
+        if joint_offset.length < 1e-6 or pole_offset.length < 1e-6:
+            continue
+        error = math.degrees(joint_offset.angle(pole_offset))
+        if best_error is None or error < best_error:
+            best_angle, best_error = degrees, error
+
+    controller.matrix_world = saved_matrix
+    constraint.pole_angle = math.radians(best_angle) if best_angle is not None else original_angle
+    bpy.context.view_layer.update()
+    return best_angle, best_error
 
 
 def arrange_controllers(armature_object, chains, front_axis, dry_run, report, place_poles=False):
@@ -1251,8 +1511,9 @@ def arrange_controllers(armature_object, chains, front_axis, dry_run, report, pl
         limb_length = (bones[upper_name].tail_local - bones[upper_name].head_local).length
         distance = limb_length * 0.6
         if kind == "leg":
-            # 腿比胳膊长得多，0.6 倍大腿会让极向量跑到身体前面很远；膝盖这一档压到 20 cm 以内
-            distance = min(distance, 0.20)
+            # 腿的极向量要放到"脚怎么抬都追不上"的地方：实测 200 mm 时脚往前抬过 400 mm，
+            # 极向量就被甩到弦的后面，膝盖跟着翻到身后去了（膝盖朝哪边由极向量相对弦的方位决定）。
+            distance = max(distance, 0.50)
         distance = max(distance, 0.01)
         direction = -front if kind == "arm" else front
         offset = (armature_object.matrix_world.to_3x3() @ direction).normalized() * distance
@@ -1260,42 +1521,21 @@ def arrange_controllers(armature_object, chains, front_axis, dry_run, report, pl
             part, pole_object.name, "身后" if kind == "arm" else "身前", distance * 1000.0))
         if dry_run:
             continue
-        # 挪之前先记下"现在这根中间关节在哪"，挪完靠扫描把 pole_angle 找回来：
-        # 极向量本来压在关节上（退化），一挪开 IK 就真的开始往它那边掰，rest 姿势会跟着变。
+        # 极向量本来压在关节上（退化），一挪开 IK 才真的按它掰，这时要重新标 pole_angle。
         ik_owner = "MCH_" + chain.get("forearm", "") if ("MCH_" + chain.get("forearm", "")) in pose_bones else chain.get("forearm")
         mid_bone = chain.get("forearm")
         if ik_owner in pose_bones and mid_bone in pose_bones:
-            before = (armature_object.matrix_world @ pose_bones[mid_bone].head).copy()
             pole_object.location = pole_object.location + offset
             bpy.context.view_layer.update()
             constraint = next((con for con in pose_bones[ik_owner].constraints
                                if con.type == "IK" and con.name.startswith(CONSTRAINT_PREFIX)), None)
             if constraint is not None:
-                root_bone = chain.get("upper")
-                end_bone = chain.get("hand")
-                pole_point = pole_object.matrix_world.translation.copy()
-                best_angle, best_error = None, None
-                original = constraint.pole_angle
-                for degrees in range(0, 360, 5):
-                    constraint.pole_angle = math.radians(degrees)
-                    bpy.context.view_layer.update()
-                    joint = armature_object.matrix_world @ pose_bones[mid_bone].head
-                    root = armature_object.matrix_world @ pose_bones[root_bone].head
-                    end = armature_object.matrix_world @ pose_bones[end_bone].head
-                    chord_middle = (root + end) * 0.5
-                    # 判据不是"回到原来的位置"，而是"这根中间关节朝着极向量凸出去"——
-                    # 位置那一条两种解都能满足，只有朝向能分出哪一侧是对的。
-                    to_joint = joint - chord_middle
-                    to_pole = pole_point - chord_middle
-                    if to_joint.length < 1e-6 or to_pole.length < 1e-6:
-                        continue
-                    error = math.degrees(to_joint.angle(to_pole))
-                    if best_error is None or error < best_error:
-                        best_angle, best_error = degrees, error
-                constraint.pole_angle = math.radians(best_angle) if best_error is not None else original
-                bpy.context.view_layer.update()
-                report("controller", "%s 极向量挪开后重标 pole_angle = %d°（中间关节朝极向量偏 %.1f°）" % (
-                    part, best_angle if best_angle is not None else -1, best_error or 0.0))
+                best_angle, best_error = resweep_pole_angle(
+                    armature_object, constraint, chain.get("upper"), mid_bone, chain.get("hand"),
+                    direction)
+                report("controller", "%s 极向量挪开后重标 pole_angle = %s°（探针姿势下中间关节朝极向量偏 %s°）" % (
+                    part, best_angle if best_angle is not None else "保持原值",
+                    ("%.1f" % best_error) if best_error is not None else "n/a"))
             continue
         pole_object.location = pole_object.location + offset
 

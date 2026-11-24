@@ -72,6 +72,10 @@ def open_file(filepath):
         bpy.ops.wm.open_mainfile(filepath=filepath, load_ui=False)
     except RuntimeError as error:
         print("注意：载入时报错（已跳过）：%s" % str(error).splitlines()[0][:160])
+    # 载入之后必须先把依赖图算一遍再取顶点：不算的话拿到的是"约束还没解算"的网格，
+    # MMD 骨架的腿靠 IK 摆姿势、其它骨靠 TRANSFORM 复制，会凭空多出几微米的假位移
+    # （实测把非腿部的 rest 位移从 4e-6 报成 4e-5，直接顶穿容差）。
+    bpy.context.view_layer.update()
 
 
 def find_armature(name=None):
@@ -82,7 +86,12 @@ def find_armature(name=None):
 
 
 def leg_group_names(armature_object):
-    """腿链上的顶点组名（含 D / _dummy_ / _shadow_ 这些变体），用来把腿部顶点从网格检查里分出来。"""
+    """腿链上的顶点组名（含 D / _dummy_ / _shadow_ 这些变体），用来把腿部顶点从网格检查里分出来。
+
+    脚趾要按 `common.looks_like_toe` 认：`role_from_name` 把 `つま先` / `足先EX` 归成 leaf
+    （它们的头落在脚掌末端），而按名字前缀兜底又认不出带侧别前缀的日文名（`左足先EX`）。
+    漏掉的话，那批顶点的腿部位移会被当成"腿以外"去比严格容差，必然红。
+    """
     groups = set()
     leg_roots = set()
     for bone in armature_object.data.bones:
@@ -95,6 +104,8 @@ def leg_group_names(armature_object):
         if base and base in leg_roots:
             groups.add(bone.name)
         elif bone.name.startswith(("足", "ひざ", "つま先", "足首", "足先")):
+            groups.add(bone.name)
+        elif common.looks_like_toe(bone.name):
             groups.add(bone.name)
     return sorted(groups)
 
@@ -228,6 +239,39 @@ def finger_from_armature(armature_object, part):
     }
 
 
+def chain_joint_items(armature_object, chain_names):
+    """链条关节的对接状态（验收用：同一份口径见 rig_common.chain_joint_report）。"""
+    bone_index = common.build_bone_index(armature_object)
+    return common.chain_joint_report(bone_index, chain_names)
+
+
+def describe_joints(items):
+    """把关节状态写成人看的一行：`父→子 gap=0.00000 connect=1`。"""
+    parts = []
+    for item in items:
+        if not item["exists"]:
+            parts.append("%s→%s 骨缺失" % (item["parent"], item["child"]))
+            continue
+        parts.append("%s→%s gap=%.5f connect=%d%s" % (
+            item["parent"], item["child"], item["gap"], 1 if item["connected"] else 0,
+            "" if item["parent_ok"] else "（不是子级）"))
+    return "; ".join(parts)
+
+
+def verify_chain_connect(part, armature_object, chain_names, checker):
+    """链条对接：每对父子都要 head 压住父尾、而且是 connect 状态。
+
+    少了这一步的后果不是"看起来不对"，而是解算时会散：没连的子骨可以被单独平移，
+    拖 IK 控制器时两段之间会露出缝。
+    """
+    items = chain_joint_items(armature_object, chain_names)
+    usable = [item for item in items if item["exists"]]
+    ok = bool(usable) and all(item["parent_ok"] and item["coincident"] and item["connected"]
+                             for item in usable)
+    checker.check("struct", "%s 链条关节父子对接（tail=head + connect）" % part, ok,
+                  describe_joints(items) or "链太短")
+
+
 def verify_finger(armature_object, part, finger, checker):
     bone_index = common.build_bone_index(armature_object)
     segments = finger["segments"]
@@ -305,6 +349,9 @@ def verify_finger(armature_object, part, finger, checker):
                           tip_name, ratio, ("%.2f" % tip_angle) if tip_angle is not None else "n/a",
                           tip_entry["deform"]))
 
+    finger_chain = list(segments) + ([tip_name] if tip_entry is not None else [])
+    verify_chain_connect(part, armature_object, finger_chain, checker)
+
     ik_entries = []
     for name in segments:
         for con in armature_object.pose.bones[name].constraints:
@@ -377,6 +424,105 @@ def chain_from_armature(armature_object, part):
     return entry, front_axis
 
 
+def shadow_leg_chain_names(armature_object, side):
+    """影子腿链（`足D → ひざD → 足首D → 足先EX`）的骨名，认不出来返回空表。
+
+    MMD 常把"驱动用"的本体链与"真正带权重"的影子链分开放：本体骨 `足/ひざ/足首` 上一个权重都没有，
+    网格全挂在 `足D/ひざD/足首D` 上。UE 做 animation retarget 时读的是这条影子链，
+    所以它也必须逐节对接 —— 与本体链分开验。
+    """
+    bone_index = common.build_bone_index(armature_object)
+    by_role = {}
+    for name, entry in bone_index.items():
+        # `_shadow_*` / `_dummy_*` / `MCH_*` 也是影子变体，但它们不是链上的骨
+        if name.startswith(("_", "MCH_")):
+            continue
+        info = common.role_from_name(name)
+        if info["variant"] != "shadow" or info["side"] != side:
+            continue
+        if info["role"] in ("thigh", "shin", "foot"):
+            by_role.setdefault(info["role"], []).append(name)
+    if not all(role in by_role for role in ("thigh", "shin", "foot")):
+        return []
+    thigh_name = by_role["thigh"][0]
+    names = [thigh_name]
+    current = thigh_name
+    for role in ("shin", "foot"):
+        children = [child for child in bone_index[current]["children"]
+                    if common.role_from_name(child)["role"] == role]
+        if not children:
+            return []
+        current = children[0]
+        names.append(current)
+    toe_name = common.toe_continuation(bone_index, current)
+    if toe_name:
+        names.append(toe_name)
+    return names
+
+
+def verify_shadow_drive(part, armature_object, shadow_names, checker):
+    """影子骨的尾端一旦偏离它自己的 `_shadow_` 双胞胎，姿势就不能再靠"局部空间 ADD"来借。
+
+    `mmd_additional_rotation`（LOCAL/ADD）把 `_shadow_*` 的**局部**旋转加到影子骨上，这组数只在
+    "影子骨与 `_shadow_*` 是同一个静置帧"时成立。尾端一挪（比如把脚掌的尾端挪到脚趾的头上），
+    同一组数落到别的骨轴上 —— 实测屈膝 50° 时脚飞出去 23 cm。
+
+    所以判据是"与双胞胎不同帧了、却还有生效中的 TRANSFORM 约束"。原样没动过的 MMD 骨架里
+    两边都是朝上的桩、同帧，这条不会误报。
+    修法：`rig_connect --fix-tails --reanchor-drive`（重挂成 LOCAL / LOCAL_OWNER_ORIENT 复制旋转）。
+    """
+    bone_index = common.build_bone_index(armature_object)
+    offenders = []
+    checked = 0
+    for name in shadow_names:
+        entry = bone_index.get(name) or {}
+        twin_name = "_shadow_" + name
+        twin = armature_object.data.bones.get(twin_name)
+        if twin is None or entry.get("head") is None:
+            continue
+        shadow_direction = (entry["tail"] - entry["head"]).normalized()
+        twin_direction = (twin.tail_local - twin.head_local).normalized()
+        deviation = math.degrees(shadow_direction.angle(twin_direction))
+        checked += 1
+        local_constraints = [constraint.name for constraint in
+                             armature_object.pose.bones[name].constraints
+                             if constraint.type == "TRANSFORM" and not constraint.mute]
+        if deviation > 1.0 and local_constraints:
+            offenders.append("%s（与 %s 差 %.1f°，还在用 %s）" % (
+                name, twin_name, deviation, "/".join(local_constraints)))
+    if offenders:
+        checker.check("struct", "%s 影子腿链姿势来源" % part, False,
+                      "尾端挪过但还在用局部空间 ADD：%s —— 形变会算歪，改用 "
+                      "`rig_connect --reanchor-drive` 重挂" % "、".join(offenders))
+    elif checked:
+        checker.info("struct", "%s 影子腿链姿势来源" % part,
+                     "逐根比过与双胞胎的帧和现存约束，没有「尾端挪了还靠局部 ADD」的骨")
+
+
+def verify_legacy_constraints(part, armature_object, chain_names, checker, label="链"):
+    """链上的骨只许有我们自己加的约束生效（`MD_` 前缀），原件的约束一律 mute。
+
+    MMD 原件在这些骨上挂着 `IK` / `mmd_additional_rotation` / `mmd_ik_limit_override` /
+    `mmd_tools_at_dummy` 之类，它们与我们加的 IK、复制旋转抢同一根骨：不关掉的话，
+    到底谁说了算取决于算得先后，调起来像玄学。作者的规矩是"只让我们自己加的生效"。
+
+    只查"决定链姿势"的关节骨；`ひじ補助`、`肩C`、`腰キャンセル`、`目` 这些是"跟着别人动"的骨，
+    它们的约束没有替代品，关掉会掉形变，不算在内。
+    """
+    bone_index = common.build_bone_index(armature_object)
+    offenders = []
+    for bone_name in chain_names:
+        if bone_name not in bone_index or bone_name not in armature_object.pose.bones:
+            continue
+        for constraint in armature_object.pose.bones[bone_name].constraints:
+            if constraint.mute or constraint.name.startswith("MD_"):
+                continue
+            offenders.append("%s.%s" % (bone_name, constraint.name))
+    checker.check("struct", "%s %s上只留我们自己的约束" % (part, label), not offenders,
+                  ("还在生效的原件约束：" + "、".join(offenders) + "（应 mute）") if offenders
+                  else "原件约束全部 mute，只剩 MD_*")
+
+
 def verify_arm(armature_object, part, arm, front_axis, reference, checker):
     """验一条两节链（手臂 / 腿）。两者结构相同（三段直接父子 + 中节 IK 链长 2 + 末端世界复制旋转），
     差别只在齿轮：骨的键名、复制旋转挂在哪、有没有扭转复制、拱形朝哪边。"""
@@ -407,6 +553,40 @@ def verify_arm(armature_object, part, arm, front_axis, reference, checker):
         between = hand_ancestors[:hand_ancestors.index(forearm_name)]
     checker.check("struct", "%s 三段直接父子" % part, hierarchy_ok and not between,
                   "%s→前中段→起始段之间：%s" % (part_noun, ", ".join(between) or "无"))
+
+    # 链条对接：有 MCH 主骨时 IK 实际在"主骨链"上（形变骨是同一个头的复制），否则就是本体三段
+    upper_mch_name, forearm_mch_name = "MCH_" + upper_name, "MCH_" + forearm_name
+    if upper_mch_name in bone_index and forearm_mch_name in bone_index:
+        connect_names = [upper_mch_name, forearm_mch_name, hand_name]
+    else:
+        connect_names = [upper_name, forearm_name, hand_name]
+    if is_leg:
+        # 脚掌→脚趾这一节是 Unreal 重定向 LeftLeg 链的最后一节，不能漏；
+        # 但只有"头落在脚掌尾端上"的那根才算（MMD 的 つま先 常是分支）
+        toe_name = common.toe_continuation(bone_index, hand_name)
+        if toe_name:
+            connect_names.append(toe_name)
+        else:
+            branch = common.toe_candidates(bone_index, hand_name)
+            checker.info("struct", "%s 脚掌→脚趾" % part,
+                         "；".join("%s 的头离脚掌尾 %.5f，按分支处理" % (name, gap) for name, gap in branch)
+                         or "脚掌没有脚趾骨")
+    verify_chain_connect(part, armature_object, connect_names, checker)
+
+    if is_leg:
+        side = part.split(".")[1]
+        shadow_names = shadow_leg_chain_names(armature_object, side)
+        if shadow_names:
+            verify_chain_connect("%s 影子腿链（UE 重定向用）" % part, armature_object,
+                                 shadow_names, checker)
+            verify_shadow_drive("%s 影子腿链" % part, armature_object, shadow_names, checker)
+            checker.info("struct", "%s 影子腿链组成" % part, " > ".join(shadow_names))
+        else:
+            checker.info("struct", "%s 影子腿链" % part, "没有影子腿链（只有本体链）")
+        joint_names = [upper_name, forearm_name, hand_name] + (shadow_names or [])
+        if connect_names:
+            joint_names += connect_names
+        verify_legacy_constraints(part, armature_object, joint_names, checker, "双腿关节")
 
     z_items = arm["zaxis"]["bones"]
     z_angles = [item["angle_deg"] for item in z_items if item["status"] != "skip"]

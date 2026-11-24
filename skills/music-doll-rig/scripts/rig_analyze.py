@@ -531,7 +531,7 @@ def find_controllers(prefix, side):
 
 
 def check_arm(armature_object, bone_index, arm, front_axis):
-    """手臂链的七项检查（hier / zaxis / arch / ik / copyrot / twist / leaf）。"""
+    """手臂链的八项检查（hier / zaxis / arch / ik / copyrot / twist / leaf / joints）。"""
     back = -front_axis
     functional = arm["functional"]
     deform = arm["deform"]
@@ -587,6 +587,8 @@ def check_arm(armature_object, bone_index, arm, front_axis):
         "hierarchy": hierarchy,
         "zaxis": z_axis_check(bone_index, z_bones, back, "arm Z should point BACK"),
         "arch": arch_check(bone_index, [name for name in (functional["upper"], functional["forearm"]) if name], back),
+        "joints": common.chain_joint_report(
+            bone_index, [name for name in (functional["upper"], functional["forearm"], functional["hand"]) if name]),
         "ik": ik_entries,
         "copyrot_hand": hand_copy_rotation,
         "twist_copies": twist_copies,
@@ -621,6 +623,9 @@ def check_leg(armature_object, bone_index, leg, front_axis):
 
     # 规则（v3.2）：腿的 Z 朝**正后方**，膝盖拱形朝**正前方** —— 两者方向相反是正常的，不是冲突。
     z_check = z_axis_check(bone_index, chain_names, -front_axis, "leg Z should point BACK")
+    # 脚掌→脚趾是重定向链的最后一节（Unreal 的 LeftLeg 链要连续），头落在脚掌尾端上的那根才纳入
+    toe_name = common.toe_continuation(bone_index, foot) if foot else None
+    joint_chain = list(chain_names) + ([toe_name] if toe_name else [])
     z_angles = [item["angle_deg"] for item in z_check["bones"] if item["status"] != "skip"]
     arch = arch_check(bone_index, [name for name in (thigh, shin) if name], front_axis)
     rule_conflict = None
@@ -635,6 +640,10 @@ def check_leg(armature_object, bone_index, leg, front_axis):
         "hierarchy": hierarchy,
         "zaxis": z_check,
         "arch": arch,
+        "joints": common.chain_joint_report(bone_index, joint_chain),
+        "toe": {"name": toe_name,
+                "branch_candidates": [[name, round(gap, 5)]
+                                      for name, gap in (common.toe_candidates(bone_index, foot) if foot else [])]},
         "ik": ik_entries,
         "copyrot_foot": foot_copy_rotation,
         "constraints": constraints,
@@ -669,6 +678,7 @@ def check_finger(armature_object, bone_index, finger, nail_direction, side):
         "leaf": leaf,
         "zaxis": z_axis_check(bone_index, segments, nail_direction, "finger Z should point to NAIL side"),
         "arch": arch_check(bone_index, segments, nail_direction),
+        "joints": common.chain_joint_report(bone_index, segments + ([tip] if tip else [])),
         "ik": ik_entries,
         "constraints": constraints,
         "controllers": find_controllers(prefix, side),
@@ -857,7 +867,7 @@ def analyze_armature(armature_object, front_override=None):
 
 # ── 报告 ────────────────────────────────────────────────────────────────
 def chain_marks(checks):
-    """把七项检查压成一行符号（x=已满足 !=不满足 ?=无法判定 -=不适用）。"""
+    """把八项检查压成一行符号（x=已满足 !=不满足 ?=无法判定 -=不适用）。"""
     def mark(condition):
         return "x" if condition else "!"
 
@@ -876,7 +886,41 @@ def chain_marks(checks):
         "ik": mark(ik_ok),
         "copyrot": mark(bool(copyrot)),
         "twist": mark(bool(twist)),
+        "joints": mark(joints_ok(checks) is True),
     }
+
+
+def joints_ok(checks):
+    """链条关节是否全部"头压在父尾上 + connect"。没有关节信息时返回 None（无法判定）。"""
+    items = checks.get("joints")
+    if items is None:
+        return None
+    return all(item["exists"] and item["parent_ok"] and item["coincident"] and item["connected"]
+               for item in items) if items else None
+
+
+def format_joints(items, indent="  "):
+    """关节对接一行：全好就报数，有问题的逐条列出差多少、连没连。"""
+    if not items:
+        return ["%s关节对接：链太短，没有关节" % indent]
+    bad = []
+    for item in items:
+        if not item["exists"]:
+            bad.append("%s→%s 骨缺失" % (item["parent"], item["child"]))
+            continue
+        if item["parent_ok"] and item["coincident"] and item["connected"]:
+            continue
+        reasons = []
+        if not item["parent_ok"]:
+            reasons.append("不是子级")
+        if not item["coincident"]:
+            reasons.append("尾端离头 %.5f" % item["gap"])
+        if not item["connected"]:
+            reasons.append("connect=0")
+        bad.append("%s→%s（%s）" % (item["parent"], item["child"], "，".join(reasons)))
+    if not bad:
+        return ["%s关节对接：%d/%d 已连（tail=head + connect）" % (indent, len(items), len(items))]
+    return ["%s关节对接：%d/%d 处待办 —— %s" % (indent, len(items) - len(bad), len(items), "；".join(bad))]
 
 
 def format_z_items(z_check, indent="  "):
@@ -932,6 +976,7 @@ def format_report(result):
                 for item in arm["ik"]) or "无"))
         lines.append("  手掌世界复制旋转：%s" % (
             "; ".join("%s -> %s" % (item["name"], item["target"]) for item in arm["copyrot_hand"]) or "无"))
+        lines.extend(format_joints(arm.get("joints")))
         lines.append("  扭转复制：%s" % (
             "; ".join("%s=%.2f(use %s)" % (item["bone"], item["influence"], item["use_xyz"])
                       for item in arm["twist_copies"]) or "无"))
@@ -948,10 +993,15 @@ def format_report(result):
             z_ok = all(item["status"] in ("ok", "skip") for item in z_items) if z_items else None
             z_text = ",".join("%.0f°" % item["angle_deg"] for item in z_items if item["status"] != "skip")
             note = finger.get("identification", {}).get("note")
-            lines.append("  手指 %-7s %s  指尖=%s(%s)  Z偏移: %s  %s%s" % (
+            joint_items = finger.get("joints") or []
+            joint_bad = [item for item in joint_items
+                         if not (item["exists"] and item["parent_ok"] and item["coincident"]
+                                 and item["connected"])]
+            lines.append("  手指 %-7s %s  指尖=%s(%s)  Z偏移: %s  %s  关节=%s%s" % (
                 role, "→".join(segments), leaf.get("tip_bone"),
                 ("%.1f%%" % leaf["ratio_to_last_segment_percent"]) if leaf.get("ratio_to_last_segment_percent") else "无",
                 z_text or "-", "OK" if z_ok else ("不满足" if z_ok is False else "?"),
+                ("ok" if not joint_bad else "%d 处待办" % len(joint_bad)),
                 ("  [" + note + "]") if note else ""))
 
         leg = result["legs"].get(side)
@@ -970,6 +1020,12 @@ def format_report(result):
                     item["owner"], item["chain_count"], item["pole_target"], item["pole_angle_deg"])
                     for item in leg["ik"]) or "无"))
             lines.append("    控制器：%s" % (", ".join(leg["controllers"]["foot"]) or "无 F_ 控制器"))
+            lines.extend(format_joints(leg.get("joints"), "    "))
+            toe_info = leg.get("toe") or {}
+            if not toe_info.get("name") and toe_info.get("branch_candidates"):
+                lines.append("    脚掌→脚趾：%s 的头不在脚掌尾端上（差 %s），按分支处理、不连" % (
+                    "、".join(name for name, _gap in toe_info["branch_candidates"]),
+                    "、".join("%.5f" % gap for _name, gap in toe_info["branch_candidates"])))
             if leg.get("rule_conflict"):
                 lines.append("    **规则冲突**：%s" % leg["rule_conflict"])
     return "\n".join(lines)
