@@ -2,8 +2,8 @@
 """BeatBloom 乐器模块 —— 动画生成（迁移自 beat_bloom_addon/make_animation.py）
 
 通用动画工具（fcurve / shape key / 清帧）改调 common.animation_utils。
-清帧时默认保留 driver：Middle_Hand / Invert_Middle_Hand / Virtul_Middle_Hand /
-手指 ext 控件的动画来自 driver，被 animation_data_clear() 扫到就再也回不来。
+清帧时默认保留 driver：手指 ext 控件的动画来自 driver，被 animation_data_clear()
+扫到就再也回不来。双手中点（Middle_Hand）的位置来自动画关键帧，不在此列。
 """
 
 import json
@@ -12,16 +12,6 @@ import bpy  # type: ignore
 
 from ..common import performer_utils
 from ..common import animation_utils
-
-
-# 纯 driver 驱动的特殊朝向控件（短名）：
-# Middle_Hand = (H_L + H_R) / 2，Invert_Middle_Hand = 2 × Head_Control − Middle_Hand，
-# Virtul_Middle_Hand 的两条 Copy Location 由半球判定 driver 切换 influence。
-_DRIVER_DRIVEN_SPECIAL_SHORTS = (
-    "Middle_Hand",
-    "Invert_Middle_Hand",
-    "Virtul_Middle_Hand",
-)
 
 
 def clear_all_keyframe(collection_names=None, exclude_names=None, suffix=""):
@@ -39,13 +29,11 @@ def clear_all_keyframe_preserve_drivers(collection_names=None, exclude_names=Non
 def driver_protected_object_names(suffix=""):
     """列出清关键帧时必须跳过的物体名 —— 它们的动画是 driver，不是关键帧。
 
-    - 特殊朝向链 Middle_Hand / Invert_Middle_Hand / Virtul_Middle_Hand；
     - 各手指 ext 辅助控件 `ext_<手指>_<手>`（位置 = 2 × 手指，+X 轴指向手掌）；
     - 兜底：清理范围内的任何当前挂着 driver 的物体（以后新增的 driver 控件也不会被误伤）。
 
-    这些物体被 `animation_data_clear()` 扫到就会丢掉 driver（Middle_Hand 不再位于
-    左右手中间、ext 不再跟随手指），而且只有重新 Setup 才会重建，所以清理前先把
-    名字收集好、交给 exclude_names 挡掉。
+    这些物体被 `animation_data_clear()` 扫到就会丢掉 driver（ext 不再跟随手指），
+    而且只有重新 Setup 才会重建，所以清理前先把名字收集好、交给 exclude_names 挡掉。
     """
     collected_names = []
     for collection_short in ("drum", "addons"):
@@ -65,8 +53,7 @@ def driver_protected_object_names(suffix=""):
         short_name = object_name
         if suffix_marker and object_name.endswith(suffix_marker):
             short_name = object_name[:-len(suffix_marker)]
-        if (short_name in _DRIVER_DRIVEN_SPECIAL_SHORTS
-                or short_name.startswith("ext_")
+        if (short_name.startswith("ext_")
                 or (obj.animation_data and obj.animation_data.drivers)):
             protected_names.append(object_name)
     return protected_names
@@ -81,7 +68,8 @@ def make_animation_by_path(animation_path: str, suffix: str = "") -> None:
         "right_hand_animation": [...],
         "left_foot_animation":  [{"frame": N, "position": [...], "rotation": [...]},...],
         "right_foot_animation": [...],
-        "head_control_animation": [{"frame": N, "head_control_position": [...]}, ...]  # optional
+        "head_control_animation": [{"frame": N, "head_control_position": [...]}, ...],  # optional
+        "middle_hand_animation": [{"frame": N, "middle_hand_position": [...]}, ...]     # optional
       }
     """
     with open(animation_path, "r") as f:
@@ -130,6 +118,21 @@ def make_animation_by_path(animation_path: str, suffix: str = "") -> None:
     for d in animation_data.get("head_control_animation", []):
         f = int(d["frame"])
         _add("Head_Control", f, d.get("head_control_position"))
+
+    middle_hand_animation = animation_data.get("middle_hand_animation")
+    if middle_hand_animation is None:
+        print("警告: 动画里没有 middle_hand_animation，Middle_Hand 不会运动"
+              "（请用新版程序重新生成动画）")
+    else:
+        # 旧场景里中点还挂着驱动器时，驱动器会盖过关键帧，先摘掉
+        middle_hand_object = bpy.data.objects.get(
+            performer_utils.resolve("Middle_Hand", suffix))
+        if middle_hand_object is not None:
+            for axis_index in range(3):
+                middle_hand_object.driver_remove("location", axis_index)
+        for d in middle_hand_animation:
+            f = int(d["frame"])
+            _add("Middle_Hand", f, d.get("middle_hand_position"))
 
     # 准备 fcurve
     for obj_name, entry in object_data.items():

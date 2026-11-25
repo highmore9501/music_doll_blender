@@ -376,8 +376,8 @@ def clear_all_keyframe(collection_names=None, exclude_names=None,
                        suffix="") -> None:
     """清除关键帧，但保留物体上的驱动器。
 
-    生成动画前的清理只该动关键帧：物体动画数据里的 driver（ext 辅助控件、
-    Middle_Hand 等）一律原样保留，不依赖调用方事先排除。
+    生成动画前的清理只该动关键帧：物体动画数据里的 driver（ext 辅助控件等）
+    一律原样保留，不依赖调用方事先排除。
 
     :param collection_names: 要处理的集合名称（短名，自动按演奏者后缀解析）
     :param exclude_names: 要排除的物体名称或集合名称列表

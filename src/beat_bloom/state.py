@@ -137,7 +137,7 @@ def _read_ctrl(suffix: str, short: str) -> dict:
 
 
 def _read_ctrl_location_only(suffix: str, short: str) -> list:
-    """只读取控件位置（Head_Control 用）"""
+    """只读取控件位置（头部控制器用）"""
     obj = bpy.data.objects.get(_pu.resolve(short, suffix))
     if obj is None:
         return [0.0, 0.0, 0.0]
@@ -157,7 +157,7 @@ def _write_ctrl(suffix: str, short: str, data: dict) -> None:
 
 
 def _write_ctrl_location(suffix: str, short: str, loc: list) -> None:
-    """只写位置（Head_Control 用）"""
+    """只写位置（头部控制器用）"""
     obj = bpy.data.objects.get(_pu.resolve(short, suffix))
     if obj is None:
         return
@@ -267,10 +267,12 @@ def load_rest_state(suffix: str, skeleton) -> bool:
         print("✗ 骨骼中不存在 rest 状态数据")
         return False
 
+    # 头部控制器只存位置
+    location_only_shorts = ("Head_Control",)
     for short, ctrl_data in rest_data.items():
-        if short == "Head_Control":
+        if short in location_only_shorts:
             loc = ctrl_data.get("location", [0.0, 0.0, 0.0])
-            _write_ctrl_location(suffix, "Head_Control", loc)
+            _write_ctrl_location(suffix, short, loc)
         else:
             _write_ctrl(suffix, short, ctrl_data)
 
@@ -279,15 +281,24 @@ def load_rest_state(suffix: str, skeleton) -> bool:
 
 
 def save_mapping(suffix: str, skeleton, key: str) -> None:
-    """保存 A/B/C/D 之一的 Middle_Hand / Head_Control / H_L / H_R 位置到骨骼 JSON"""
+    """保存 A/B/C/D 之一的 Middle_Hand / Head_Control / H_L / H_R 位置到骨骼 JSON
+
+    Middle_Hand 由左右手位置直接算出（控件本身不再跟随双手）。
+    """
     data = _get_state(skeleton)
     helpers = data.setdefault("mapping_helpers", {})
     entry = helpers.setdefault(key, {})
 
-    entry["Middle_Hand"] = _read_ctrl_location_only(suffix, "Middle_Hand")
     entry["Head_Control"] = _read_ctrl_location_only(suffix, "Head_Control")
     entry["H_L"] = _read_ctrl(suffix, "H_L")
     entry["H_R"] = _read_ctrl(suffix, "H_R")
+
+    left_location = entry["H_L"].get("location", [0.0, 0.0, 0.0])
+    right_location = entry["H_R"].get("location", [0.0, 0.0, 0.0])
+    entry["Middle_Hand"] = [
+        (left_location[axis_index] + right_location[axis_index]) / 2.0
+        for axis_index in range(3)
+    ]
 
     _set_state(skeleton, data)
     print(f"✓ 已保存 mapping_helpers/{key}")

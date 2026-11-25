@@ -58,6 +58,8 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
     _rot = io_utils.to_unreal_rotation if for_unreal else (lambda r: r)
 
     state_data = _get_state(skeleton)
+    suffix = performer_utils.suffix_from_object(skeleton) or ""
+    cfg = BeatBloomConfig(performer_suffix=suffix)
 
     recorder_info = {}
     mapping_helpers_out = {}
@@ -131,8 +133,6 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
     }
 
     # OTHER_CONTROLLERS：手指、Look_At、stick 的局部数据（父级下坐标）
-    suffix = performer_utils.suffix_from_object(skeleton) or ""
-    cfg = BeatBloomConfig(performer_suffix=suffix)
     other_controllers = {}
     for short in ["I_L", "M_L", "R_L", "P_L", "I_R", "M_R", "R_R", "P_R", "Look_At"]:
         obj = cfg.obj(short)

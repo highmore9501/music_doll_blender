@@ -81,23 +81,6 @@ def _get_bb_config(context) -> BeatBloomConfig:
     )
 
 
-def _middle_hand_driver_missing(suffix: str) -> bool:
-    """Middle_Hand 的 XYZ 位置 driver 是否缺失（旧版本生成动画时会被清掉）。
-
-    缺失时 Middle_Hand 不再位于左右手中间，头部朝向链也跟着失效；
-    driver 只有 Setup Objects 才会重建，所以由调用方提示用户重新 Setup。
-    """
-    middle_hand = bpy.data.objects.get(
-        performer_utils.resolve("Middle_Hand", suffix))
-    if middle_hand is None or not middle_hand.animation_data:
-        return True
-    drivers = middle_hand.animation_data.drivers
-    for axis_index in range(3):
-        if drivers.find("location", index=axis_index) is None:
-            return True
-    return False
-
-
 def _on_beatbloom_path_update(self, context):
     """动画文件路径变更：写回当前演奏者的 md_animation_path（MusicDoll 层级数据）。"""
     perf = ui_utils.get_active_performer(context.scene)
@@ -249,7 +232,7 @@ class BB_OT_load_drumkit(Operator, ImportHelper):
 
 
 class BB_OT_setup_objects(Operator):
-    """创建 BeatBloom 12 个控件"""
+    """创建 BeatBloom 基础控件与辅助控件"""
     bl_idname = "music_doll.beat_bloom_setup_objects"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -449,8 +432,8 @@ class BB_OT_execute_beatbloom(Operator):
                 return {'CANCELLED'}
 
             # 只清上一次的关键帧，不碰 driver：
-            # Middle_Hand / Invert_Middle_Hand / Virtul_Middle_Hand 与手指 ext 控件的
-            # 动画都是 driver（Middle_Hand = 左右手中点），被清掉就再也回不来。
+            # 手指 ext 控件的动画来自 driver（ext = 2 × 手指），被清掉就再也回不来。
+            # 双手中点（Middle_Hand）的动画来自关键帧，要一起清掉再重新写入。
             protected_names = driver_protected_object_names(suffix)
             if protected_names:
                 print(f"  • 清理关键帧时保留 driver 的物体：{', '.join(protected_names)}")
@@ -459,13 +442,8 @@ class BB_OT_execute_beatbloom(Operator):
             make_animation_by_path(anim_path, suffix=suffix)
             make_shape_key_animation(sk_path)
 
-            if _middle_hand_driver_missing(suffix):
-                self.report({'WARNING'}, T(
-                    "动画已生成，但 Middle_Hand 的 driver 已缺失（可能被旧版本清掉了），"
-                    "请点一次 Setup Objects 重建：%s") % os.path.basename(filepath))
-            else:
-                self.report({'INFO'}, T("动画已生成：%s")
-                            % os.path.basename(filepath))
+            self.report({'INFO'}, T("动画已生成：%s")
+                        % os.path.basename(filepath))
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, T("执行动画时出错：%s") % e)

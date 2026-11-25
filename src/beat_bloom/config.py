@@ -1,8 +1,8 @@
 # beat_bloom/config.py
 """BeatBloom 乐器模块 —— 配置与控件创建
 
-基础控件 9 个：手掌 × 2、IK Pivot × 2、脚部 × 2、
-特殊朝向（Middle_Hand / Invert_Middle_Hand / Head_Forward / Virtul_Middle_Hand / Look_At / Head_Control）× 6。
+基础控件：手掌 × 2、IK Pivot × 2、脚部 × 2、
+特殊朝向（Middle_Hand / Look_At / Head_Control）× 3。
 辅助控件（仅创建/驱动，不参与 save/load/export/import 数据传递）：
 - 左右手五指控制器 + ext 辅助控件（挂在手掌 H_L/H_R 下）、
   各手指 pole target（挂在对应 ext 下，命名与 Unreal 端一致：T_pole_L / I_pole_L 等）
@@ -75,16 +75,10 @@ class BeatBloomConfig:
             "right_foot_pole":   "FP_R",
         }
 
-        # Middle_Hand：双手中点
-        # Invert_Middle_Hand：相对 Head_Control 与 Middle_Hand 镜像点
-        # Head_Forward：头部正常朝向前方参考点
-        # Virtul_Middle_Hand：在 Middle_Hand / Invert_Middle_Hand 间切换
-        # Look_At 挂 Virtul_Middle_Hand，Head_Control 挂 TrackTo
+        # Middle_Hand：双手中点（位置由动画关键帧提供，不挂驱动器）
+        # Look_At 挂 Middle_Hand，Head_Control 挂 TrackTo
         self.special_controllers = {
             "middle_hand":  "Middle_Hand",
-            "invert_middle_hand": "Invert_Middle_Hand",
-            "head_forward": "Head_Forward",
-            "virtual_middle_hand": "Virtul_Middle_Hand",
             "look_at":      "Look_At",
             "head_control": "Head_Control",
         }
@@ -212,146 +206,45 @@ class BeatBloomConfig:
     def _setup_special_constraints(self) -> None:
         """设置 BeatBloom 特殊朝向链：
 
-        Middle_Hand = (H_L + H_R) / 2
-        Invert_Middle_Hand = 2 * Head_Control - Middle_Hand
-        Virtul_Middle_Hand 在 Middle_Hand / Invert_Middle_Hand 间按半球判定切换
-        Look_At 挂 Virtul_Middle_Hand，Head_Control TrackTo Look_At
+        Middle_Hand：双手中点，位置由动画关键帧提供（不挂驱动器），
+        -Z 轴始终指向 controller_root
+        Look_At 挂 Middle_Hand，Head_Control TrackTo Look_At
         """
         middle = self.obj("Middle_Hand")
-        invert_middle = self.obj("Invert_Middle_Hand")
-        head_forward = self.obj("Head_Forward")
-        virtual_middle = self.obj("Virtul_Middle_Hand")
         look_at = self.obj("Look_At")
         head = self.obj("Head_Control")
-        left_hand = self.obj("H_L")
-        right_hand = self.obj("H_R")
         controller_root = self.obj("controller_root")
 
-        if not all([
-            middle,
-            invert_middle,
-            head_forward,
-            virtual_middle,
-            look_at,
-            head,
-            left_hand,
-            right_hand,
-        ]):
+        if not all([middle, look_at, head]):
             print("  ✗ 找不到特殊控制器对象，跳过约束设置")
             return
 
-        # 1) Middle_Hand：位置始终为 H_L / H_R 的中点
-        middle.animation_data_clear()
-        for axis_index, axis_name in enumerate(['x', 'y', 'z']):
-            driver = middle.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
+        # 旧版的中点辅助控件与正前方参考点：先把子级摘出来，再删除
+        self._remove_legacy_special_controls(middle)
 
-            var_l = driver.variables.new()
-            var_l.name = f"left_{axis_name}"
-            var_l.type = 'TRANSFORMS'
-            target_l = var_l.targets[0]
-            target_l.id = left_hand
-            target_l.transform_type = f'LOC_{axis_name.upper()}'
-            target_l.transform_space = 'LOCAL_SPACE'
+        # 中点改由动画关键帧驱动
+        self._remove_location_drivers(middle)
 
-            var_r = driver.variables.new()
-            var_r.name = f"right_{axis_name}"
-            var_r.type = 'TRANSFORMS'
-            target_r = var_r.targets[0]
-            target_r.id = right_hand
-            target_r.transform_type = f'LOC_{axis_name.upper()}'
-            target_r.transform_space = 'LOCAL_SPACE'
-
-            driver.expression = f"(left_{axis_name} + right_{axis_name}) / 2"
-
-        # 2) Invert_Middle_Hand：位于 Middle_Hand -> Head_Control 延长线上，与 Head_Control 等距
-        #    等价公式：invert = 2 * head - middle
-        invert_middle.animation_data_clear()
-        for axis_index, axis_name in enumerate(['x', 'y', 'z']):
-            driver = invert_middle.driver_add("location", axis_index).driver
-            driver.type = 'SCRIPTED'
-
-            var_h = driver.variables.new()
-            var_h.name = f"head_{axis_name}"
-            var_h.type = 'TRANSFORMS'
-            target_h = var_h.targets[0]
-            target_h.id = head
-            target_h.transform_type = f'LOC_{axis_name.upper()}'
-            target_h.transform_space = 'LOCAL_SPACE'
-
-            var_m = driver.variables.new()
-            var_m.name = f"middle_{axis_name}"
-            var_m.type = 'TRANSFORMS'
-            target_m = var_m.targets[0]
-            target_m.id = middle
-            target_m.transform_type = f'LOC_{axis_name.upper()}'
-            target_m.transform_space = 'LOCAL_SPACE'
-
-            driver.expression = f"2 * head_{axis_name} - middle_{axis_name}"
-
-        # 3) Virtul_Middle_Hand：复制 Middle_Hand / Invert_Middle_Hand，由半球判定切换 influence
-        # 半球法向：head -> head_forward
-        # 判定向量：head -> middle
-        # dot >= 0 取 middle；dot < 0 取 invert
-        for c in list(virtual_middle.constraints):
-            virtual_middle.constraints.remove(c)
-
-        copy_middle = virtual_middle.constraints.new('COPY_LOCATION')
-        copy_middle.name = "Copy_Middle_Hand"
-        copy_middle.target = middle
-
-        copy_invert = virtual_middle.constraints.new('COPY_LOCATION')
-        copy_invert.name = "Copy_Invert_Middle_Hand"
-        copy_invert.target = invert_middle
-
-        def _add_loc_var(driver, var_name: str, target_obj, axis_char: str) -> None:
-            var = driver.variables.new()
-            var.name = var_name
-            var.type = 'TRANSFORMS'
-            target = var.targets[0]
-            target.id = target_obj
-            target.transform_type = f'LOC_{axis_char}'
-            target.transform_space = 'LOCAL_SPACE'
-
-        dot_expr = "((mx-hx)*(fx-hx) + (my-hy)*(fy-hy) + (mz-hz)*(fz-hz))"
-
-        mid_influence_driver = copy_middle.driver_add("influence").driver
-        mid_influence_driver.type = 'SCRIPTED'
-        for name, obj, axis in [
-            ('mx', middle, 'X'), ('my', middle, 'Y'), ('mz', middle, 'Z'),
-            ('hx', head, 'X'), ('hy', head, 'Y'), ('hz', head, 'Z'),
-            ('fx', head_forward, 'X'), ('fy',
-                                        head_forward, 'Y'), ('fz', head_forward, 'Z'),
-        ]:
-            _add_loc_var(mid_influence_driver, name, obj, axis)
-        mid_influence_driver.expression = f"1.0 if {dot_expr} >= 0.0 else 0.0"
-
-        inv_influence_driver = copy_invert.driver_add("influence").driver
-        inv_influence_driver.type = 'SCRIPTED'
-        for name, obj, axis in [
-            ('mx', middle, 'X'), ('my', middle, 'Y'), ('mz', middle, 'Z'),
-            ('hx', head, 'X'), ('hy', head, 'Y'), ('hz', head, 'Z'),
-            ('fx', head_forward, 'X'), ('fy',
-                                        head_forward, 'Y'), ('fz', head_forward, 'Z'),
-        ]:
-            _add_loc_var(inv_influence_driver, name, obj, axis)
-        inv_influence_driver.expression = f"1.0 if {dot_expr} < 0.0 else 0.0"
-
-        # Look_At 改为挂在 Virtul_Middle_Hand 下，Head_Control 只负责看向 Look_At。
-        if look_at.parent != virtual_middle:
-            look_at.parent = virtual_middle
+        # Look_At 与中点重合
+        if look_at.parent != middle:
+            look_at.parent = middle
+        look_at.matrix_parent_inverse.identity()
+        look_at.location = (0.0, 0.0, 0.0)
 
         if controller_root is not None:
-            if middle.parent != controller_root:
-                middle.parent = controller_root
-            if invert_middle.parent != controller_root:
-                invert_middle.parent = controller_root
-            if head_forward.parent != controller_root:
-                head_forward.parent = controller_root
-            if virtual_middle.parent != controller_root:
-                virtual_middle.parent = controller_root
-            if head.parent != controller_root:
-                head.parent = controller_root
+            for special_object in (middle, head):
+                if special_object.parent != controller_root:
+                    special_object.parent = controller_root
+
+        # Middle_Hand 的朝向：-Z 轴始终指向 controller_root，
+        # 这样中点空物体的局部坐标不会随位置漂移
+        for middle_constraint in list(middle.constraints):
+            middle.constraints.remove(middle_constraint)
+        if controller_root is not None:
+            middle_track = middle.constraints.new('DAMPED_TRACK')
+            middle_track.name = "Track_Controller_Root"
+            middle_track.target = controller_root
+            middle_track.track_axis = 'TRACK_NEGATIVE_Z'
 
         # Head_Control 清除旧约束并添加 TrackTo
         for c in list(head.constraints):
@@ -361,7 +254,33 @@ class BeatBloomConfig:
         track.target = look_at
         track.track_axis = 'TRACK_Z'
         track.up_axis = 'UP_Y'
-        print("  ✓ 特殊朝向控制器约束已设置，Look_At 现在为 Virtul_Middle_Hand 子级")
+        print("  ✓ 特殊朝向控制器约束已设置，Look_At 现在为 Middle_Hand 子级")
+
+    def _remove_legacy_special_controls(self, middle) -> None:
+        """删除旧版的特殊朝向辅助控件。
+
+        Invert_Middle_Hand / Virtul_Middle_Hand 只在场景里实时切换中点位置，
+        Head_Forward 只用于判断中点在前还是在后；现在这两件事都由生成动画时算好。
+        """
+        for short in ("Virtul_Middle_Hand", "Invert_Middle_Hand", "Head_Forward"):
+            legacy_object = self.obj(short)
+            if legacy_object is None:
+                continue
+            for child in list(legacy_object.children):
+                child.parent = middle
+                child.matrix_parent_inverse.identity()
+            bpy.data.objects.remove(legacy_object, do_unlink=True)
+            print(f"  ✓ 已删除旧控件 {self.obj_name(short)}")
+
+    @staticmethod
+    def _remove_location_drivers(control_object) -> None:
+        """摘掉位置驱动器，保留关键帧动画。"""
+        animation = control_object.animation_data
+        if animation is None:
+            return
+        for axis_index in range(3):
+            if animation.drivers.find("location", index=axis_index) is not None:
+                control_object.driver_remove("location", axis_index)
 
     # ── 手指 / ext / pole 辅助控件（仅创建/驱动，不参与数据传递）──
 

@@ -182,8 +182,9 @@ config.setup_all_objects()
 > 而头部那两个引用仍指向 test 控件。处理它们时注意两点：
 >
 > 1. 乐器模块自己会建 `Head_Control_<后缀>` / `Look_At_<后缀>`（`Look_At` 挂在 `Middle_Hand` 下，
->    `Middle_Hand` 是左右手世界坐标中点的 driver）。对齐规则与其它控件相同：位置/旋转抄 test、
->    缩放留自己的；但 `Look_At` 的位置是**父级 + 驱动**算出来的，摆完 `Middle_Hand` 之后要复核一次。
+>    `Middle_Hand` 的位置由生成动画时的关键帧提供，摆姿势时不会自己跟随双手）。对齐规则与其它
+>    控件相同：位置/旋转抄 test、缩放留自己的；`Look_At` 的位置是父级偏移算出来的，摆完
+>    `Middle_Hand` 之后要复核一次。
 > 2. `Head_Control` 上有一条第 3 方也想要的 `Track_To`（rig 阶段挂在 test 上、模块 setup 又给实际控件挂了一条）。
 >    实际控件自己的那条必须留着（它指向模块的 `Look_At`），把 rig 阶段挂在 test 上的那条连同 test 一起删掉即可。
 
@@ -479,10 +480,12 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
   注意：模块只在骨骼已保存乐器属性时才建键区记录器；本次输入没有属性，所以只有控件。
   要进引擎，需在面板保存一次设置再点一次「设置所有对象」（可重复跑，约束按类型去重，记录器不重置位置）。
   另外，给 `left_bone` 接目标会让手掌整体位移（只读实验实测 1.141 m），接线后必须重摆手。
-- **架子鼓**：setup 会报 `Head_Control` / `Look_At` 的 dependency cycle 警告，这是模块自身行为，
-  验收仍通过。模块还有 `stick_L/R`、`Head_Control/Head_Forward/Middle_Hand/Look_At` 等非 28 项控件；
-  其中 `Head_Control` 默认停在原点，GUI 录 state 前要把它摆到头部。鼓组物体本身需要 GUI load_drumkit，
-  安装脚本只建控件。
+- **架子鼓**：`Middle_Hand` 是双手中点（位置由动画关键帧提供），`Look_At` 挂在它下面，
+  `Head_Control` 用 TrackTo 看向 `Look_At`，`Middle_Hand` 上还有一条 -Z 轴指向
+  `controller_root` 的 Damped Track。模块还有 `stick_L/R` 等非 28 项控件；
+  其中 `Head_Control` 默认停在原点，GUI 录 state 前要把它摆到头部。鼓组物体本身需要 GUI
+  load_drumkit，安装脚本只建控件。旧场景里的 `Invert_Middle_Hand` / `Virtul_Middle_Hand` /
+  `Head_Forward` 由 Setup 自动删除。
 - **钢琴**：手指编号是 0..4 = 小指→拇指、5..9 = 拇指→小指，映射表按这个顺序，不能按 `T/I/M/R/P` 直译
   （子代理用 `MD_IK_thumb/index/pinky` 的解剖骨名交叉验证过）；实际控件是 EMPTY，不是提琴的 0.1 MESH。
 - **古筝**：拇指极向量是 `TP_L/TP_R`，脚极向量是 `F_L_pole/F_R_pole`；`Middle_Hand/Look_At/Head_Control`
