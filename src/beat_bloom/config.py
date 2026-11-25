@@ -237,14 +237,21 @@ class BeatBloomConfig:
                     special_object.parent = controller_root
 
         # Middle_Hand 的朝向：-Z 轴始终指向 controller_root，
-        # 这样中点空物体的局部坐标不会随位置漂移
+        # 这样中点空物体的局部坐标不会随位置漂移。
+        # 中点几乎就在 controller_root 正上方，只锁一条轴时绕这条轴的滚转是任意的，
+        # 会随两只手的高低差来回翻；Look_At 挂在它下面，滚转一晃头部朝向就跟着晃，
+        # 所以这里用 Track To 并把 Y 轴锚到世界向上（滚转有了确定答案）。
         for middle_constraint in list(middle.constraints):
             middle.constraints.remove(middle_constraint)
         if controller_root is not None:
-            middle_track = middle.constraints.new('DAMPED_TRACK')
+            middle_track = middle.constraints.new('TRACK_TO')
             middle_track.name = "Track_Controller_Root"
             middle_track.target = controller_root
             middle_track.track_axis = 'TRACK_NEGATIVE_Z'
+            middle_track.up_axis = 'UP_Y'
+            middle_track.use_target_z = False
+            middle_track.target_space = 'WORLD'
+            middle_track.owner_space = 'WORLD'
 
         # Head_Control 清除旧约束并添加 TrackTo
         for c in list(head.constraints):
