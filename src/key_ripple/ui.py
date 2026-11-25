@@ -37,6 +37,9 @@ TOOLS = COMMON_TOOLS + INSTRUMENT_TOOLS
 # 配置存骨骼的自定义属性键
 _CONFIG_KEY = "key_ripple_config"
 
+# 正在把骨骼配置回填到面板：此时面板属性的 update 回调不写回骨骼
+_IS_SYNCING_CONFIG = False
+
 
 # ── 配置读取/写回（无状态化） ────────────────────────────────
 
@@ -77,9 +80,40 @@ def _save_config_to_skeleton(skeleton, config: dict) -> None:
     skeleton[_CONFIG_KEY] = json.dumps(config, ensure_ascii=False)
 
 
+# 面板上属于「初始化配置」的字段：与骨骼上 `key_ripple_config` 的键一一对应
+_CONFIG_FIELDS = (
+    "one_hand_finger_number",
+    "leftest_position",
+    "left_position",
+    "middle_left_position",
+    "middle_right_position",
+    "right_position",
+    "rightest_position",
+    "min_key",
+    "max_key",
+    "hand_range",
+)
+
+
+def _config_from_props(props) -> dict:
+    """把面板上的初始化配置读成 dict（面板上没有的字段跳过）"""
+    return {
+        field: getattr(props, field)
+        for field in _CONFIG_FIELDS
+        if hasattr(props, field)
+    }
+
+
 def _get_key_ripple(props, suffix="", skeleton=None):
-    """按面板/骨骼构造 KeyRipple 实例（无状态：配置可从骨骼读取）"""
+    """按初始化配置构造 KeyRipple 实例。
+
+    配置的编辑入口是面板属性、存储处是骨骼上的自定义属性；两者只可能在
+    「面板改过、还没写回骨骼」的窗口里不一致，所以这里以面板为准，
+    读不到面板（无 UI 上下文的批量调用）时才退回骨骼上那份。
+    """
     config = _load_config_from_skeleton(skeleton)
+    if props is not None:
+        config.update(_config_from_props(props))
     return KeyRipple(
         config["one_hand_finger_number"],
         config["leftest_position"],
@@ -129,52 +163,84 @@ def _get_active_instrument(context):
     return None
 
 
+def _store_config_from_props(props, context) -> None:
+    """把面板上的初始化配置写回当前演奏者骨骼（骨骼是配置唯一的存储处）"""
+    if props is None or context is None:
+        return
+    skeleton = _get_active_skeleton(context)
+    if skeleton is None:
+        return
+    _save_config_to_skeleton(skeleton, _config_from_props(props))
+
+
+def _on_config_edited(self, context) -> None:
+    """面板改一个数就立刻写回骨骼：面板是编辑入口，骨骼是存储处，不能等某个按钮才提交"""
+    if _IS_SYNCING_CONFIG:
+        return
+    _store_config_from_props(self, context)
+
+
 def _sync_config_from_skeleton(context):
-    """把骨骼上的配置回填到面板属性（无状态化）"""
+    """把骨骼上的配置回填到面板属性。
+
+    切换演奏者时调用：面板显示的是"当前这个角色"的初始化设置。
+    回填期间要挡住 `_on_config_edited`，否则每写一个字段都会反过来把面板值写回骨骼
+    （值虽然一样，但中途会写出一份"一半新一半旧"的配置）。
+    """
+    global _IS_SYNCING_CONFIG
     scene = context.scene
     skel = _get_active_skeleton(context)
     props = scene.keyripple_props
     config = _load_config_from_skeleton(skel)
-    for key, value in config.items():
-        if hasattr(props, key):
-            setattr(props, key, value)
+    _IS_SYNCING_CONFIG = True
+    try:
+        for key, value in config.items():
+            if hasattr(props, key):
+                setattr(props, key, value)
+    finally:
+        _IS_SYNCING_CONFIG = False
+
+
+def _on_performer_switched(context) -> None:
+    """切换演奏者后，把新角色骨骼上的初始化设置回填到面板"""
+    _sync_config_from_skeleton(context)
 
 
 # ── 属性组 ────────────────────────────────────────────────────
 
 class KeyRippleProperties(PropertyGroup):
-    """KeyRipple 面板属性（编辑入口；提交时写回骨骼）"""
+    """KeyRipple 面板属性（编辑入口；每次改动立即写回骨骼）"""
     __annotations__ = {
         "one_hand_finger_number": IntProperty(
             name=T("Finger Number"), description=T("Number of fingers per hand"),
-            default=5, min=1, max=10),
+            default=5, min=1, max=10, update=_on_config_edited),
         "leftest_position": IntProperty(
             name=T("Leftest Position"), description=T("Leftmost position"),
-            default=28, min=0),
+            default=28, min=0, update=_on_config_edited),
         "left_position": IntProperty(
             name=T("Left Position"), description=T("Left position"),
-            default=40, min=0),
+            default=40, min=0, update=_on_config_edited),
         "middle_left_position": IntProperty(
             name=T("Middle Left Position"), description=T("Middle left position"),
-            default=52, min=0),
+            default=52, min=0, update=_on_config_edited),
         "middle_right_position": IntProperty(
             name=T("Middle Right Position"), description=T("Middle right position"),
-            default=76, min=0),
+            default=76, min=0, update=_on_config_edited),
         "right_position": IntProperty(
             name=T("Right Position"), description=T("Right position"),
-            default=88, min=0),
+            default=88, min=0, update=_on_config_edited),
         "rightest_position": IntProperty(
             name=T("Rightest Position"), description=T("Rightmost position"),
-            default=100, min=0),
+            default=100, min=0, update=_on_config_edited),
         "min_key": IntProperty(
             name=T("Min Key"), description=T("Lowest key on the piano"),
-            default=21, min=0),
+            default=21, min=0, update=_on_config_edited),
         "max_key": IntProperty(
             name=T("Max Key"), description=T("Highest key on the piano"),
-            default=108, min=0),
+            default=108, min=0, update=_on_config_edited),
         "hand_range": IntProperty(
             name=T("Hand Range"), description=T("the range of hand"),
-            default=12, min=10),
+            default=12, min=10, update=_on_config_edited),
 
         # 左手状态
         "left_hand_key_type": EnumProperty(
@@ -343,6 +409,8 @@ class KEYRIPPLE_OT_export_avatar(Operator):
         if skel is None:
             self.report({'ERROR'}, T("请先选择目标骨骼"))
             return {'CANCELLED'}
+        # 导出前先把面板配置落回骨骼：导出内容以面板显示为准
+        _store_config_from_props(props, context)
         key_ripple = _get_key_ripple(
             props, suffix=_get_active_suffix(context), skeleton=skel)
 
@@ -676,11 +744,12 @@ def register():
     from .tools import register as register_tools
     register_tools()
 
-    # 登记本乐器 UI（角色生成器下拉 + 角色操作器接入）
+    # 登记本乐器 UI（角色生成器下拉 + 角色操作器接入 + 切角色回填面板）
     ui_utils.register_instrument(
         "key_ripple", T("KeyRipple 钢琴"), KEYRIPPLE_PT_main_panel,
         rename_operator="music_doll.key_ripple_rename_performer",
-        duplicate_operator="music_doll.key_ripple_duplicate_performer")
+        duplicate_operator="music_doll.key_ripple_duplicate_performer",
+        on_performer_switch=_on_performer_switched)
 
 
 def unregister():

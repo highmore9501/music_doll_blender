@@ -138,6 +138,24 @@ def on_active_performer_update(self, context):
             setattr(scene, SCENE_TARGET_INSTRUMENT, p.target_instrument)
         if p.info_path:
             setattr(scene, SCENE_INFO_PATH, p.info_path)
+    notify_performer_switch(context)
+
+
+def notify_performer_switch(context) -> None:
+    """通知当前演奏者所属的乐器模块：角色换了，把它自己的面板设置回填一遍。
+
+    各乐器的初始化设置存在各自骨骼的自定义属性上，面板只是编辑入口；
+    不回填的话，面板会一直显示上一个角色的值，而那个值又会被写进新角色。
+    """
+    performer = get_active_performer(context.scene)
+    if performer is None:
+        return
+    info = INSTRUMENT_UI.get(performer.instrument)
+    if not info:
+        return
+    handler = info.get("on_performer_switch")
+    if handler is not None:
+        handler(context)
 
 
 def on_target_skeleton_update(self, context):
@@ -238,19 +256,26 @@ def get_rename_target(context):
 
 # ── 乐器 UI 注册表（角色生成器下拉 + 角色操作器接入）──────────
 
-# instrument_id -> {"label", "panel", "rename_operator", "duplicate_operator"}
+# instrument_id -> {"label", "panel", "rename_operator", "duplicate_operator",
+#                   "on_performer_switch"}
 INSTRUMENT_UI: dict = {}
 
 
 def register_instrument(instrument_id: str, label: str, panel_cls,
                         rename_operator: str = "",
-                        duplicate_operator: str = "") -> None:
-    """登记一个乐器模块的 UI（生成器下拉项 + 面板显示 + 重命名/复制算子）。"""
+                        duplicate_operator: str = "",
+                        on_performer_switch=None) -> None:
+    """登记一个乐器模块的 UI（生成器下拉项 + 面板显示 + 重命名/复制算子）。
+
+    `on_performer_switch` 可选：切换演奏者时回调，签名为 `(context) -> None`。
+    乐器面板上的设置存在各自的骨骼上，切角色时要靠它回填，否则面板还留着上一个角色的值。
+    """
     INSTRUMENT_UI[instrument_id] = {
         "label": label,
         "panel": panel_cls,
         "rename_operator": rename_operator,
         "duplicate_operator": duplicate_operator,
+        "on_performer_switch": on_performer_switch,
     }
 
 

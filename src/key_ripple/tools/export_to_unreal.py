@@ -22,7 +22,12 @@ class KEYRIPPLE_OT_export_to_unreal(Operator, ExportHelper):
     }
 
     def execute(self, context):
-        from ..ui import _get_active_skeleton, _get_active_suffix, _get_key_ripple
+        from ..ui import (
+            _get_active_skeleton,
+            _get_active_suffix,
+            _get_key_ripple,
+            _store_config_from_props,
+        )
         from ..io import export_avatar
 
         skel = _get_active_skeleton(context)
@@ -32,6 +37,8 @@ class KEYRIPPLE_OT_export_to_unreal(Operator, ExportHelper):
 
         props = context.scene.keyripple_props
         suffix = _get_active_suffix(context)
+        # 导出前先把面板配置落回骨骼：导出内容以面板显示为准
+        _store_config_from_props(props, context)
         key_ripple = _get_key_ripple(props, suffix=suffix, skeleton=skel)
         path = self.filepath
 
