@@ -6,8 +6,9 @@
 钢琴键动画：
 - 键物体已合并成「目标乐器」一个物体，全部 shape key 都在它上面，
   名字是 `key_<编号>_pressed`（不带演奏者后缀，与 Unreal 的 Morph Target 一致）；
-- 写入前先整体清理目标乐器（所有 `key_*_pressed` 归零 + 清掉 shape key 动画 +
-  清掉全部材质 Mix Shader Factor 的旧曲线），所以重复生成是覆盖而不是叠加；
+- 写入前先整体清理目标乐器（所有 `key_*_pressed` 归零 + 清掉 shape key 动画与
+  动作里残留的 shape key 通道 + 清掉全部材质 Mix Shader Factor 的旧曲线），
+  所以重复生成是覆盖而不是叠加；
 - 目标物体只认面板的「目标乐器」，找不到就返回失败、由 UI 报错；
 - 旧的 `is_pressed` 自定义属性已废弃（Factor 就是琴键发光），不再写入。
 """
@@ -235,17 +236,46 @@ def _iter_materials(obj):
         yield material
 
 
-def _iter_action_fcurves(action):
-    """遍历 action 上的所有 fcurve（4.x 用 action.fcurves；5.x 走「层/条/通道包」）"""
+def _iter_action_fcurve_groups(action):
+    """按「通道组」遍历 action 里的 fcurve 集合。
+
+    4.x 的 action 只有一组 fcurve（action.fcurves）；5.x 的通道按「层 → 条 →
+    通道包」存放，每个通道包各自有一组。要按组删除时得知道 fcurve 属于哪个集合。
+    """
     fcurves = getattr(action, "fcurves", None)
     if fcurves is not None:
-        return list(fcurves)
-    collected = []
+        yield fcurves
+        return
     for layer in getattr(action, "layers", []):
         for strip in getattr(layer, "strips", []):
             for channelbag in getattr(strip, "channelbags", []):
-                collected.extend(channelbag.fcurves)
-    return collected
+                yield channelbag.fcurves
+
+
+def _iter_action_fcurves(action):
+    """遍历 action 上的所有 fcurve（4.x 用 action.fcurves；5.x 走「层/条/通道包」）"""
+    for fcurves in _iter_action_fcurve_groups(action):
+        yield from fcurves
+
+
+def _remove_shape_key_channels(action) -> int:
+    """把动作里所有 `key_blocks[...]` 通道整条删掉，返回删掉的条数。
+
+    生成前会先摘掉并尝试删掉整个 shape key 动作，但动作只要还被别的 ID（或界面
+    上下文）引用着，Blender 就不会删它，随后同名动作又被复用——上一次没弹到的键
+    的曲线就这样留在目标乐器上。按通道逐条删，重跑一次才真的等于「只剩这一次的
+    曲线」，而不是越叠越多。
+    """
+    if action is None:
+        return 0
+    removed_count = 0
+    for fcurves in _iter_action_fcurve_groups(action):
+        for fcurve in list(fcurves):
+            if not fcurve.data_path.startswith("key_blocks["):
+                continue
+            fcurves.remove(fcurve)
+            removed_count += 1
+    return removed_count
 
 
 def _find_factor_target(material):
@@ -362,6 +392,8 @@ def clear_piano_key_animation(obj) -> None:
 
     - 全部 `key_<编号>_pressed` shape key 归零，并清掉整条 shape key 动画：
       本次曲子没弹到的键不会残留上一次的动画；
+    - 动作被别的 ID 引用、删不掉时，直接把它里面的 shape key 通道删干净，
+      避免同名动作被复用时把旧曲线带回来；
     - 该乐器所有材质 Mix Shader Factor 的旧关键帧与残留 driver 一并清掉
       （Factor 就是琴键发光，等价于旧版 `is_pressed` 的作用）；
     - 其它 shape key（如 Basis）与材质里其它节点的动画不受影响。
@@ -375,6 +407,11 @@ def clear_piano_key_animation(obj) -> None:
     for shape_key_block in shape_keys.key_blocks:
         if _is_piano_key_shape_key(shape_key_block.name):
             shape_key_block.value = 0.0
+
+    animation_data = shape_keys.animation_data
+    if animation_data is not None and animation_data.action is not None:
+        _remove_shape_key_channels(animation_data.action)
+
     animation_utils.clear_animation_and_discard(shape_keys)
 
     for material in _iter_materials(obj):
@@ -427,6 +464,12 @@ def generate_piano_key_animation(piano_key_animation_path: str,
     if not shape_keys.animation_data:
         shape_keys.animation_data_create()
     get_or_create_action(shape_keys, f"{keyboard_obj_name}_shape_keys")
+    # 同名但没挂着的旧动作会被复用：写入前把它里面的 shape key 通道一并删掉，
+    # 否则本次没弹到的键会接着用上一次的曲线。
+    removed_channel_count = _remove_shape_key_channels(
+        shape_keys.animation_data.action)
+    if removed_channel_count:
+        print(f"  • 清掉目标乐器上残留的 {removed_channel_count} 条 shape key 通道")
 
     key_infos = []
     missing_key_count = 0
