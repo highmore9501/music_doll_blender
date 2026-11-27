@@ -5,7 +5,8 @@
 2. 乐器控件齐全，test 控件已删除且没有残留引用；
 3. MD_* 约束都指向实际控件，极向量在 rest 下与关节弯曲方向一致；
 4. 手 / 手指 / 腿 / 手掌复制旋转对动作有正确响应；
-5. 可选：与 rig 改造原件的 rest 网格逐顶点对照。
+5. 有头部控件的乐器：上半身 / 头部链（颈上 IK、头骨复制旋转、Track_To、控件位置、跟得住）；
+6. 可选：与 rig 改造原件的 rest 网格逐顶点对照。
 
 用法：
     blender -b --factory-startup -P verify_instrument_controls.py -- \
@@ -26,6 +27,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 sys.dont_write_bytecode = True
 
+import head_chain
 import install_instrument_controls as installer
 
 
@@ -57,6 +59,10 @@ def parse_arguments():
                         help="可选：验收结果 JSON")
     parser.add_argument("--allow-test", action="store_true",
                         help="允许 test 控件仍存在（只检查没有被引用，不判失败）")
+    parser.add_argument("--neck-bone", default="",
+                        help="可选：指定颈骨（与安装时一致）")
+    parser.add_argument("--head-bone", default="",
+                        help="可选：指定头骨（与安装时一致）")
     arguments, unknown = parser.parse_known_args(argv)
     if unknown:
         print("[verify] 忽略额外参数：" + " ".join(unknown))
@@ -125,14 +131,21 @@ def check_controls(adapter, performer_name):
     return {"present": len(present), "missing": missing}
 
 
+def head_test_control_names(adapter):
+    declared = adapter.get("head_chain") or {}
+    return [declared.get("test_head_control", "Head_Control_test"),
+            declared.get("test_look_at", "Look_At_test")]
+
+
 def check_test_objects(adapter):
-    remaining = [name for name in adapter["test_to_short"]
-                 if bpy.data.objects.get(name) is not None]
-    return remaining
+    names = list(adapter["test_to_short"])
+    names.extend(head_test_control_names(adapter))
+    return [name for name in names if bpy.data.objects.get(name) is not None]
 
 
 def check_references(armature, adapter):
     test_names = set(adapter["test_to_short"])
+    test_names.update(head_test_control_names(adapter))
     dangling = []
     wrong = []
     target_counts = {}
@@ -201,9 +214,8 @@ def check_controller_root(armature, performer_name, adapter, variant, follow_bon
         target_matrix = armature.matrix_world @ armature.pose.bones[bone_name].matrix
         actual_matrix = root.matrix_world
         translation_error = (actual_matrix.translation - target_matrix.translation).length
-        rotation_error = math.degrees(
-            actual_matrix.to_quaternion().rotation_difference(
-                target_matrix.to_quaternion()).angle)
+        rotation_error = installer.rotation_difference_degrees(
+            actual_matrix.to_quaternion(), target_matrix.to_quaternion())
         result["translation_error_m"] = translation_error
         result["rotation_error_deg"] = rotation_error
         result["constraints"] = [
@@ -228,9 +240,8 @@ def check_controller_root(armature, performer_name, adapter, variant, follow_bon
             installer.Quaternion((0.0, 1.0, 0.0), math.radians(5.0))
             @ pose_bone.rotation_quaternion)
         bpy.context.view_layer.update()
-        root_rotation_delta = math.degrees(
-            before_root_rotation.rotation_difference(
-                root.matrix_world.to_quaternion()).angle)
+        root_rotation_delta = installer.rotation_difference_degrees(
+            before_root_rotation, root.matrix_world.to_quaternion())
         result["follow_rotation_delta_deg"] = root_rotation_delta
         pose_bone.rotation_quaternion = original_quaternion
         pose_bone.rotation_mode = original_mode
@@ -293,8 +304,8 @@ def check_motion(armature):
         target.matrix_world = installer.Matrix.LocRotScale(translation, rotation, scale)
         bpy.context.view_layer.update()
         after_rotation = installer.bone_rotation_world(armature, pose_bone_rot)
-        metrics["hand_rotation_delta_deg"] = math.degrees(
-            before_rotation.rotation_difference(after_rotation).angle)
+        metrics["hand_rotation_delta_deg"] = installer.rotation_difference_degrees(
+            before_rotation, after_rotation)
         target.matrix_world = rest_matrix
         bpy.context.view_layer.update()
 
@@ -333,6 +344,139 @@ def check_motion(armature):
         and metrics.get("finger_tip_moved_m", 0.0) > 0.005
     )
     return {"metrics": metrics, "passed": passed}
+
+
+def resolve_head_spec(adapter, performer_name, arguments):
+    """适配器里的 head_chain 短名 → 实际对象名（验收时不需要 config，按后缀解析即可）。"""
+    from music_doll_blender.common import performer_utils
+
+    declared = adapter.get("head_chain")
+    if not declared:
+        return None
+    head_control_short = declared.get("head_control", "Head_Control")
+    look_at_short = declared.get("look_at", "Look_At")
+    return {
+        "head_control_short": head_control_short,
+        "look_at_short": look_at_short,
+        "head_control": performer_utils.resolve(head_control_short, performer_name),
+        "look_at": performer_utils.resolve(look_at_short, performer_name),
+        "neck_bone": arguments.neck_bone or declared.get("neck_bone", ""),
+        "head_bone": arguments.head_bone or declared.get("head_bone", ""),
+        "chain_count": declared.get("chain_count", 0),
+        "look_distance": declared.get("look_distance", 1.0),
+        "pole_angle": declared.get("pole_angle"),
+    }
+
+
+def check_head_chain(armature, spec):
+    """上半身 / 头部链：控件在不在、链对不对、拖得动、看不看得着视点。"""
+    if spec is None:
+        return {"checked": False, "reason": "这个乐器没有声明 head_chain"}
+    head_control = bpy.data.objects.get(spec["head_control"])
+    look_at = bpy.data.objects.get(spec["look_at"])
+    if head_control is None or look_at is None:
+        return {"checked": True, "present": False, "passed": False,
+                "missing": [name for name, obj in ((spec["head_control"], head_control),
+                                                   (spec["look_at"], look_at))
+                            if obj is None]}
+    try:
+        spine = head_chain.detect_spine(armature, spec, lambda _message: None)
+    except head_chain.HeadChainError as error:
+        return {"checked": True, "present": True, "passed": False, "error": str(error)}
+
+    neck_pose_bone = armature.pose.bones[spine["neck"]]
+    head_pose_bone = armature.pose.bones[spine["head"]]
+    ik_constraint = None
+    for constraint in neck_pose_bone.constraints:
+        if constraint.type == "IK" and constraint.target is head_control:
+            ik_constraint = constraint
+            break
+    rotation_constraint = None
+    for constraint in head_pose_bone.constraints:
+        if constraint.type == "COPY_ROTATION" and constraint.target is head_control:
+            rotation_constraint = constraint
+            break
+    track_constraint = None
+    for constraint in head_control.constraints:
+        if constraint.type == "TRACK_TO" and constraint.target is look_at:
+            track_constraint = constraint
+            break
+
+    geometry = head_chain.spine_geometry(armature, spine, spec)
+    probes = head_chain.measure_poses(armature, spine, head_control, look_at, geometry)
+    reach = max(item["gap"] for item in probes)
+    rotation = max(item["rotation_error"] for item in probes)
+    aims = [item["aim_error"] for item in probes if item["aim_error"] is not None]
+    bends = [item["bend_error"] for item in probes if item["bend_error"] is not None]
+    aim = max(aims) if aims else 0.0
+    bend = max(bends) if bends else 0.0
+
+    placement_error = (head_chain.evaluated_world(head_control).translation
+                       - geometry["chain_end"]).length
+    look_offset = head_chain.evaluated_world(look_at).translation - geometry["chain_end"]
+    look_forward_cos = (look_offset.normalized().dot(geometry["head_forward"])
+                        if look_offset.length > 1e-9 else 0.0)
+    reach_tolerance = geometry["chain_length"] * head_chain.REACH_TOLERANCE_RATIO
+
+    checks = [
+        {"name": "头部控制器在头部骨骼位置",
+         "ok": placement_error <= geometry["chain_length"] * head_chain.PLACEMENT_TOLERANCE_RATIO,
+         "detail": "离颈尾 %.6f m" % placement_error},
+        {"name": "视点在人物正前方", "ok": look_forward_cos >= 0.99,
+         "detail": "偏离头骨 Z 轴 %.2f°，距颈尾 %.4f m" % (
+             math.degrees(math.acos(max(-1.0, min(1.0, look_forward_cos)))),
+             look_offset.length)},
+        {"name": "颈上 IK（链长 / 目标 / 极向量）",
+         "ok": (ik_constraint is not None
+                and ik_constraint.chain_count == len(spine["chain"])
+                and ik_constraint.target is head_control
+                and ik_constraint.pole_target is look_at),
+         "detail": ("chain=%d target=%s pole=%s pole_angle=%.1f°" % (
+             ik_constraint.chain_count,
+             getattr(getattr(ik_constraint, "target", None), "name", None),
+             getattr(getattr(ik_constraint, "pole_target", None), "name", None),
+             math.degrees(ik_constraint.pole_angle)) if ik_constraint is not None
+             else "没有指向 %s 的 IK（应为链长 %d）" % (head_control.name, len(spine["chain"])))},
+        {"name": "头骨世界空间复制旋转",
+         "ok": (rotation_constraint is not None
+                and rotation_constraint.owner_space == "WORLD"
+                and rotation_constraint.target_space == "WORLD"
+                and rotation_constraint.mix_mode == "REPLACE"),
+         "detail": "目标 %s" % (getattr(getattr(rotation_constraint, "target", None),
+                                     "name", None) if rotation_constraint else "没有")},
+        {"name": "Track_To（Z→视点、Y 朝上）",
+         "ok": (track_constraint is not None
+                and track_constraint.track_axis == "TRACK_Z"
+                and track_constraint.up_axis == "UP_Y"
+                and not track_constraint.use_target_z),
+         "detail": "target=%s track=%s up=%s use_target_z=%s" % (
+             getattr(getattr(track_constraint, "target", None), "name", None),
+             getattr(track_constraint, "track_axis", None),
+             getattr(track_constraint, "up_axis", None),
+             getattr(track_constraint, "use_target_z", None))},
+        {"name": "颈尾跟住头部控制器", "ok": reach <= reach_tolerance,
+         "detail": "最大差 %.5f m（容差 %.5f）" % (reach, reach_tolerance)},
+        {"name": "头骨朝向 = 头部控制器", "ok": rotation <= head_chain.ROTATION_TOLERANCE_DEG,
+         "detail": "最大 %.3f°" % rotation},
+        {"name": "头骨 Z 轴指向视点", "ok": aim <= head_chain.AIM_TOLERANCE_DEG,
+         "detail": "最大 %.2f°" % aim},
+        {"name": "躯干往极向量那侧弯", "ok": bend <= head_chain.BEND_TOLERANCE_DEG,
+         "detail": "最大偏 %.1f°" % bend},
+    ]
+    return {
+        "checked": True,
+        "present": True,
+        "spine": spine,
+        "head_control": head_control.name,
+        "look_at": look_at.name,
+        "chain_length": geometry["chain_length"],
+        "pole_angle_deg": round(math.degrees(ik_constraint.pole_angle), 2)
+        if ik_constraint is not None else None,
+        "probes": probes,
+        "checks": checks,
+        "failed": [item["name"] for item in checks if not item["ok"]],
+        "passed": all(item["ok"] for item in checks),
+    }
 
 
 def main():
@@ -374,6 +518,8 @@ def main():
         armature, arguments.performer, adapter, arguments.variant,
         arguments.follow_bone, arguments.anchor_position)
     summary["motion"] = check_motion(armature)
+    head_spec = resolve_head_spec(adapter, arguments.performer, arguments)
+    summary["head_chain"] = check_head_chain(armature, head_spec)
 
     if reference_vertices is not None:
         current_vertices = evaluated_world_vertices(mesh)
@@ -416,6 +562,15 @@ def main():
         failures.append("controller_root 没有按乐器规则对齐")
     if not summary["motion"]["passed"]:
         failures.append("动作响应不合格")
+    head_result = summary["head_chain"]
+    if head_result.get("checked") and not head_result.get("passed"):
+        if head_result.get("missing"):
+            failures.append("头部链控件缺失：" + "、".join(head_result["missing"]))
+        elif head_result.get("error"):
+            failures.append("头部链认不出躯干骨：" + head_result["error"])
+        else:
+            failures.append("上半身 / 头部链不合格：" + "、".join(
+                head_result.get("failed") or []))
     if summary["rest_mesh"].get("checked") and not summary["rest_mesh"].get("passed"):
         failures.append("rest 网格与参考不一致")
 

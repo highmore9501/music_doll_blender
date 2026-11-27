@@ -5,7 +5,9 @@
 2. 调乐器模块的 setup_all_objects，生成整套实际控件；
 3. 把实际控件的位置/旋转对齐到 rig skill 留下的 test 控件（保留控件自身缩放）；
 4. 把人物骨架约束里的 test 控件引用替换为实际控件；
-5. 验收（对齐误差 / rest 网格 / 极向量 / IK 动作 / 残留引用），删除 test 控件，另存新文件。
+5. 有头部控件的乐器（架子鼓 / 钢琴 / 古筝…）顺手把上半身 / 头部控制链搭起来：
+   颈上 IK（目标 Head_Control、极向量 Look_At）+ 头骨世界空间复制旋转；
+6. 验收（对齐误差 / rest 网格 / 极向量 / IK 动作 / 残留引用），删除 test 控件，另存新文件。
 
 用法（Blender 无头）：
     blender -b --factory-startup -P install_instrument_controls.py -- \
@@ -25,6 +27,14 @@ import sys
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
+
+sys.dont_write_bytecode = True
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import head_chain  # noqa: E402
 
 ADDON_MODULE = "music_doll_blender"
 
@@ -141,6 +151,14 @@ def parse_arguments():
                         help="大提琴/竖琴：尾钉或支点世界坐标 \"x,y,z\"")
     parser.add_argument("--armature", default="",
                         help="可选：骨架物体名；文件里只有一套骨架时可省略")
+    parser.add_argument("--neck-bone", default="",
+                        help="可选：指定颈骨（默认按名字认 首 / neck）")
+    parser.add_argument("--head-bone", default="",
+                        help="可选：指定头骨（默认按名字认 頭 / head）")
+    parser.add_argument("--pole-angle", type=float, default=None,
+                        help="可选：上半身 IK 的 pole_angle（度）；不给就现场标定")
+    parser.add_argument("--head-chain-only", action="store_true",
+                        help="只重搭上半身 / 头部控制链（不重装乐器控件；重跑过 setup 之后用）")
     parser.add_argument("--out", default="",
                         help="输出 .blend；省略时在输入文件旁生成 <原名>_<乐器>.blend")
     parser.add_argument("--keep-test", action="store_true",
@@ -244,6 +262,18 @@ def hierarchy_depth(obj):
         depth += 1
         parent = parent.parent
     return depth
+
+
+def rotation_difference_degrees(first, second):
+    """两个四元数之间的夹角（度）。
+
+    mathutils 的 `.angle` 在差四元数 w<0 时给的是 ~360°（同一个旋转的另一种表示），
+    直接拿来比会把"完全一致"读成"差了 360°"。这里折回 0~180°。
+    """
+    angle = first.rotation_difference(second).angle
+    if angle > math.pi:
+        angle = 2.0 * math.pi - angle
+    return math.degrees(angle)
 
 
 def group_by_hierarchy_depth(objects):
@@ -414,9 +444,8 @@ def align_controller_root(armature, config, performer_name, adapter, arguments, 
         actual_matrix = controller_root.matrix_world
         translation_error = (
             actual_matrix.translation - target_matrix.translation).length
-        rotation_error = math.degrees(
-            actual_matrix.to_quaternion().rotation_difference(
-                target_matrix.to_quaternion()).angle)
+        rotation_error = rotation_difference_degrees(
+            actual_matrix.to_quaternion(), target_matrix.to_quaternion())
         info.update({
             "bone": bone_name,
             "translation_error_m": translation_error,
@@ -528,12 +557,12 @@ def create_fallback_controls(adapter, config, performer, armature):
     return created
 
 
-def build_mapping(adapter, config, performer_name):
+def build_mapping(mapping, config, performer_name):
     test_objects = {}
     actual_objects = {}
     missing_test = []
     missing_actual = []
-    for test_name, short_name in adapter["test_to_short"].items():
+    for test_name, short_name in mapping.items():
         test_object = bpy.data.objects.get(test_name)
         if test_object is None:
             missing_test.append(test_name)
@@ -546,6 +575,117 @@ def build_mapping(adapter, config, performer_name):
         test_objects[test_name] = test_object
         actual_objects[test_name] = actual_object
     return test_objects, actual_objects, missing_test, missing_actual
+
+
+# ── 上半身 / 头部控制链 ─────────────────────────────────────────────────
+
+def resolve_head_chain_spec(adapter, config, performer_name, arguments):
+    """适配器里声明了 head_chain 的乐器：把短名解析成实际对象名与判据参数。
+
+    形状（适配器里的写法）：
+        "head_chain": {
+            "head_control": "Head_Control",   # 乐器模块建的头部控制器
+            "look_at": "Look_At",             # 视点（多数模块挂在 Middle_Hand 下）
+            "test_head_control": "Head_Control_test",   # rig 阶段留的 test 控件（可选）
+            "test_look_at": "Look_At_test",
+            "look_distance": 1.0,             # 视点放在前方 链长 × 这个倍数
+            "pole_angle": None,               # None = 现场标定
+            "neck_bone": "", "head_bone": "", # 省略 = 按名字认
+        }
+    """
+    declared = adapter.get("head_chain")
+    if not declared:
+        return None
+    head_control_short = declared.get("head_control", "Head_Control")
+    look_at_short = declared.get("look_at", "Look_At")
+    return {
+        "head_control_short": head_control_short,
+        "look_at_short": look_at_short,
+        "head_control": resolve_actual_name(
+            config, head_control_short, performer_name),
+        "look_at": resolve_actual_name(config, look_at_short, performer_name),
+        "test_head_control": declared.get("test_head_control", "Head_Control_test"),
+        "test_look_at": declared.get("test_look_at", "Look_At_test"),
+        "neck_bone": arguments.neck_bone or declared.get("neck_bone", ""),
+        "head_bone": arguments.head_bone or declared.get("head_bone", ""),
+        "chain_count": declared.get("chain_count", 0),
+        "look_distance": declared.get("look_distance", 1.0),
+        "pole_angle": (arguments.pole_angle if arguments.pole_angle is not None
+                       else declared.get("pole_angle")),
+    }
+
+
+def plan_head_chain(head_spec, armature):
+    """判断这一轮该怎么接头部链：没有这个乐器 / 控件不全 / rig 阶段已搭好 / 从零搭。"""
+    if head_spec is None:
+        return {"mode": "absent"}
+    head_control = bpy.data.objects.get(head_spec["head_control"])
+    look_at = bpy.data.objects.get(head_spec["look_at"])
+    missing = [name for name, obj in ((head_spec["head_control"], head_control),
+                                      (head_spec["look_at"], look_at)) if obj is None]
+    if missing:
+        return {"mode": "missing", "spec": head_spec, "missing": missing}
+    test_head = bpy.data.objects.get(head_spec["test_head_control"])
+    test_look = bpy.data.objects.get(head_spec["test_look_at"])
+    plan = {
+        "spec": head_spec,
+        "head_control": head_control,
+        "look_at": look_at,
+        "spine": None,
+    }
+    try:
+        plan["spine"] = head_chain.detect_spine(armature, head_spec, lambda _message: None)
+    except head_chain.HeadChainError:
+        plan["spine"] = None
+    if test_head is not None and test_look is not None:
+        # rig 阶段（rig_upper）已经搭好链：把模块控件对齐到 test 控件、替换引用即可，
+        # 位置与 pole_angle 都以 rig 阶段为准。
+        plan["mode"] = "test"
+        plan["test_mapping"] = {test_head.name: head_spec["head_control_short"],
+                                test_look.name: head_spec["look_at_short"]}
+    else:
+        plan["mode"] = "build"
+    return plan
+
+
+def freeze_head_chain(plan, armature):
+    """动作采样前临时静音上半身链（见 head_chain.constraints_to_freeze 的说明）。"""
+    if plan.get("mode") != "test" or not plan.get("spine"):
+        return None
+    frozen = head_chain.constraints_to_freeze(
+        armature, plan["head_control"], plan["spine"]["head"])
+    if not frozen:
+        return None
+    log("动作采样期间临时静音上半身链（%s）" % "、".join(
+        "%s.%s" % (pose_bone.name, constraint.name) for pose_bone, constraint in frozen))
+    return head_chain.mute_all(frozen)
+
+
+def finish_head_chain(plan, armature, deformed_meshes):
+    """按 plan 把上半身 / 头部链接好，返回结构化结果（失败时抛 InstallError）。"""
+    if plan["mode"] in ("absent", "missing"):
+        return {"mode": plan["mode"],
+                "missing": plan.get("missing", []),
+                "passed": True}
+    mode = plan["mode"]
+    log("上半身 / 头部链：%s（%s）" % (
+        "沿用 rig 阶段搭好的链，替换成模块控件" if mode == "test"
+        else "按规则新建（颈上 IK + 头骨复制旋转）", plan["spec"]["head_control"]))
+    result = head_chain.build(
+        armature, plan["head_control"], plan["look_at"], plan["spec"], log,
+        place=(mode == "build"),
+        connect=(mode == "build"),
+        strip=(mode == "build"),
+        calibrate=True,
+        mesh_reader=lambda: evaluated_vertices(deformed_meshes))
+    result["mode"] = mode
+    for check in result["checks"]:
+        log("  [%s] %s —— %s" % ("PASS" if check["ok"] else "FAIL",
+                                 check["name"], check["detail"]))
+    if not result["passed"]:
+        failed = [check["name"] for check in result["checks"] if not check["ok"]]
+        raise InstallError("上半身 / 头部链自检失败：" + "；".join(failed))
+    return result
 
 
 # ── 对齐 ────────────────────────────────────────────────────────────────
@@ -573,8 +713,7 @@ def check_alignment(test_matrices, actual_objects):
         test_translation, test_rotation, _ = test_matrices[test_name].decompose()
         actual_translation, actual_rotation, _ = actual_object.matrix_world.decompose()
         translation_error = (actual_translation - test_translation).length
-        rotation_error = math.degrees(
-            actual_rotation.rotation_difference(test_rotation).angle)
+        rotation_error = rotation_difference_degrees(actual_rotation, test_rotation)
         max_translation = max(max_translation, translation_error)
         max_rotation_degrees = max(max_rotation_degrees, rotation_error)
         if translation_error > 1e-5 or rotation_error > 0.01:
@@ -853,8 +992,8 @@ def compare_behavior(reference_results, actual_results):
                 (reference_matrix.translation - actual_matrix.translation).length)
             sample_rotation = max(
                 sample_rotation,
-                math.degrees(reference_matrix.to_quaternion().rotation_difference(
-                    actual_matrix.to_quaternion()).angle))
+                rotation_difference_degrees(reference_matrix.to_quaternion(),
+                                            actual_matrix.to_quaternion()))
         max_translation = max(max_translation, sample_translation)
         max_rotation = max(max_rotation, sample_rotation)
         summary[sample_name] = {
@@ -874,6 +1013,25 @@ def rest_pole_angles(armature):
             continue
         angles[constraint_name] = pole_alignment_degrees(armature, constraint, pose_bone)
     return angles
+
+
+def describe_head_chain(head_info):
+    """进度文本块里那一行：装没装、装在哪、链长多少。"""
+    if not head_info:
+        return "未处理"
+    mode = head_info.get("mode")
+    if mode == "absent":
+        return "这个乐器没有头部控件，跳过"
+    if mode == "missing":
+        return "控件不全，跳过（缺 %s）" % "、".join(head_info.get("missing") or [])
+    spine = head_info.get("spine") or {}
+    return "%s：颈 %s、链 %s、极向量 %s、pole_angle %s°、rest 网格位移 %.7f m" % (
+        "沿用 rig 阶段的链" if mode == "test" else "新建",
+        spine.get("neck", "?"),
+        " → ".join(spine.get("chain") or []),
+        head_info.get("look_at", "?"),
+        head_info.get("pole_angle_deg", "?"),
+        head_info.get("rest_mesh_delta") or 0.0)
 
 
 def write_progress_text(summary):
@@ -897,6 +1055,7 @@ def write_progress_text(summary):
         "动作等价: 最大位移差 %.9f m / 旋转差 %.9f°" % (
             summary["behavior_max_translation_m"], summary["behavior_max_rotation_deg"]),
         "极向量偏离: %s" % json.dumps(summary["pole_angles_deg"], ensure_ascii=False),
+        "上半身/头部链: %s" % describe_head_chain(summary.get("head_chain")),
         "<<< AUTO:END >>>",
     ]
     text_block.clear()
@@ -917,6 +1076,58 @@ def save_output(file_path):
 
 # ── 主流程 ──────────────────────────────────────────────────────────────
 
+def run_head_chain_only(arguments, adapter, armature):
+    """只重搭上半身 / 头部链：重跑过 setup_all_objects 之后修一次用。
+
+    为什么不直接重跑安装脚本：装过乐器控件的文件已经没有 test 控件了；而 setup 会把
+    `Look_At` 拉回 `Middle_Hand` 的原点（模块自己这么写），链的位置就跟着错，所以需要单独一步。
+    """
+    from music_doll_blender.common import performer_utils
+
+    performer = performer_utils.get_performer(arguments.performer)
+    if performer is None:
+        raise InstallError(
+            "文件里没有登记演奏者 %s；这个参数只用来修已经装过控件的文件"
+            % arguments.performer)
+    variant = resolve_variant(adapter, arguments.variant)
+    config = build_config(adapter, performer, variant)
+    deformed_meshes = find_deformed_meshes(armature)
+    head_spec = resolve_head_chain_spec(adapter, config, performer.name, arguments)
+    head_plan = plan_head_chain(head_spec, armature)
+    if head_plan["mode"] in ("absent", "missing"):
+        raise InstallError("这个乐器没有可修的头部链（%s）"
+                           % describe_head_chain({"mode": head_plan["mode"],
+                                                  "missing": head_plan.get("missing")}))
+    if head_plan["mode"] == "test":
+        # 还有 test 控件在：说明链是 rig 阶段搭的，应该走完整安装流程去替换，不是修。
+        head_plan["mode"] = "build"
+    head_info = finish_head_chain(head_plan, armature, deformed_meshes)
+
+    text_block = bpy.data.texts.get(PROGRESS_TEXT_NAME)
+    if text_block is not None:
+        extra = "\n".join([
+            "上半身/头部链（重搭）: %s" % describe_head_chain(head_info),
+        ])
+        text_block.write("\n" + extra + "\n")
+
+    output_path = arguments.out
+    if not output_path:
+        root, extension = os.path.splitext(arguments.file)
+        output_path = "%s_head_chain%s" % (root, extension)
+    if os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(
+            os.path.abspath(arguments.file)):
+        raise InstallError("输出文件不能覆盖输入文件（--out 换个路径）")
+    save_output(output_path)
+    summary = {
+        "performer": performer.name,
+        "instrument": arguments.instrument,
+        "armature": armature.name,
+        "head_chain": head_info,
+        "output": output_path,
+    }
+    print("HEAD_CHAIN_RESULT " + json.dumps(summary, ensure_ascii=False), flush=True)
+
+
 def main():
     arguments = parse_arguments()
     ensure_addon_enabled()
@@ -936,6 +1147,10 @@ def main():
             % (arguments.instrument, "、".join(sorted(INSTRUMENT_ADAPTERS))))
     armature = find_armature(arguments.armature)
     log("骨架：" + armature.name)
+
+    if arguments.head_chain_only:
+        run_head_chain_only(arguments, adapter, armature)
+        return
 
     # 先确认 test 控件在不在：全都不在 = 已经装过，做一次只读验收就退出
     present_test_names = [name for name in adapter["test_to_short"]
@@ -970,12 +1185,29 @@ def main():
     fallback_info = create_fallback_controls(
         adapter, config, performer, armature)
 
+    # 有头部控件的乐器（架子鼓 / 钢琴 / 古筝…）：先把这一轮该怎么接链定下来。
+    # mode=test  —— rig 阶段（rig_upper）已经搭好链，这里只把模块控件对齐过去、替换引用；
+    # mode=build —— 没有链，等后面的控件替换做完，再按规则新建。
+    head_spec = resolve_head_chain_spec(adapter, config, performer.name, arguments)
+    head_plan = plan_head_chain(head_spec, armature)
+    if head_plan["mode"] == "absent":
+        log("这个乐器没有声明 head_chain，跳过上半身 / 头部链")
+    elif head_plan["mode"] == "missing":
+        log("乐器声明了 head_chain，但控件不全（缺 %s），跳过上半身 / 头部链"
+            % "、".join(head_plan["missing"]))
+    else:
+        log("上半身 / 头部链：%s" % (
+            "rig 阶段已搭好，本轮替换成模块控件" if head_plan["mode"] == "test"
+            else "本轮按规则新建"))
+
     # rest 网格基线放在 setup 之后：初始化会改名/归位对象，但不改变形变；
     # 真正要比较的是“test 驱动”与“实际控件驱动”两个状态。
     vertices_before = evaluated_vertices(deformed_meshes)
 
+    mapping = dict(adapter["test_to_short"])
+    mapping.update(head_plan.get("test_mapping") or {})
     test_objects, actual_objects, missing_test, missing_actual = build_mapping(
-        adapter, config, performer.name)
+        mapping, config, performer.name)
     if missing_actual:
         raise InstallError("缺少实际控件：" + "、".join(sorted(missing_actual)))
     if missing_test:
@@ -996,8 +1228,13 @@ def main():
     behavior_reference = {}
     behavior_restore_error_reference = 0.0
     if behavior_samples and not arguments.skip_pose_check:
+        # 视点在多数乐器里跟手走，动一下手躯干就跟着弯；采样期间临时把这条链静音，
+        # 否则“test 控件 vs 实际控件”的全身逐骨对比必然对不上（那是设计行为，不是装错）。
+        freeze_states = freeze_head_chain(head_plan, armature)
         behavior_reference, behavior_restore_error_reference = sample_behavior(
             armature, test_objects, behavior_samples)
+        if freeze_states:
+            head_chain.restore_mutes(freeze_states)
         log("动作基线（test 驱动）采样完成：" + "、".join(behavior_reference))
         if behavior_restore_error_reference > 1e-5:
             raise InstallError(
@@ -1028,8 +1265,11 @@ def main():
     behavior_restore_error_actual = 0.0
     pole_angles = {}
     if behavior_samples and not arguments.skip_pose_check:
+        freeze_states = freeze_head_chain(head_plan, armature)
         behavior_actual, behavior_restore_error_actual = sample_behavior(
             armature, actual_objects, behavior_samples)
+        if freeze_states:
+            head_chain.restore_mutes(freeze_states)
         behavior_summary, behavior_max_translation, behavior_max_rotation = compare_behavior(
             behavior_reference, behavior_actual)
         log("动作等价（test 与实际逐骨对比）：最大位移差 %.9f m / 旋转差 %.9f°"
@@ -1066,6 +1306,15 @@ def main():
             "动作验收后未回到 rest（最大位移 %.9f m，%s）"
             % (restored_delta, restored_worst))
 
+    # 最后接上半身 / 头部链：放在全部通用验收之后，它自己的 rest 网格位移单独量，
+    # 免得“控件对齐有没有动网格”和“加链有没有动网格”两笔账混在一起。
+    head_info = finish_head_chain(head_plan, armature, deformed_meshes)
+    log("上半身 / 头部链：%s；pole_angle %s；rest 网格位移 %s m" % (
+        head_info.get("mode"),
+        head_info.get("pole_angle_deg", "-"),
+        "%.7f" % head_info["rest_mesh_delta"]
+        if head_info.get("rest_mesh_delta") is not None else "-"))
+
     test_kept = bool(arguments.keep_test)
     if not test_kept:
         for test_object in test_objects.values():
@@ -1089,6 +1338,7 @@ def main():
         "behavior_max_translation_m": behavior_max_translation,
         "behavior_max_rotation_deg": behavior_max_rotation,
         "pole_angles_deg": pole_angles,
+        "head_chain": head_info,
         "test_kept": test_kept,
         "output": "",
     }

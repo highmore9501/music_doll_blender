@@ -23,8 +23,12 @@ from ..common import instrument_base
 from ..common import i18n
 from ..common.tools import COMMON_TOOLS
 from .config import BeatBloomConfig, DRUMKIT_KEY
-from .enums import STATE_ITEMS
+from .enums import LIMB_CONTROLLERS, HAND_LIMBS
 from .state import (
+    DEFAULT_TECHNIQUE,
+    _get_state,
+    component_techniques,
+    technique_poses,
     save_state, load_state,
     save_rest_state, load_rest_state,
     save_mapping, load_mapping,
@@ -101,6 +105,80 @@ def _sync_beatbloom_path(context) -> None:
         props.beatbloom_file_path = stored
 
 
+def _component_limbs(context, component_name: str) -> list:
+    """某个鼓件（或特殊动作）可以用哪几条肢体打。"""
+    dk = _get_drumkit(context)
+    if not dk or not component_name or component_name.startswith("__"):
+        return []
+
+    for comp in dk.get("components", []) + dk.get("special_actions", []):
+        if comp.get("name") != component_name:
+            continue
+        drivable = comp.get("drivable_limbs")
+        if isinstance(drivable, list):
+            return [entry.get("limb") for entry in drivable
+                    if isinstance(entry, dict) and entry.get("limb")]
+        return list(comp.get("limbs", []) or [])
+    return []
+
+
+def _technique_ids(entries) -> list:
+    """鼓组里声明的打法 id（顺序按文件里的先后，重复的只留一个）。"""
+    technique_ids = []
+    for entry in entries or []:
+        if not isinstance(entry, dict) or not entry.get("id"):
+            continue
+        technique_id = entry["id"]
+        if technique_id in technique_ids:
+            continue
+        technique_ids.append(technique_id)
+    return technique_ids
+
+
+def _techniques_for(context, component_name: str, limb: str) -> list:
+    """(组件, 肢体) 在鼓组里声明了哪些打法。
+
+    特殊动作的打法挂在动作对象上（动作自己带肢体列表），不再按 limb 细分。
+    """
+    dk = _get_drumkit(context)
+    if not dk or not component_name or component_name.startswith("__"):
+        return []
+
+    for comp in dk.get("components", []) + dk.get("special_actions", []):
+        if comp.get("name") != component_name:
+            continue
+
+        drivable = comp.get("drivable_limbs")
+        if isinstance(drivable, list):
+            for entry in drivable:
+                if not isinstance(entry, dict) or entry.get("limb") != limb:
+                    continue
+                return _technique_ids(entry.get("techniques"))
+            return []
+
+        return _technique_ids(comp.get("techniques"))
+    return []
+
+
+def _limb_ctrl_labels(limb: str) -> list:
+    """这条肢体录制时会写入的控制器短名（用于面板提示）。"""
+    labels = list(LIMB_CONTROLLERS.get(limb, []))
+    if limb in HAND_LIMBS:
+        labels.append("Head_Control")
+    return labels
+
+
+def _state_pose_exists(context, component_name: str, technique_id: str,
+                       state_name: str) -> bool:
+    """某个状态是否已经录过（面板上用它显示 ● / ○）。"""
+    skel = _get_active_skeleton(context)
+    if skel is None:
+        return False
+    poses = technique_poses(_get_state(skel), component_name, technique_id)
+    state_entry = poses.get(state_name)
+    return isinstance(state_entry, dict) and bool(state_entry)
+
+
 # ── 动态 EnumProperty 回调 ──────────────────────────────────
 # Blender 5.0 要求 items 回调必须是 2 参数 (self, context)
 
@@ -120,48 +198,22 @@ def _get_component_items(self, context):
     return items or [("__none__", "（无组件）", "")]
 
 
-def _get_component_limb_ctrl_labels(context, component_name: str) -> list[str]:
-    """返回组件对应的主要 limb 控件名（用于 UI 提示）。"""
-    if component_name == "__none__":
-        return []
-    if component_name == "__rest__":
-        return ["H_L", "H_R"]
+def _get_limb_items(self, context):
+    """当前组件可以用哪几条肢体打"""
+    limbs = _component_limbs(context, getattr(self, "component", ""))
+    if not limbs:
+        return [("__none__", "（无可驱动肢体）", "")]
+    return [(limb, limb, "") for limb in limbs]
 
-    dk = _get_drumkit(context)
-    if not dk:
-        return []
 
-    primary_ctrl_map = {
-        "left_hand": "H_L",
-        "right_hand": "H_R",
-        "left_foot": "F_L",
-        "right_foot": "F_R",
-    }
-
-    all_components = dk.get("components", []) + dk.get("special_actions", [])
-    for comp in all_components:
-        if comp.get("name") != component_name:
-            continue
-
-        if "drivable_limbs" in comp:
-            limbs = [d.get("limb")
-                     for d in comp["drivable_limbs"] if isinstance(d, dict)]
-        elif "limbs" in comp:
-            limbs = comp.get("limbs", [])
-        else:
-            limbs = []
-
-        ctrl_labels = []
-        for limb in limbs:
-            if not isinstance(limb, str):
-                continue
-            ctrl = primary_ctrl_map.get(limb)
-            if ctrl:
-                ctrl_labels.append(ctrl)
-
-        return list(dict.fromkeys(ctrl_labels))
-
-    return []
+def _get_technique_items(self, context):
+    """当前 (组件, 肢体) 在鼓组里声明的打法；下拉里显示的就是 id"""
+    technique_ids = _techniques_for(context, getattr(self, "component", ""),
+                                    getattr(self, "limb", ""))
+    if not technique_ids:
+        # 鼓组没声明打法：等价于一条默认打法
+        return [(DEFAULT_TECHNIQUE, T("默认打法"), "")]
+    return [(technique_id, technique_id, "") for technique_id in technique_ids]
 
 
 # ── 属性组 ────────────────────────────────────────────────────
@@ -176,12 +228,19 @@ class BeatBloomProperties(PropertyGroup):
             items=_get_component_items,
             default=0,
         ),
-        # 当前选中的击打状态
-        "state": EnumProperty(
-            name=T("State"),
-            description=T("Hit state"),
-            items=STATE_ITEMS,
-            default="beat",
+        # 当前选中的肢体（动态，来自该组件的 drivable_limbs）
+        "limb": EnumProperty(
+            name=T("肢体"),
+            description=T("用哪条肢体打这颗鼓"),
+            items=_get_limb_items,
+            default=0,
+        ),
+        # 当前选中的打法（动态，来自鼓组配置）
+        "technique": EnumProperty(
+            name=T("打法"),
+            description=T("这颗鼓这条肢体的哪种打法"),
+            items=_get_technique_items,
+            default=0,
         ),
         # Mapping A/B/C/D
         "mapping_key": EnumProperty(
@@ -247,6 +306,9 @@ class BB_OT_save_state(Operator):
     """将当前控件位置保存到骨骼（Set）"""
     bl_idname = "music_doll.beat_bloom_save_state"
     bl_options = {'REGISTER', 'UNDO'}
+    __annotations__ = {
+        "state_name": StringProperty(default="beat", options={'HIDDEN'}),
+    }
 
     def execute(self, context):
         props = context.scene.md_bb_props
@@ -263,8 +325,10 @@ class BB_OT_save_state(Operator):
             self.report({'INFO'}, T("已保存 rest 状态"))
             return {'FINISHED'}
         dk = _get_drumkit(context)
-        save_state(_get_active_suffix(context), comp, props.state, skel, dk)
-        self.report({'INFO'}, T("已保存 %s/%s") % (comp, props.state))
+        save_state(_get_active_suffix(context), comp, props.limb,
+                   props.technique, self.state_name, skel, dk)
+        self.report({'INFO'}, T("已保存 %s / %s / %s")
+                    % (comp, props.technique, self.state_name))
         return {'FINISHED'}
 
 
@@ -272,6 +336,9 @@ class BB_OT_load_state(Operator):
     """从骨骼加载状态到控件（Load）"""
     bl_idname = "music_doll.beat_bloom_load_state"
     bl_options = {'REGISTER', 'UNDO'}
+    __annotations__ = {
+        "state_name": StringProperty(default="beat", options={'HIDDEN'}),
+    }
 
     def execute(self, context):
         props = context.scene.md_bb_props
@@ -287,7 +354,7 @@ class BB_OT_load_state(Operator):
         if comp == "__rest__":
             ok = load_rest_state(suffix, skel)
         else:
-            ok = load_state(suffix, comp, props.state, skel)
+            ok = load_state(suffix, comp, props.technique, self.state_name, skel)
         if ok:
             self.report({'INFO'}, T("已加载 %s") % comp)
         else:
@@ -584,15 +651,32 @@ class BB_PT_main_panel(Panel):
         box.label(text=T("Set / Load State"), icon='FILE_REFRESH')
         col = box.column(align=True)
         col.prop(props, "component", text=T("Component"))
-        col.prop(props, "state", text=T("State"))
-        limb_ctrl_labels = _get_component_limb_ctrl_labels(
-            context, props.component)
-        if limb_ctrl_labels:
-            col.label(
-                text=f"{T('Limbs')}: {', '.join(limb_ctrl_labels)}", icon='BONE_DATA')
-        row = box.row(align=True)
-        row.operator("music_doll.beat_bloom_save_state", text=T("Set"))
-        row.operator("music_doll.beat_bloom_load_state", text=T("Load"))
+
+        if props.component == "__rest__":
+            row = box.row(align=True)
+            row.operator("music_doll.beat_bloom_save_state", text=T("Set"))
+            row.operator("music_doll.beat_bloom_load_state", text=T("Load"))
+        elif props.component != "__none__":
+            col.prop(props, "limb", text=T("肢体"))
+            col.prop(props, "technique", text=T("打法"))
+            ctrl_labels = _limb_ctrl_labels(props.limb)
+            if ctrl_labels:
+                col.label(text=f"{T('Limbs')}: {', '.join(ctrl_labels)}",
+                          icon='BONE_DATA')
+
+            # 三态各一行：Set 把当前姿态录进该状态，Load 把它摆回控件。
+            # 三态是一次挥动的三个阶段，分开列出来是为了看清哪一格还缺。
+            for state_name in ("ready", "beat", "rest"):
+                exists = _state_pose_exists(
+                    context, props.component, props.technique, state_name)
+                row = box.row(align=True)
+                row.label(text=f"{'●' if exists else '○'} {state_name.capitalize()}")
+                save_op = row.operator(
+                    "music_doll.beat_bloom_save_state", text=T("Set"))
+                save_op.state_name = state_name
+                load_op = row.operator(
+                    "music_doll.beat_bloom_load_state", text=T("Load"))
+                load_op.state_name = state_name
 
         # 5. Mapping Helpers
         box = layout.box()

@@ -1,6 +1,6 @@
 ---
 name: music-doll-instrument-controls
-description: 给已经用 music-doll-rig 改造过的演奏者安装 MusicDoll 乐器控件（MusicDoll 初始化 → 乐器 setup all objects → 先把 controller_root 跟到人物颈骨/胸骨/指定锚点 → 再把实际控件的位置/旋转对齐到 test 控件 → 替换人物约束里的 test 引用 → 验收并清理）。内置 StringFlow 提琴、KeyRipple 钢琴、ZhengDrift 古筝、BeatBloom 架子鼓、FretDance 吉他、BellowsPulse 手风琴适配器。当用户说「让这个模型演奏某种 MusicDoll 乐器」「给米娅装一套小提琴/钢琴/古筝/架子鼓/吉他/手风琴控件」「把 test 控件换成真正的乐器控件」时使用。
+description: 给已经用 music-doll-rig 改造过的演奏者安装 MusicDoll 乐器控件（MusicDoll 初始化 → 乐器 setup all objects → 先把 controller_root 跟到人物颈骨/胸骨/指定锚点 → 再把实际控件的位置/旋转对齐到 test 控件 → 替换人物约束里的 test 引用 → 有头部控件的乐器顺手搭「颈 IK + 头骨复制旋转 + Track_To」的上半身朝向链 → 验收并清理）。内置 StringFlow 提琴、KeyRipple 钢琴、ZhengDrift 古筝、BeatBloom 架子鼓、FretDance 吉他、BellowsPulse 手风琴适配器。当用户说「让这个模型演奏某种 MusicDoll 乐器」「给米娅装一套小提琴/钢琴/古筝/架子鼓/吉他/手风琴控件」「把 test 控件换成真正的乐器控件」「给演奏者加上半身 / 头部控制链」时使用。
 ---
 
 # MusicDoll 乐器控件安装
@@ -19,10 +19,12 @@ MusicDoll 的乐器模块（小提琴 = `string_flow`）在 `setup_all_objects` 
 2. **setup all objects**：让乐器模块生成完整控件体系；
 3. **对齐**：把每个实际控件摆到它要替换的 test 控件的位置与旋转上；
 4. **替换**：进人物骨架的约束器，把 `target` / `pole_target` 里的 test 控件换成实际控件；
-5. **验收**：对齐误差、rest 网格、极向量、同一动作下 test 与实际是否给出同一姿态；
-6. **清理**：删除 test 控件，另存新文件。
+5. **上半身 / 头部链**（只有带头部控件的乐器才做）：把人物接到模块自己的
+   `Head_Control` / `Look_At` 上——颈上 IK、头骨世界空间复制旋转、头部控制器的 Track_To；
+6. **验收**：对齐误差、rest 网格、极向量、同一动作下 test 与实际是否给出同一姿态、头链跟不跟得住；
+7. **清理**：删除 test 控件，另存新文件。
 
-判断清楚映射之后，这五步是确定性的；难的是**知道哪个 test 对应哪个实际控件**，以及
+判断清楚映射之后，这七步是确定性的；难的是**知道哪个 test 对应哪个实际控件**，以及
 不要破坏乐器模块自己的层级、驱动和极向量设计。
 
 ## 什么时候别用它
@@ -53,7 +55,8 @@ MusicDoll 的乐器模块（小提琴 = `string_flow`）在 `setup_all_objects` 
   3. 先对齐 controller_root → 吉他/手风琴跟胸骨、小提琴/中提琴跟颈骨、大提琴/竖琴用指定锚点
   4. 实际控件对齐 test      → 位置 + 旋转（保留控件自身缩放）
   5. 替换人物约束引用       → target / pole_target / 驱动 / 修改器 / 父级
-  6. 验收 → 删除 test → 另存
+  6. 上半身 / 头部链        → 有头部控件的乐器：颈上 IK + 头骨复制旋转 + Track_To
+  7. 验收 → 删除 test → 另存
 ```
 
 ### 1. MusicDoll 初始化
@@ -173,20 +176,12 @@ config.setup_all_objects()
 | `MD_IK_leg.L/R` | `F_*_test` | `FP_*_test` |
 | `MD_Rot_leg.L/R` | `F_*_test` | — |
 | `MD_IK_index/middle/ring/pinky/thumb.L/R` | `I/M/R/P/T_*_test` | `I/M/R/P/T_*_pole_test` |
-| `MD_IK_upper`（2026-11-25 起） | `Head_Control_test` | `Look_At_test` |
-| `MD_Rot_upper`（2026-11-25 起） | `Head_Control_test` | — |
+| `MD_IK_upper` | `Head_Control_test` → `Head_Control_<后缀>` | `Look_At_test` → `Look_At_<后缀>` |
+| `MD_Rot_upper` | `Head_Control_test` → `Head_Control_<后缀>` | — |
 
-> ⚠ **`MD_IK_upper` / `MD_Rot_upper` 是 rig 阶段新加的躯干 + 头部链**（"腰→胸→颈"IK + 头骨世界复制旋转）。
-> 它们的两个 test 控件 `Head_Control_test` / `Look_At_test` **不在现有 28 项映射表里**，
-> 所以现在的安装脚本既不会替换它们、也不会删除它们 —— 跑完 verify 会报"还有 test 控件"，
-> 而头部那两个引用仍指向 test 控件。处理它们时注意两点：
->
-> 1. 乐器模块自己会建 `Head_Control_<后缀>` / `Look_At_<后缀>`（`Look_At` 挂在 `Middle_Hand` 下，
->    `Middle_Hand` 的位置由生成动画时的关键帧提供，摆姿势时不会自己跟随双手）。对齐规则与其它
->    控件相同：位置/旋转抄 test、缩放留自己的；`Look_At` 的位置是父级偏移算出来的，摆完
->    `Middle_Hand` 之后要复核一次。
-> 2. `Head_Control` 上有一条第 3 方也想要的 `Track_To`（rig 阶段挂在 test 上、模块 setup 又给实际控件挂了一条）。
->    实际控件自己的那条必须留着（它指向模块的 `Look_At`），把 rig 阶段挂在 test 上的那条连同 test 一起删掉即可。
+前六行就是 28 项映射表。最后两行是**上半身 / 头部控制链**，见下面第 6 步 —— 有头部控件的乐器，
+这两个 test 控件（`Head_Control_test` / `Look_At_test`）也要一起对齐、替换、删除，所以脚本按
+适配器里的 `head_chain` 声明把它们临时加进映射表（28 → 30 项）。
 
 替换时要扫**所有引用**，不只 `constraint.target`：
 
@@ -198,7 +193,73 @@ config.setup_all_objects()
 替换后 `MD_IK_arm.L` 的目标应是 `H_L_Mia`、极向量 `HP_L_Mia`；
 `MD_IK_index.L` 的目标 `1_L_Mia`、极向量 `pole_1_L_Mia`。
 
-### 6. 验收与清理
+### 6. 上半身 / 头部控制链（有头部控件的乐器）
+
+架子鼓、钢琴、古筝这些乐器模块会建两个"看向哪里"的控件：
+
+| 控件 | 模块给了什么 | 意思是 |
+|---|---|---|
+| `Head_Control_<后缀>` | 一条 `Track_To`（Z 轴指向视点、Y 轴朝上） | 头往哪转 |
+| `Look_At_<后缀>` | 挂在 `Middle_Hand` / `Mid_Hand` 下（位置跟双手走） | 看哪儿 |
+
+但刚建出来时它们只是躺在世界的两个物体（`Head_Control` 常常还在原点，旋转 -180°），
+人物的胸、颈、头**不认**它们。要补一条链，把人物接上去（形状照作者成品
+`E:\BaiduNetdiskDownload\3D Asset\演奏者\drum\米娅-星彩_架子鼓.blend`）：
+
+```
+  头骨（頭 / head） ──世界空间复制旋转──▶  Head_Control        ← 头的朝向直接等于它
+                                              │
+                                              ├── Track_To：Z 轴指向 Look_At、Y 轴朝上
+                                              │
+                                              └── IK 的目标（链长 = 颈到腰的级数）：
+                                                  颈 → 上胸 → 胸       ← 上半身跟着这个点弯
+                                                            ▲
+                                                  极向量 = Look_At   （往视点那侧弯）
+```
+
+六条规矩（也是脚本做的事）：
+
+1. **`Head_Control` 摆在人物的头部骨骼位置**——就是颈骨的尾端、也是头骨的关节（米娅的
+   `首` 尾 = `頭` 头）。**不要**按"头心"再往前上方偏一点：摆在关节上，rest 姿势才是这条 IK 链的
+   精确解（作者的成品偏了 1.4 cm，rest 下 IK 把躯干掰歪了将近 1 cm；摆正之后 rest 网格位移 2 µm）。
+2. **`Look_At` 摆在人物正前方**——沿头骨自己的 Z 轴（脸朝的方向），距离取链长的
+   `look_distance` 倍（默认 1.0）。它挂在 `Middle_Hand` 下，双手一动视点跟着动，这是模块的设计；
+   不要把它的父级摘掉。
+3. **IK 挂在颈骨上**（= 头骨的父级），目标 `Head_Control`、极向量 `Look_At`、链长见下条；
+   约束名 `MD_IK_upper`，`use_tail` / `use_stretch` 打开。
+4. **链长 = 颈骨往上数、到腰骨为止的级数**（米娅是 `首 → 上半身2 → 上半身` = 3）。
+   腰以下挂着 `下半身`（腿），包进来一动腰就带着腿转 —— 所以链头停在**腰的上方那一节**。
+   脚本按名字认不出来时用 `--neck-bone` / `--head-bone` 明说。
+5. **头骨挂世界空间复制旋转**（`COPY_ROTATION`、`owner/target_space = WORLD`、`REPLACE`、三轴），
+   约束名 `MD_Rot_upper`：头的朝向**直接等于**控制器。用局部空间会把颈的余数再叠一层，头会跟着脖子歪。
+6. **`Head_Control` 上要有一条 Track_To**：Z 轴指向 `Look_At`、上方向取 Y，并把 `use_target_z` 关掉。
+   Y 是骨的径向轴，头部正常摆放时它就是世界向上；开着 `use_target_z` 头会绕视点方向乱滚。
+   模块建控件时已经挂了一条（`Track_Look_At`），脚本沿用、只校正参数。
+
+`pole_angle` **现场标定**，不写死：它相对骨自己的坐标系量，各骨架 roll 不同。判据是"把头部控制器
+压在链末端不动，扫一圈角度，取 rest 关节位移最小的那一档"（rest 本身就是 IK 的一个解）。
+米娅实测 90°、rest 误差 0.000 m；0°/45°/90°/180° = 23.5 / 12.8 / **0.000** / 23.5 mm，V 形谷很干净，
+和作者成品手工摆的 90° 一致。
+
+**关节只在本来就重合时才接**（`use_connect`）：不接的话子骨还能被单独平移，拖控制器时链会散；
+但躯干尾端一挪，权重和影子骨的驱动都要重算，那是 rig 阶段的活（`rig_connect.py --fix-tails`）。
+脚本对差值 ≤1e-3 骨架单位的关节直接接上、其余只报告。
+
+**两种来源，脚本自己分**：
+
+| 情况 | 怎么判 | 脚本怎么做 |
+|---|---|---|
+| rig 阶段已经搭好（rig 升级后正常流程） | 有 `Head_Control_test` + `Look_At_test` + `MD_IK_upper` | 把模块控件对齐到 test、替换成模块控件、删 test；`pole_angle` 沿用 rig 阶段标好的 |
+| 没有链（老文件、rig 阶段没跑 `rig_upper`） | 没有那对 test 控件 | 按上面六条从零搭（重摆控件、标定 `pole_angle`、补 `use_connect`） |
+
+两种都做完以后，文件里只有模块的 `Head_Control_<后缀>` / `Look_At_<后缀>` 还在，test 那对已删。
+
+**动作等价验收时会把这条链临时静音**：钢琴/古筝的视点挂在被双手驱动的 `Middle_Hand` 下，
+动一下手视点就动，躯干跟着弯——那时"test vs 实际逐骨对比"必然对不上，但那是**设计行为**，
+不是装错了。所以采样期间只静音 `MD_IK_upper` / `MD_Rot_upper`，链本身用独立的功能探针验收
+（拖头部控制器、转头、头看视点、往极向量那侧弯）。
+
+### 7. 验收与清理
 
 安装脚本里的硬判据：
 
@@ -206,10 +267,15 @@ config.setup_all_objects()
 |---|---|---|
 | controller_root 对齐 | 与颈骨/胸骨矩阵一致；骨骼转 5°，根节点也转 ~5° | 0 m / 0°；4.99997° |
 | 控件对齐 | 位移 ≤ 1e-5 m、旋转 ≤ 0.01° | 1.34e-7 m / 0° |
-| rest 网格 | 替换前后 ≤ 1e-5 m | 1.74e-6 m |
+| rest 网格（替换引用） | 替换前后 ≤ 1e-5 m | 1.74e-6 m |
 | 残留引用 | 0 处 | 0 |
 | 极向量 | 与关节弯曲方向夹角 ≤ 2° | 6 条链全 0° |
 | 动作等价 | 同一动作 test 与实际逐骨对比 | 手臂 1.17 µm、手掌 1.28 µm、腿 1.17 µm；手指 0.98 mm / 3.18°（见下） |
+| 头链：控件位置 | 头部控制器离颈尾 ≤ 2% 链长；视点偏离头骨 Z 轴 ≤ 8° | 0 m；0.00° |
+| 头链：跟得住 | 四档姿势下颈尾离控制器 ≤ 2% 链长 | 最大 0.56 mm（链长 43.3 cm） |
+| 头链：头朝向 | 头骨朝向 = 控制器 ≤ 1°；头 Z 轴指向视点 ≤ 2° | 0.000°；0.07° |
+| 头链：弯曲方向 | 中间关节朝极向量偏 ≤ 5° | 0.0° |
+| 头链：rest 网格 | 接链前后 ≤ 1e-4 m | 2.0e-6 m |
 
 **为什么动作验收用「test 与实际逐骨对比」，而不是「目标点误差」**：
 
@@ -228,8 +294,10 @@ config.setup_all_objects()
 - 因此弯曲平面会有毫米/几度级差异。位置差仍要求 ≤2 mm（Mia 实测 0.98 mm），
   这是可以接受的；不要为了让它“完全一致”去改 `ext`/pole 的层级。
 
-**清理**：确认没有残留引用后，删除 28 个 test 空物体；保留 `MusicDoll_Rig_Progress`，
-另写 `MusicDoll_Instrument_Progress` 文本块记录本次安装。默认删除，`--keep-test` 可保留。
+**清理**：确认没有残留引用后，删除 test 空物体（没装头链是 28 个；rig 阶段装了上半身链的
+是 30 个，多 `Head_Control_test` / `Look_At_test`）；保留 `MusicDoll_Rig_Progress`，
+另写 `MusicDoll_Instrument_Progress` 文本块记录本次安装（含"上半身/头部链"一行）。
+默认删除，`--keep-test` 可保留。
 
 ## 小提琴映射表（rig skill test → StringFlow 实际）
 
@@ -279,16 +347,16 @@ SF_Mia
 
 `adapters/` 下按乐器放外部适配器；脚本用 `--adapter-file` 加载，不需要改安装脚本。
 
-| 乐器 | `--instrument` | 适配器 | `controller_root` |
-|---|---|---|---|
-| 钢琴 | `key_ripple` | `adapters/key_ripple.py` | 无要求，保持原位 |
-| 古筝 | `zheng_drift` | `adapters/zheng_drift.py` | 无要求，保持原位 |
-| 架子鼓 | `beat_bloom` | `adapters/beat_bloom.py` | 无要求，保持原位 |
-| 吉他 | `fret_dance` | `adapters/fret_dance.py` | 胸骨 `上半身2`；`--variant finger_style/electric/bass`；模块没有脚控件，用 `fallback_controls` 补 |
-| 手风琴 | `bellows_pulse` | `adapters/bellows_pulse.py` | 胸骨 `上半身2`；setup 已建目标留空的约束 |
-| 小提琴 / 中提琴 | `string_flow` | 内置（`--variant violin`） | 颈骨 `首` |
-| 大提琴 | `string_flow` | 内置（`--variant cello`） | 必须给尾钉锚点 |
-| 竖琴 | `harp_glide` | 尚未实测 | 必须给支点锚点 |
+| 乐器 | `--instrument` | 适配器 | `controller_root` | 上半身 / 头部链 |
+|---|---|---|---|---|
+| 钢琴 | `key_ripple` | `adapters/key_ripple.py` | 无要求，保持原位 | 有（`Head_Control` + `Look_At`，挂在 `Mid_Hand` 下） |
+| 古筝 | `zheng_drift` | `adapters/zheng_drift.py` | 无要求，保持原位 | 有（`Head_Control` + `Look_At`，挂在 `Middle_Hand` 下） |
+| 架子鼓 | `beat_bloom` | `adapters/beat_bloom.py` | 无要求，保持原位 | 有（`Head_Control` + `Look_At`，`Middle_Hand` 走关键帧） |
+| 吉他 | `fret_dance` | `adapters/fret_dance.py` | 胸骨 `上半身2`；`--variant finger_style/electric/bass`；模块没有脚控件，用 `fallback_controls` 补 | 没有 |
+| 手风琴 | `bellows_pulse` | `adapters/bellows_pulse.py` | 胸骨 `上半身2`；setup 已建目标留空的约束 | 没有 |
+| 小提琴 / 中提琴 | `string_flow` | 内置（`--variant violin`） | 颈骨 `首` | 没有 |
+| 大提琴 | `string_flow` | 内置（`--variant cello`） | 必须给尾钉锚点 | 没有 |
+| 竖琴 | `harp_glide` | 尚未实测 | 必须给支点锚点 | 有 `Look_At` 与 `Head`（不是 `Head_Control`），暂未接 |
 
 外部适配器最小结构：
 
@@ -298,6 +366,15 @@ ADAPTER = {
     "controller_root": {"default": {"mode": "none"}},
     "test_to_short": {"H_L_test": "H_L", ...},
     "behavior_samples": [...],
+    # 有头部控件的乐器才写这一段（短名，脚本自己拼后缀）：
+    "head_chain": {
+        "head_control": "Head_Control",
+        "look_at": "Look_At",
+        "look_distance": 1.0,   # 视点放在前方 链长 × 这个倍数
+        # "neck_bone": "首", "head_bone": "頭",   # 认不出时明说
+        # "pole_angle": 90.0,                     # 默认现场标定
+        # "test_head_control": "Head_Control_test", "test_look_at": "Look_At_test",
+    },
     # 可选：config_module / config_class / config_kwargs，
     # 或 def build_config(performer, variant) 返回 config 实例
     # 可选：fallback_controls，给模块没生成的 test 对照项补空物体
@@ -327,9 +404,30 @@ ADAPTER = {
 - `--anchor-object 空物体名` / `--anchor-position "x,y,z"`：大提琴尾钉 / 竖琴支点；两者都不给时脚本直接报错。
 - `--instrument-object 琴体物体名`：文件里已有小提琴 Mesh 时传入；没有就省略。
 - `--armature 骨架名`：文件里不止一套骨架时必填。
+- `--neck-bone 首` / `--head-bone 頭`：上半身链认不出颈骨/头骨时明说（默认按名字认 `首`/`neck`、`頭`/`head`）。
+- `--pole-angle 90`：上半身 IK 的 `pole_angle`；不给就现场标定（推荐不写）。
+- `--head-chain-only`：**只重搭上半身 / 头部链**，不重装乐器控件（见下面"重跑 setup 之后"）。
 - `--keep-test`：保留 test 控件（默认删）。
 - `--skip-pose-check`：跳过动作等价采样（只做对齐/rest 网格/残留检查；调试用）。
 - `--out`：默认在输入文件旁生成 `<原名>_string_flow.blend`；不允许覆盖输入文件。
+
+### 重搭上半身 / 头部链（重跑过 setup 之后）
+
+`setup_all_objects` 会把 `Look_At` 的本地位置重置回 `Middle_Hand` 的原点（架子鼓、古筝的模块
+都这么写）。这时链的极向量跑到身体中间去了，胸颈会被掰歪——但文件已经没有 test 控件，
+完整安装脚本会拒绝跑。用专门的一步修：
+
+```powershell
+& $blender -b --factory-startup `
+  -P "H:\music_doll_blender\skills\music-doll-instrument-controls\scripts\install_instrument_controls.py" -- `
+  --file "…\米娅-星彩_架子鼓.blend" --performer Mia --instrument beat_bloom `
+  --adapter-file "…\adapters\beat_bloom.py" `
+  --head-chain-only --out "…\米娅-星彩_架子鼓_修.blend"
+```
+
+它只做头链这一步：重摆 `Head_Control` / `Look_At`、摘掉旧的 `MD_*_upper` 再挂回去、
+重新标定 `pole_angle`、跑一遍头链自检。rest 网格位移的基线取在"摘掉旧约束之后"，
+所以即使旧链已经把躯干掰歪了，也不会把"修好它的位移"误报成"接链弄坏了网格"。
 
 ### 独立验收（test 删除后也能跑）
 
@@ -377,11 +475,18 @@ ADAPTER = {
 4. **多乐器 / 多手**：手风琴这类左右键区、多个乐器槽的，映射表要按侧别拆开；
    第一版不要硬套小提琴的 1:1 表；
 5. **动作样本**：选 2~4 个不会撞 IK 限制的动作（抬手、转手掌、手指内收、抬腿），
-   先跑 `--skip-pose-check` 看对齐，再开动作验收。
+   先跑 `--skip-pose-check` 看对齐，再开动作验收；
+6. **有没有头部控件**：模块建不建 `Head_Control` / `Look_At`？建了就往适配器里加 `head_chain`
+   （短名，脚本自己拼后缀）；只建 `Head` 这类身体部件控件、或者没有 `Look_At` 的
+   （`wind_rise` 只有 `Head_Control` 没有视点），就**不要**写，链缺极向量会掰歪。
 
 当前只实测了 `string_flow / violin`。`cello` 的 `anchor_required` 分支和参数已经接好，
 但大提琴的控件映射、动作样本还没实测；竖琴（`harp_glide`）同理。第一次做这两类时，
 先 `--skip-pose-check` 核对控件是否齐全、锚点是否正确，再补动作样本。
+
+上半身 / 头部链在米娅的**架子鼓、古筝、钢琴**上实测过（三个模块的 `Look_At` 父级都叫
+`Middle_Hand` / `Mid_Hand`，但驱动方式不同：架子鼓走动画关键帧、古筝和钢琴由双手驱动）。
+换成别的乐器模块时，先确认 `Look_At` 挂在哪、`Head_Control` 上那条 Track_To 的轴与上方向。
 
 ## 常见问题
 
@@ -429,12 +534,14 @@ A：古筝的脚极向量 `F_L_pole/F_R_pole` 没有父级，不跟 `ZD_Mia` 根
 要么先把它们挂到合适父级；静置演奏不受影响。
 
 **Q：verify PASS 是不是所有乐器专属对象都查过了**
-A：不是。通用 verify 只断言 28 项映射、根节点跟随、极向量、动作等价和 rest 网格。
-手风琴的 `left_bone/right_bone`、古筝的脚 pole、架子鼓的头部链等模块额外对象，要按各乐器小节人工抽查。
+A：不是。通用 verify 只断言 28 项映射、根节点跟随、极向量、动作等价、rest 网格，
+以及（声明了 `head_chain` 的乐器）上半身 / 头部链的九项。
+手风琴的 `left_bone/right_bone`、古筝的脚 pole、架子鼓的 `stick_L/R` 等模块额外对象，要按各乐器小节人工抽查。
 
 **Q：架子鼓 setup 报 dependency cycle**
-A：这是 beat_bloom 模块自身 `Head_Control` / `Look_At` 的循环，验收仍能通过；记录即可，
-不要为了消警告去改模块或删对象。
+A：这是 beat_bloom 模块自身的循环（`Head_Control` 的 Track_To 指向 `Look_At`，而某些驱动又读
+`Head_Control`）；验收仍能通过。记录即可，不要为了消警告去改模块或删对象。
+本 skill 接的链是"骨骼约束 ← 控制器"，不参与这个环。
 
 **Q：手指根部的极向量在对齐后仍和 test 不完全一致**
 A：rest 下应完全一致（Mia 1.34e-7 m）。如果差很多，检查是不是把 pole 摆在了 `ext` 更新之前。
@@ -450,10 +557,43 @@ A：先看 `use_ik_limit_*`；MMD 骨骼限制会让大位移留余量。test �
 **Q：右手只动 H_R，手指不跟**
 A：小提琴右手手指挂在 `Bow_Controller`，不是 `H_R` 下；拉弓要动 `Bow_Controller`。
 
+**Q：拖头部控制器，胸颈跟着弯；挪视点，头跟着转——这是要的吗**
+A：是。拖 `Head_Control` 弯的是上半身（颈→上胸→胸的 IK），转头看的是 `Look_At`。
+两者正交：一个管"上半身朝哪摆"，一个管"头看哪儿"。这是本 skill 第 6 步装的那条链。
+
+**Q：头部控制器摆在哪**
+A：摆在颈骨尾端（= 头骨关节）。**不要**再往上/往前挪一点当"头心"：那个偏移会让 rest 下
+IK 把躯干掰歪（作者成品偏了 1.4 cm，rest 网格被拉走约 1 cm）。摆在关节上时 rest 是这条
+链的精确解，实测 rest 网格位移 2 µm。
+
+**Q：视点为什么要摆在正前方、还要挂在 Middle_Hand 下**
+A：放正前方给 IK 当极向量，胸颈才会往"看的方向"弯，而不是歪着弯（和膝盖极向量放身前的道理一样）。
+不摘父级是因为模块的设计就是"视点跟着双手中点走"——手在哪儿演奏，头就看哪儿。
+
+**Q：瞬移视点之后胸颈歪了**
+A：视点同时是极向量。把 `Look_At` 挪到人身后/头顶，上半身就往后/往上弯——不是 bug，
+是"视点即弯曲方向"的直接后果。要另给它一个独立极向量才能分开，本 skill 没做。
+
+**Q：重跑过 setup 之后头歪了 / 胸塌了**
+A：`setup_all_objects` 会把 `Look_At` 的本地位置重置回 `Middle_Hand` 原点（架子鼓、古筝的模块
+都这么写），极向量跑到身体中间，胸颈就被掰歪。用 `--head-chain-only` 重搭一次这条链
+（见上面"重搭上半身 / 头部链"）。
+
+**Q：带头部控件的乐器，为什么动作等价验收能过（视点明明会跟着手跑）**
+A：采样期间脚本会临时静音 `MD_IK_upper` / `MD_Rot_upper`。视点跟着手走会把躯干带弯，
+那是设计行为；链本身由独立的功能探针验收（拖控制器、转头、看视点、往极向量那侧弯）。
+
+**Q：上半身链的链长为什么是 3 而不是 4**
+A：链长 = 颈骨往上数、到腰骨**之前**的级数（`首 → 上半身2 → 上半身`）。把 `腰` 包进来，
+一动腰就带着 `下半身`（腿）一起转。脚本认链时会打印"停在腰之前"这一行，改 `--neck-bone`
+或适配器里的 `chain_count` 可以覆盖。
+
 **Q：能不能在原始 rig 文件上直接跑**
 A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 
-## 本机现状（2026-11-24）
+## 本机现状
+
+### 第一次全量（2026-11-24）
 
 米娅的 6 个乐器版本都已用同一套脚本生成并独立验收（`instruments/<乐器>/verify_report.json`）：
 
@@ -466,10 +606,44 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 | 吉他 | `instruments/fret_dance/米娅-星彩_吉他.blend` | 胸骨 `上半身2` | PASS |
 | 手风琴 | `instruments/bellows_pulse/米娅-星彩_手风琴.blend` | 胸骨 `上半身2` | PASS |
 
+> 这批文件是在**第 6 步（上半身 / 头部链）之前**生成的：28 项映射都对，但架子鼓 / 钢琴 / 古筝
+> 这三个版本里 `Head_Control` / `Look_At` 还躺在原点、人物没接上去。按现在的脚本重跑一次即可；
+> 已经在用的文件也可以直接跑 `--head-chain-only` 补这一步（它不重装乐器控件，只把头链重搭一次）。
+
 各版本共同结果：28 个实际控件齐全、0 个 test 残留、6 条极向量链 0°、rest 网格对原件 2.8~3.3 µm；
 动作等价手臂/手掌/腿约 1~2 µm，手指约 0.98 mm / 3.18°（实际极向量随手指的设计差异）。
 
-乐器的特殊点：
+### 上半身 / 头部链（2026-11-27）
+
+在 `temp/rig_work/mia/headchain_test/` 里把几种来源都跑通了（除最后一条，输入都是
+`米娅-星彩.blend`：650 骨、28 个 test 控件、1 单位 = 1 米）：
+
+| 来源 | 做法 | 结果 |
+|---|---|---|
+| 没有链（老文件） | 脚本从零搭 | 链 `首 → 上半身2 → 上半身`（3 节）、`pole_angle` 90°、rest 网格 2.0 µm、11 项自检全过 |
+| rig 阶段已搭好 | 先跑 `rig_upper.py` 造 test 链，再装乐器控件 | 映射 30 项、替换 35 处、`pole_angle` 沿用 90°、rest 网格 0.0 m、test 30 个已删 |
+| 装好了但视点被 setup 重置 | `--head-chain-only` 重搭 | 把 `Look_At` 从身体中间挪回正前方、rest 网格 2.0 µm、再验收 PASS（幂等：对已经正确的文件再跑一次同样过） |
+| 旧架子鼓（模块老版本、带 cycle） | 对已有文件跑 `--head-chain-only` | 11 项自检全过、rest 网格 2.0 µm、随后的独立验收 PASS |
+
+实测数字（各项一致）：链长 0.4330 m；`Head_Control` 离颈尾 0 m；视点在人正前方 0.433 m
+（链长 × 1.0）；四档探针下颈尾离控制器最大 0.56 mm（容差 8.7 mm）、头朝向差 0°、
+头 Z 轴指向视点 0.07°、中间关节朝极向量偏 0°；`use_connect` 补了 `上半身2 / 首 / 頭` 三处。
+
+顺手回归了另外三条：古筝（`Look_At` 挂在被双手驱动的 `Middle_Hand` 下）、钢琴（`Mid_Hand` 驱动、
+控件是 EMPTY）两项都装完 + 验收 PASS，rest 网格均 2.0 µm；吉他（没有头部控件，用
+`fallback_controls` 补脚控件）装完 + 验收 PASS，rest 网格 1.4 µm、进度块里头链一行写 `absent`
+——说明这一步没把不带头部控件的乐器改坏。
+
+对照作者成品（`E:\BaiduNetdiskDownload\3D Asset\演奏者\drum\米娅-星彩_架子鼓.blend`）的三处差异：
+
+1. 他的 `Head_Control` 在颈尾**前上方约 1.4 cm**，rest 下 IK 把躯干掰了约 1 cm（颈尾离控制器 0.99 cm）；
+   我们摆在颈尾上，rest 是精确解。**按规矩摆，不要照抄他的偏移。**
+2. 他的 `Look_At` 在正前方约 87 cm（≈ 2× 链长）；我们取 1× 链长。方向一致，
+   距离只影响视点的疏密，不影响弯曲平面。
+3. 他的约束名是手工加的 `IK` / `Copy Rotation`，链上关节 `use_connect` 全是 0
+   （拖控制器时链能散）；我们用 `MD_IK_upper` / `MD_Rot_upper` 命名、并在关节本来就重合时接上。
+
+### 乐器的特殊点
 
 - **吉他**：模块不生成脚控件，适配器用 `fallback_controls` 在 `F_L_test/F_R_test/FP_L_test/FP_R_test`
   原位补 `F_L/F_R/FP_L/FP_R` 空物体，腿 IK 目标改指这些控件；`controller_root_offset` 保留。
@@ -492,8 +666,9 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
   是模块自带的世界对象，不属于 28 个替换项。脚极向量 `F_*_pole` **没有父级**（模块设计），
   整体平移/缩放古筝根时它们不跟，膝盖朝向可能歪；静置演奏无影响，整体挪人/缩放时要留意。
 
-独立验收只覆盖 28 项映射、根节点跟随、极向量和动作等价；乐器模块自己的额外对象（手风琴跟随器、
-古筝脚 pole、架子鼓头部链等）不在 verify 的通用断言里，需要按上面各乐器小节人工抽查。
+独立验收覆盖 28 项映射、根节点跟随、极向量、动作等价、rest 网格，以及声明了 `head_chain` 的
+乐器的上半身 / 头部链；乐器模块自己的额外对象（手风琴跟随器、古筝脚 pole、架子鼓 `stick_*` 等）
+不在 verify 的通用断言里，需要按上面各乐器小节人工抽查。
 
 ### 小提琴细节
 
@@ -514,8 +689,10 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/install_instrument_controls.py` | 初始化 + setup + controller_root 对齐 + 控件对齐 + 替换 + 验收 + 删 test + 另存 |
-| `scripts/verify_instrument_controls.py` | 独立验收：controller_root 跟随、控件齐全、无 test 残留、极向量、动作响应、rest 网格对照 |
-| `adapters/key_ripple.py` / `beat_bloom.py` / `fret_dance.py` / `bellows_pulse.py` / `zheng_drift.py` | 各乐器的 test→实际映射、controller_root 规则、动作样本、fallback 控件 |
+| `scripts/install_instrument_controls.py` | 初始化 + setup + controller_root 对齐 + 控件对齐 + 替换 + 上半身/头部链 + 验收 + 删 test + 另存；`--head-chain-only` 只重搭头链 |
+| `scripts/head_chain.py` | 上半身 / 头部链：认躯干骨、摆控件、连关节、颈上 IK、头骨复制旋转、标定 `pole_angle`、自检探针 |
+| `scripts/verify_instrument_controls.py` | 独立验收：controller_root 跟随、控件齐全、无 test 残留、极向量、动作响应、rest 网格对照、上半身 / 头部链 |
+| `adapters/key_ripple.py` / `beat_bloom.py` / `fret_dance.py` / `bellows_pulse.py` / `zheng_drift.py` | 各乐器的 test→实际映射、controller_root 规则、head_chain 声明、动作样本、fallback 控件 |
 
-两个脚本都支持 `--help`；核心判据和实测数字在本文件里，脚本只负责执行。
+两个入口脚本都支持 `--help`（`head_chain.py` 是被它们 import 的模块，没有命令行）；
+核心判据和实测数字在本文件里，脚本只负责执行。

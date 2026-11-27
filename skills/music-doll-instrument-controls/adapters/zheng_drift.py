@@ -2,6 +2,9 @@
 
 古筝固定不动，controller_root 没有跟随要求。手指/脚极向量命名：
 拇指 TP_L/TP_R，其余 <指>_<侧>_pole，脚 F_L_pole/F_R_pole。
+
+模块会建 `Head_Control` + `Look_At`（挂在 `Middle_Hand` 下、由双手驱动）：
+装完控件要把人物接上去 —— 颈上 IK、头骨复制旋转，见 head_chain。
 """
 
 ADAPTER = {
@@ -10,6 +13,11 @@ ADAPTER = {
     "config_module": "music_doll_blender.zheng_drift.config",
     "config_class": "ZhengConfig",
     "controller_root": {"default": {"mode": "none"}},
+    "head_chain": {
+        "head_control": "Head_Control",
+        "look_at": "Look_At",
+        "look_distance": 1.0,
+    },
     "test_to_short": {
         "H_L_test": "H_L",
         "H_R_test": "H_R",

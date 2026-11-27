@@ -2,6 +2,9 @@
 
 钢琴是固定乐器，controller_root 没有跟随要求。手指控件按钢琴自己的编号：
 左手 0..4 = 小指→拇指，右手 5..9 = 拇指→小指；极向量按同一编号命名。
+
+模块会建 `Head_Control` + `Look_At`（挂在 `Mid_Hand` 下、由双手驱动）：
+装完控件要把人物接上去 —— 颈上 IK、头骨复制旋转，见 head_chain。
 """
 
 
@@ -30,6 +33,11 @@ ADAPTER = {
     "label": "KeyRipple 钢琴",
     "build_config": build_config,
     "controller_root": {"default": {"mode": "none"}},
+    "head_chain": {
+        "head_control": "Head_Control",
+        "look_at": "Look_At",
+        "look_distance": 1.0,
+    },
     "test_to_short": {
         "H_L_test": "H_L",
         "H_R_test": "H_R",

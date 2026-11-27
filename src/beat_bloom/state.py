@@ -4,11 +4,17 @@
 所有状态数据存骨骼自定义属性 `beat_bloom_state_data`（JSON），
 不在场景中创建记录器物体。
 
-JSON 结构：
+JSON 结构（组件 → 打法 → 状态 → 控件）：
 {
-  "<component_name>": {
-    "<state>": {
-      "<ctrl_short>": {"location": [...], "rotation": [w,x,y,z]}
+  "<component>": {
+    "techniques": {
+      "<technique_id>": {
+        "poses": {
+          "ready": {"<ctrl_short>": {"location": [...], "rotation": [w,x,y,z]}},
+          "beat":  {...},
+          "rest":  {...}
+        }
+      }
     }
   },
   "rest": {
@@ -25,7 +31,11 @@ JSON 结构：
   }
 }
 
-控制器键的保存范围由 drivable_limbs 决定：
+「打法」是同一颗鼓、同一条肢体的一种击打方式（例如右手打地嗵可以手腕上下翻，
+也可以手腕侧翻）。有哪些打法由 `.drumkit` 声明，这里只存每种打法的姿态。
+某颗鼓只有一种打法时，读老结构（组件下直接是状态键）也等价于一条 `default`。
+
+控制器键的保存范围：只录本次击打声明的那条肢体
   right_hand → H_R / HP_R  + Head_Control
   left_hand  → H_L / HP_L  + Head_Control
   right_foot → F_R
@@ -40,6 +50,12 @@ from ..common import performer_utils as _pu
 from .enums import LIMB_CONTROLLERS, HAND_LIMBS
 
 STATE_KEY = "beat_bloom_state_data"
+
+# 打法层的键名与「只有一条默认打法」时的 id
+TECHNIQUES_KEY = "techniques"
+POSES_KEY = "poses"
+DEFAULT_TECHNIQUE = "default"
+STATE_NAMES = ("ready", "beat", "rest")
 
 LEGACY_STATE_KEY_SUFFIXES = (
     "_rotation_L",
@@ -164,53 +180,128 @@ def _write_ctrl_location(suffix: str, short: str, loc: list) -> None:
     obj.location = (loc[0], loc[1], loc[2])
 
 
-# ── 辅助：根据 drumkit 中的 component 决定需要操作哪些控制器 ──
+# ── 打法表读写（含老结构兼容） ────────────────────────────────
 
-def _ctrl_shorts_for_component(drumkit_dict: dict, component_name: str) -> dict:
-    """返回 component 涉及的控制器短名集合，格式 {short: include_rotation_only}。
+def _legacy_poses(component_data: dict) -> dict:
+    """老结构（组件下直接是 beat/ready/rest）取出来，包装成 poses 那一层。"""
+    return {
+        state_name: state_value
+        for state_name, state_value in component_data.items()
+        if state_name in STATE_NAMES and isinstance(state_value, dict)
+    }
 
-    实际上返回两组：
-      ctrl_shorts  - 位置+旋转的控制器列表（hand/foot 控制器）
-      has_head     - 是否包含 Head_Control（只存位置）
+
+def component_techniques(state_data: dict, component_name: str) -> dict:
+    """取某个组件的打法表 `{technique_id: {"poses": {...}}}`。
+
+    老数据（组件下直接是状态键）等价于一条 `default`。
     """
+    component_data = state_data.get(component_name)
+    if not isinstance(component_data, dict):
+        return {}
+
+    techniques = component_data.get(TECHNIQUES_KEY)
+    if isinstance(techniques, dict):
+        return techniques
+
+    legacy_poses = _legacy_poses(component_data)
+    if not legacy_poses:
+        return {}
+    return {DEFAULT_TECHNIQUE: {POSES_KEY: legacy_poses}}
+
+
+def ensure_component_techniques(state_data: dict, component_name: str) -> dict:
+    """取打法表用于写入；老结构就地升级成新结构。"""
+    component_data = state_data.setdefault(component_name, {})
+    techniques = component_data.get(TECHNIQUES_KEY)
+    if isinstance(techniques, dict):
+        return techniques
+
+    legacy_poses = _legacy_poses(component_data)
+    component_data.clear()
+    techniques = {DEFAULT_TECHNIQUE: {POSES_KEY: legacy_poses}} if legacy_poses else {}
+    component_data[TECHNIQUES_KEY] = techniques
+    return techniques
+
+
+def technique_poses(state_data: dict, component_name: str, technique_id: str) -> dict:
+    """取某条打法的三态 `{state_name: {ctrl_short: {...}}}`。"""
+    technique_data = component_techniques(state_data, component_name).get(technique_id)
+    if not isinstance(technique_data, dict):
+        return {}
+    poses = technique_data.get(POSES_KEY)
+    return poses if isinstance(poses, dict) else {}
+
+
+# ── 辅助：这条打法要录哪些控件 ────────────────────────────────
+
+def technique_limb_override(drumkit_dict: dict, component_name: str,
+                            technique_id: str) -> list:
+    """这条打法在鼓组配置里额外声明的肢体。
+
+    只用于合击打法（例如手 + 脚同时打同一个鼓件）。普通打法不声明，
+    录制范围就只由面板上选中的那条肢体决定。
+    """
+    if drumkit_dict is None:
+        return []
+
+    all_components = (drumkit_dict.get("components", [])
+                      + drumkit_dict.get("special_actions", []))
+    for component in all_components:
+        if component.get("name") != component_name:
+            continue
+
+        technique_entries = []
+        for entry in component.get("drivable_limbs", []) or []:
+            if isinstance(entry, dict):
+                technique_entries.extend(entry.get("techniques", []) or [])
+        # 特殊动作的打法直接挂在动作对象上
+        technique_entries.extend(component.get("techniques", []) or [])
+
+        overrides = []
+        for technique in technique_entries:
+            if not isinstance(technique, dict) or technique.get("id") != technique_id:
+                continue
+            for limb in technique.get("limbs", []) or []:
+                if limb not in overrides:
+                    overrides.append(limb)
+        return overrides
+    return []
+
+
+def control_shorts_for_limbs(limbs: list) -> tuple:
+    """肢体列表 → (位置+旋转控制器短名, 是否需要写 Head_Control)。"""
     ctrl_shorts = []
     has_head = False
-
-    if drumkit_dict is None:
-        return ctrl_shorts, has_head
-
-    all_components = drumkit_dict.get(
-        "components", []) + drumkit_dict.get("special_actions", [])
-    for comp in all_components:
-        if comp["name"] != component_name:
-            continue
-        if "drivable_limbs" in comp:
-            limbs = [d["limb"] for d in comp["drivable_limbs"]]
-        elif "limbs" in comp:
-            limbs = comp["limbs"]
-        else:
-            limbs = []
-
-        for limb in limbs:
-            ctrl_shorts.extend(LIMB_CONTROLLERS.get(limb, []))
-            if limb in HAND_LIMBS:
-                has_head = True
-        break
-
-    return list(dict.fromkeys(ctrl_shorts)), has_head  # 去重保序
+    for limb in limbs:
+        ctrl_shorts.extend(LIMB_CONTROLLERS.get(limb, []))
+        if limb in HAND_LIMBS:
+            has_head = True
+    return list(dict.fromkeys(ctrl_shorts)), has_head
 
 
 # ── 状态保存 / 加载 ───────────────────────────────────────────
 
-def save_state(suffix: str, component_name: str, state_name: str,
-               skeleton, drumkit_dict: dict) -> None:
-    """保存当前控件位置到骨骼 JSON 的 <component>/<state> 下"""
-    ctrl_shorts, has_head = _ctrl_shorts_for_component(
-        drumkit_dict, component_name)
+def save_state(suffix: str, component_name: str, limb: str, technique_id: str,
+               state_name: str, skeleton, drumkit_dict: dict) -> None:
+    """把当前控件姿态存进 <component>/techniques/<technique>/poses/<state>。
+
+    只录这条击打声明的那条肢体（手部另带 Head_Control），不再把该组件所有
+    可驱动肢体的姿态一起录进来 —— 两只手都能打的鼓件，摆右手时会顺带把左手
+    存到一个不相干的位置上。
+    """
+    recording_limbs = [limb] if limb else []
+    for override_limb in technique_limb_override(
+            drumkit_dict, component_name, technique_id):
+        if override_limb not in recording_limbs:
+            recording_limbs.append(override_limb)
+    ctrl_shorts, has_head = control_shorts_for_limbs(recording_limbs)
 
     data = _get_state(skeleton)
-    comp_data = data.setdefault(component_name, {})
-    state_data = comp_data.setdefault(state_name, {})
+    techniques = ensure_component_techniques(data, component_name)
+    technique_data = techniques.setdefault(technique_id, {POSES_KEY: {}})
+    poses = technique_data.setdefault(POSES_KEY, {})
+    state_data = poses.setdefault(state_name, {})
 
     for short in ctrl_shorts:
         state_data[short] = _read_ctrl(suffix, short)
@@ -220,16 +311,16 @@ def save_state(suffix: str, component_name: str, state_name: str,
             "location": _read_ctrl_location_only(suffix, "Head_Control")}
 
     _set_state(skeleton, data)
-    print(f"✓ 已保存 {component_name}/{state_name}")
+    print(f"✓ 已保存 {component_name} / {technique_id} / {state_name}")
 
 
-def load_state(suffix: str, component_name: str, state_name: str,
-               skeleton) -> bool:
-    """从骨骼 JSON 加载 <component>/<state> 到控件；返回是否成功"""
+def load_state(suffix: str, component_name: str, technique_id: str,
+               state_name: str, skeleton) -> bool:
+    """从骨骼 JSON 加载某条打法的某个状态到控件；返回是否成功"""
     data = _get_state(skeleton)
-    state_data = data.get(component_name, {}).get(state_name)
+    state_data = technique_poses(data, component_name, technique_id).get(state_name)
     if state_data is None:
-        print(f"✗ 骨骼中不存在 {component_name}/{state_name} 状态数据")
+        print(f"✗ 骨骼中不存在 {component_name} / {technique_id} / {state_name}")
         return False
 
     for short, ctrl_data in state_data.items():
@@ -239,7 +330,7 @@ def load_state(suffix: str, component_name: str, state_name: str,
         else:
             _write_ctrl(suffix, short, ctrl_data)
 
-    print(f"✓ 已加载 {component_name}/{state_name}")
+    print(f"✓ 已加载 {component_name} / {technique_id} / {state_name}")
     return True
 
 

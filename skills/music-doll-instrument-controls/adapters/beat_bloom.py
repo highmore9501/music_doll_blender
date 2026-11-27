@@ -2,6 +2,9 @@
 
 固定乐器，controller_root 没有跟随要求。手指控件与 test 同名（T/I/M/R/P + 侧别），
 极向量是 `<指>_pole_<侧>`（拇指也是 T_pole_L，不是 TP_L）。
+
+模块会建 `Head_Control`（头往哪转）+ `Look_At`（视点，挂在 `Middle_Hand` 下）：
+装完控件要把人物接上去 —— 颈上 IK、头骨复制旋转，见 head_chain。
 """
 
 
@@ -18,6 +21,11 @@ ADAPTER = {
     "label": "BeatBloom 架子鼓",
     "build_config": build_config,
     "controller_root": {"default": {"mode": "none"}},
+    "head_chain": {
+        "head_control": "Head_Control",
+        "look_at": "Look_At",
+        "look_distance": 1.0,
+    },
     "test_to_short": {
         "H_L_test": "H_L",
         "H_R_test": "H_R",

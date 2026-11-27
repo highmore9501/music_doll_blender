@@ -693,6 +693,19 @@ _DICT: dict[str, dict[str, str]] = {
     "Component": {"zh": "组件", "en": "Component"},
     "State": {"zh": "状态", "en": "State"},
     "Hit state": {"zh": "击打状态", "en": "Hit state"},
+    "肢体": {"zh": "肢体", "en": "Limb"},
+    "打法": {"zh": "打法", "en": "Technique"},
+    "默认打法": {"zh": "默认打法", "en": "Default technique"},
+    "用哪条肢体打这颗鼓": {
+        "zh": "用哪条肢体打这颗鼓",
+        "en": "Which limb hits this drum"},
+    "这颗鼓这条肢体的哪种打法": {
+        "zh": "这颗鼓这条肢体的哪种打法",
+        "en": "Which technique this limb uses for this drum"},
+    "（无可驱动肢体）": {"zh": "（无可驱动肢体）", "en": "(no drivable limb)"},
+    "已保存 %s / %s / %s": {
+        "zh": "已保存 %s / %s / %s",
+        "en": "Saved %s / %s / %s"},
     "Mapping Helpers": {"zh": "映射辅助", "en": "Mapping Helpers"},
     "Slot": {"zh": "槽位", "en": "Slot"},
     "Mapping State": {"zh": "映射状态", "en": "Mapping State"},

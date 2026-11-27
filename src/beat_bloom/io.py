@@ -4,6 +4,7 @@
 从骨骼自定义属性（beat_bloom_state_data）读写，
 导出格式保持扁平键名以兼容 Rust 侧消费：
   RECORDER_INFO  → <component>_<state>_<ctrl_short>
+                   有多条打法时 → <component>#<technique>_<state>_<ctrl_short>
   MAPPING_HELPERS → Middle_Hand_A/B/C/D、Head_Control_A/B/C/D、Left_Hand_A/B/C/D、Right_Hand_A/B/C/D
 """
 
@@ -14,7 +15,15 @@ import bpy  # type: ignore
 from ..common import io_utils
 from ..common import performer_utils
 from .config import BeatBloomConfig
-from .state import _get_state, _set_state, _ctrl_shorts_for_component
+from .state import (
+    DEFAULT_TECHNIQUE,
+    POSES_KEY,
+    STATE_NAMES,
+    _get_state,
+    _set_state,
+    component_techniques,
+    ensure_component_techniques,
+)
 from .enums import HAND_LIMBS
 
 
@@ -48,6 +57,34 @@ def _resolve_pole_obj(cfg, pole_short: str):
 
 # ── 导出 ──────────────────────────────────────────────────────
 
+def _needs_technique_key(comp: dict, techniques: dict) -> bool:
+    """这颗鼓的姿态键要不要带 `#<打法>` 段。
+
+    带的条件：鼓组里给某条肢体声明了两种以上打法，或者数据里本来就有多条。
+    只有一条时不带，这样没用到多打法的角色文件导出来和以前完全一致。
+    """
+    if len(techniques) > 1:
+        return True
+    for entry in comp.get("drivable_limbs", []) or []:
+        if isinstance(entry, dict) and len(entry.get("techniques", []) or []) > 1:
+            return True
+    return len(comp.get("techniques", []) or []) > 1
+
+
+def _techniques_to_export(techniques: dict, needs_technique_key: bool) -> list:
+    """这次要导出哪些打法。
+
+    不带 `#` 的键名放不下第二条打法，所以那种情况只导出一条（优先 default）。
+    """
+    if not techniques:
+        return []
+    if needs_technique_key:
+        return sorted(techniques.items())
+    if DEFAULT_TECHNIQUE in techniques:
+        return [(DEFAULT_TECHNIQUE, techniques[DEFAULT_TECHNIQUE])]
+    return [next(iter(sorted(techniques.items())))]
+
+
 def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
                    for_unreal: bool = False) -> None:
     """从骨骼 JSON 导出 .drummer 文件（兼容原扁平格式）
@@ -69,21 +106,30 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
 
     for comp in all_components:
         comp_name = comp["name"]
-        comp_states = state_data.get(comp_name, {})
+        techniques = component_techniques(state_data, comp_name)
+        needs_technique_key = _needs_technique_key(comp, techniques)
 
-        for state_name, ctrl_map in comp_states.items():
-            for short, ctrl_data in ctrl_map.items():
-                if short == "Head_Control":
-                    key = f"{comp_name}_{state_name}_Head_Control"
-                    recorder_info[key] = {
-                        "location": _pos(ctrl_data.get("location", [0, 0, 0]))}
-                else:
-                    key = f"{comp_name}_{state_name}_{short}"
-                    recorder_info[key] = {
-                        "location": _pos(ctrl_data.get("location", [0, 0, 0])),
-                        "rotation_quaternion": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
-                        "rotation_mode": "QUATERNION",
-                    }
+        for technique_id, technique_data in _techniques_to_export(
+                techniques, needs_technique_key):
+            poses = (technique_data.get(POSES_KEY, {})
+                     if isinstance(technique_data, dict) else {})
+            prefix = f"{comp_name}#{technique_id}" if needs_technique_key else comp_name
+
+            for state_name, ctrl_map in poses.items():
+                if not isinstance(ctrl_map, dict):
+                    continue
+                for short, ctrl_data in ctrl_map.items():
+                    if short == "Head_Control":
+                        key = f"{prefix}_{state_name}_Head_Control"
+                        recorder_info[key] = {
+                            "location": _pos(ctrl_data.get("location", [0, 0, 0]))}
+                    else:
+                        key = f"{prefix}_{state_name}_{short}"
+                        recorder_info[key] = {
+                            "location": _pos(ctrl_data.get("location", [0, 0, 0])),
+                            "rotation_quaternion": _rot(ctrl_data.get("rotation", [1, 0, 0, 0])),
+                            "rotation_mode": "QUATERNION",
+                        }
 
     # rest 状态（原 H_Rest_L / H_Rest_R 等扁平键）
     rest_map = state_data.get("rest", {})
@@ -180,6 +226,46 @@ def export_drummer(file_path: str, skeleton, drumkit_dict: dict,
 
 # ── 导入 ──────────────────────────────────────────────────────
 
+# ── 导入 ──────────────────────────────────────────────────────
+
+def _split_recorder_key(flat_key: str, component_names: set):
+    """把 RECORDER_INFO 的扁平键拆成 (组件, 打法, 状态, 控件)。
+
+    带 `#` 的新格式：`<组件>#<打法>_<状态>_<控件>`，打法 id 夹在组件名与状态之间。
+    不带的是老格式，等价于一条 `default`。
+    组件名按最长优先匹配，避免短名抢走长名的键（"Tom" vs "Tom_Low"）。
+    """
+    rest_str = ""
+    if "#" in flat_key:
+        component_part, rest = flat_key.split("#", 1)
+        if component_part not in component_names:
+            return None
+        technique_id = DEFAULT_TECHNIQUE
+        if "_" in rest:
+            technique_id, rest_str = rest.split("_", 1)
+        else:
+            return None
+    else:
+        component_part = None
+        for candidate in sorted(component_names, key=len, reverse=True):
+            prefix = candidate + "_"
+            if flat_key.startswith(prefix):
+                component_part = candidate
+                rest_str = flat_key[len(prefix):]
+                break
+        if component_part is None:
+            return None
+        technique_id = DEFAULT_TECHNIQUE
+
+    parts = rest_str.split("_", 1)
+    if len(parts) != 2:
+        return None
+    state_name, short = parts[0], parts[1]
+    if state_name not in STATE_NAMES:
+        return None
+    return component_part, technique_id, state_name, short
+
+
 def import_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
     """从 .drummer 文件导入，填回骨骼自定义属性 beat_bloom_state_data"""
     with open(file_path, "r", encoding="utf-8") as f:
@@ -220,25 +306,16 @@ def import_drummer(file_path: str, skeleton, drumkit_dict: dict) -> None:
                 }
             continue
 
-        # 普通 component_state_ctrl 格式：贪心匹配最长 component 名
-        matched = None
-        for comp_name in component_names:
-            prefix = comp_name + "_"
-            if flat_key.startswith(prefix):
-                rest_str = flat_key[len(prefix):]
-                # rest_str 形如 "beat_H_R" 或 "beat_Head_Control"
-                parts = rest_str.split("_", 1)
-                if len(parts) == 2:
-                    state_name, short = parts[0], parts[1]
-                    matched = (comp_name, state_name, short)
-                    break
-
-        if matched is None:
+        # 普通 {component}#{technique}_{state}_{ctrl} 或老格式 {component}_{state}_{ctrl}
+        parsed = _split_recorder_key(flat_key, component_names)
+        if parsed is None:
             continue
 
-        comp_name, state_name, short = matched
-        comp_entry = state_data.setdefault(comp_name, {})
-        state_entry = comp_entry.setdefault(state_name, {})
+        comp_name, technique_id, state_name, short = parsed
+        techniques = ensure_component_techniques(state_data, comp_name)
+        technique_entry = techniques.setdefault(technique_id, {POSES_KEY: {}})
+        poses = technique_entry.setdefault(POSES_KEY, {})
+        state_entry = poses.setdefault(state_name, {})
 
         if short == "Head_Control":
             state_entry[short] = {
