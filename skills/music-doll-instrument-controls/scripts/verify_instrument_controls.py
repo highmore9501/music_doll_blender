@@ -179,6 +179,47 @@ def check_references(armature, adapter):
     }
 
 
+def check_parent_inverse(adapter):
+    """导出前自查：控件身上的 `matrix_parent_inverse` 必须是单位阵。
+
+    Blender 的世界 = 父级 × `matrix_parent_inverse` × 本地；"保留变换地挂父级"会让前两项抵消，
+    于是 location 里存下的其实是世界值。Blender 里怎么算都自洽，可导出器只写 location，
+    引擎按"父级 × 本地"再乘一遍父级 —— 部件就落错地方（手腕下面偏 1 m 级，带缩放的父级下面偏几公里）。
+
+    只查控件：骨架和带骨架修改器的人物网格走 FBX，导出器自己会把 parent inverse 归零；
+    还没删的 `_test` 控件也不查（它们马上会被删掉，且是 rig 阶段的临时件）。
+    """
+    from mathutils import Matrix
+    identity = Matrix.Identity(4)
+    test_names = set(adapter["test_to_short"])
+    test_names.update(head_test_control_names(adapter))
+    offenders = []
+    checked = 0
+    for obj in bpy.data.objects:
+        if obj.type == 'ARMATURE' or obj.parent is None:
+            continue
+        if obj.parent_type != 'OBJECT':
+            continue
+        if obj.name in test_names or obj.name.endswith("_test"):
+            continue
+        if any(modifier.type == 'ARMATURE' for modifier in obj.modifiers):
+            continue
+        checked += 1
+        deviation = max(abs(obj.matrix_parent_inverse[row][column] - identity[row][column])
+                        for row in range(4) for column in range(4))
+        if deviation <= 1e-6:
+            continue
+        engine_position = (obj.parent.matrix_world @ obj.matrix_basis).translation
+        offenders.append({
+            "object": obj.name,
+            "parent": obj.parent.name,
+            "deviation": round(deviation, 6),
+            "position_error": round(
+                (engine_position - obj.matrix_world.translation).length, 6),
+        })
+    return {"checked": checked, "offenders": offenders, "passed": not offenders}
+
+
 def check_controller_root(armature, performer_name, adapter, variant, follow_bone,
                           anchor_position_text):
     from music_doll_blender.common import performer_utils
@@ -513,6 +554,7 @@ def main():
     summary["remaining_test_objects"] = check_test_objects(adapter)
     summary["allow_test"] = bool(arguments.allow_test)
     summary["references"] = check_references(armature, adapter)
+    summary["parent_inverse"] = check_parent_inverse(adapter)
     summary["pole"] = check_pole_angles(armature)
     summary["controller_root"] = check_controller_root(
         armature, arguments.performer, adapter, arguments.variant,
@@ -556,6 +598,10 @@ def main():
         failures.append("约束仍指向 test 控件")
     if summary["references"]["dangling"]:
         failures.append("有 MD_ 约束目标为空（可能引用了已删除对象）")
+    if summary["parent_inverse"]["offenders"]:
+        failures.append("控件挂了非单位 matrix_parent_inverse（保留变换地挂父级，导出后会错位）："
+                        + "、".join(item["object"]
+                                   for item in summary["parent_inverse"]["offenders"]))
     if summary["pole"]["bad"]:
         failures.append("极向量偏离超差")
     if summary["controller_root"].get("passed") is False:

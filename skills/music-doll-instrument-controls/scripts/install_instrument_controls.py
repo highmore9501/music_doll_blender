@@ -533,8 +533,10 @@ def create_fallback_controls(adapter, config, performer, armature):
             parent_object = bpy.data.objects.get(
                 resolve_actual_name(config, parent_spec, performer_name))
         if parent_object is not None:
+            # 挂父级只能"无逆"：parent inverse 写成父级世界矩阵的逆时两者互相抵消，
+            # location 里存下的就是世界值 —— Blender 里自洽，导出到引擎会再乘一遍父级。
             control_object.parent = parent_object
-            control_object.matrix_parent_inverse = parent_object.matrix_world.inverted()
+            control_object.matrix_parent_inverse.identity()
 
         collection_name = spec.get("collection", "")
         collection_object = None
@@ -796,6 +798,9 @@ def replace_all_references(test_objects, actual_objects):
             previous_parent_name = obj.parent.name
             world_matrix = obj.matrix_world.copy()
             obj.parent = actual_parent
+            # 换父级同样是"无逆"：旧父级留下的 parent inverse 不归零，
+            # 写回世界矩阵算出来的本地值就还是带旧父级那一层抵消的假局部值。
+            obj.matrix_parent_inverse.identity()
             obj.matrix_world = world_matrix
             replaced.append({
                 "where": obj.name,

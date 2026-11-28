@@ -168,6 +168,10 @@ def _restore_parent(ob, record):
 
     注意：这里**不能**把世界矩阵写成“倍数 × 原世界矩阵” —— 倍数已经写进几何数据里了，
     对象自己的缩放现在必须是 1.0；再乘一次就是放大 10000 倍。
+
+    parent inverse 必须归零：写成父级世界矩阵的逆时两者互相抵消，`location` 里存下的
+    就是世界值，换到父级带旋转 / 缩放的引擎场景里会再乘一遍（见 SKILL.md
+    「父子关系：只能无逆地挂」）。归零之后写回世界矩阵，得到的本地值才是真局部值。
     """
     parent = record["parent"]
     if parent is None:
@@ -175,7 +179,7 @@ def _restore_parent(ob, record):
     world_after_apply = ob.matrix_world.copy()
     ob.parent = parent
     ob.parent_type = record["parent_type"]
-    ob.matrix_parent_inverse = parent.matrix_world.inverted()
+    ob.matrix_parent_inverse.identity()
     ob.matrix_world = world_after_apply
 
 

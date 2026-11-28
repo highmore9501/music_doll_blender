@@ -1494,7 +1494,10 @@ def arrange_controllers(armature_object, chains, front_axis, dry_run, report, pl
                 bpy.context.view_layer.update()
                 world = target.matrix_world.copy()
                 target.parent = hand_object
-                target.matrix_parent_inverse = hand_object.matrix_world.inverted()
+                # 挂父级只能"无逆"：parent inverse 写成手腕世界矩阵的逆时，
+                # 这两项会互相抵消，location 里存下的就是世界值 —— Blender 里看不出来，
+                # 导出到引擎按"父级 × 本地"再乘一遍手腕朝向，手指目标就飞了。
+                target.matrix_parent_inverse.identity()
                 target.matrix_world = world
                 bpy.context.view_layer.update()
 

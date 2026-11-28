@@ -81,6 +81,7 @@ DEFAULT_OPTIONS = {
     "dry_run": False,
     "no_stability": False,
     "morph_with_armature": False,
+    "morph_root_bone": True,
     "json": None,
     "unresolved": "fail",   # fail / world
 }
@@ -109,6 +110,10 @@ def parse_arguments(argv=None):
         key = token[2:].replace("-", "_")
         if key in {"dry_run", "no_stability", "morph_with_armature"}:
             options[key] = True
+            index += 1
+            continue
+        if key == "no_morph_root_bone":
+            options["morph_root_bone"] = False
             index += 1
             continue
         if index + 1 >= len(raw):
@@ -738,10 +743,17 @@ def build_plan(scene, options):
                 stability=sample_stability(obj, armature_obj, depsgraph, resolution, millimetres, options),
             )],
         }
-        if kind == "morph" and options["morph_with_armature"]:
-            unit["armature"] = armature_obj.name
-            unit["notes"] = "带形态键的网格连骨架一起导出（计划里的写法）；实测骨架不会给它加蒙皮，" \
-                            "进 UE 仍是静态网格，只是多带了一份骨架数据"
+        if kind == "morph":
+            if options["morph_with_armature"]:
+                unit["armature"] = armature_obj.name
+                unit["notes"] = "带形态键的网格连人物骨架一起导出（旧写法）；骨架不会给它加蒙皮，" \
+                                "进 UE 仍是静态网格，只是多带了一份骨架数据"
+            elif options["morph_root_bone"]:
+                unit["root_bone"] = obj.name
+                unit["notes"] = (
+                    "带形态键的部件配一根根骨（全权重）单导出：UE 5.8 只把「有蒙皮」的 fbx 当骨骼网格导，"
+                    "没有蒙皮的 fbx 会被当静态网格处理、形态键直接丢掉"
+                )
         static_units.append(unit)
 
     if skeletal_unit["meshes"]:
@@ -822,6 +834,56 @@ def drop_duplicate(duplicate, source_obj):
         bpy.data.objects.remove(duplicate, do_unlink=True)
     if source_obj.name.endswith("__SRC"):
         source_obj.name = source_obj.name[: -len("__SRC")]
+
+
+ROOT_BONE_LENGTH_UNITS = 10.0   # 一根骨的长度，纯占位：它不参与变形，只决定骨头在视口里的长短
+
+
+def create_root_bone_armature(bone_name):
+    """给带形态键的部件造一副只有一根骨头的骨架（骨头在原点、朝 +Z、无旋转）。
+
+    为什么需要它：UE 5.8 的 FBX 导入器按「有没有蒙皮」决定导成骨骼网格还是静态网格。
+    只有形态键、没有蒙皮的 fbx 会被当成静态网格，形态键（鼓的敲击形变）一个都留不下。
+    给它一根全权重的骨，文件就成了真正的骨骼网格，形态键跟着进 UE。
+    """
+    armature_data = bpy.data.armatures.new(bone_name + "_arm")
+    armature_object = bpy.data.objects.new(bone_name + "_arm", armature_data)
+    bpy.context.scene.collection.objects.link(armature_object)
+    armature_object.matrix_world = mathutils.Matrix.Identity(4)
+    armature_object.show_in_front = True
+
+    select_only([armature_object])
+    bpy.ops.object.mode_set(mode="EDIT")
+    edit_bone = armature_data.edit_bones.new(bone_name)
+    edit_bone.head = (0.0, 0.0, 0.0)
+    edit_bone.tail = (0.0, 0.0, ROOT_BONE_LENGTH_UNITS)
+    edit_bone.roll = 0.0
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return armature_object
+
+
+def skin_to_root_bone(mesh_object, armature_object, bone_name):
+    """把这根骨以全权重蒙到网格上（顶点位置不变，只是让文件成为骨骼网格）。"""
+    vertex_group = mesh_object.vertex_groups.new(name=bone_name)
+    vertex_group.add(list(range(len(mesh_object.data.vertices))), 1.0, "REPLACE")
+    modifier = mesh_object.modifiers.new(name="Armature", type="ARMATURE")
+    modifier.object = armature_object
+    mesh_object.parent = armature_object
+    mesh_object.matrix_parent_inverse = mathutils.Matrix.Identity(4)
+    mesh_object.matrix_world = armature_object.matrix_world.copy()
+
+
+def remove_object(object_ref):
+    """删掉一个临时物体（连同它的数据块）。"""
+    if object_ref is None or object_ref.name not in bpy.data.objects:
+        return
+    data_block = object_ref.data
+    bpy.data.objects.remove(object_ref, do_unlink=True)
+    if data_block is not None and data_block.users == 0:
+        if isinstance(data_block, bpy.types.Armature):
+            bpy.data.armatures.remove(data_block)
+        elif isinstance(data_block, bpy.types.Mesh):
+            bpy.data.meshes.remove(data_block)
 
 
 def export_objects(objects, filepath):

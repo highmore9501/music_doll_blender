@@ -36,8 +36,8 @@ MusicDoll 的乐器模块（小提琴 = `string_flow`）在 `setup_all_objects` 
 
 ## 前置条件
 
-1. **插件已安装并启用**：`music_doll_blender`。装的是哪份代码很重要——改过 `src/` 后要
-   `python scripts/make_zip.py` 同步到插件目录，再在 Blender 里禁用/启用插件（或重启）。
+1. **插件已安装并启用**：`music_doll_blender`（从仓库打 zip 装进 Blender，或在开发目录里直接指向 `src/`）。
+   如果你改过 `src/`，要重新打包/重载插件并在 Blender 里禁用再启用（或重启）才生效——
    无头运行用 `bpy.ops.preferences.addon_enable(module="music_doll_blender")`，脚本里已经做了。
 2. **演奏者名字**：只能用英文字母和数字、且以字母开头（`Mia` / `Player01`）。
    这个名字同时是对象后缀，初始化后骨架会变成 `米娅-星彩_arm_Mia`、Mesh 变成 `米娅-星彩_mesh_Mia`。
@@ -193,6 +193,19 @@ config.setup_all_objects()
 替换后 `MD_IK_arm.L` 的目标应是 `H_L_Mia`、极向量 `HP_L_Mia`；
 `MD_IK_index.L` 的目标 `1_L_Mia`、极向量 `pole_1_L_Mia`。
 
+> **挂父级只能用"无逆"那一种（2026-11-28 作者定）。** 第 3、4、5 步都会动父级；只要用
+> `Ctrl+P`（Keep Transform），或者代码里写 `matrix_parent_inverse = 父级世界矩阵的逆`，
+> `location` / `rotation` 里存下来的就是世界值 —— Blender 里前后两项互相抵消、看着完全正常，
+> 导出到 Unreal 后头部 / 手掌会被父级再乘一遍，飞到身体另一侧。判据只有一条：
+> 改完 `matrix_parent_inverse` 必须是单位阵。
+>
+> - 脚本写法：`obj.parent = 父级` → `obj.matrix_parent_inverse.identity()` → `obj.matrix_world = 世界矩阵`；
+> - UI 写法：`Alt+P`（这里"保持变换"是对的）摘下来 → `Ctrl+P` → Object（**不带** Keep Transform）挂回去；
+> - 自查：`music-doll-rig/scripts/check_parent_inverse.py`，或看 `verify_instrument_controls.py` 的
+>   `parent_inverse` 一节（控件上有非单位 parent inverse 就判失败）；
+> - 已经中招的文件必须**重新录一遍基准姿势** —— 旧基准里存的就是世界值，只改父级不重录等于没修
+>   （作者在米娅-架子鼓上就是这么修好的）。
+
 ### 6. 上半身 / 头部控制链（有头部控件的乐器）
 
 架子鼓、钢琴、古筝这些乐器模块会建两个"看向哪里"的控件：
@@ -203,8 +216,7 @@ config.setup_all_objects()
 | `Look_At_<后缀>` | 挂在 `Middle_Hand` / `Mid_Hand` 下（位置跟双手走） | 看哪儿 |
 
 但刚建出来时它们只是躺在世界的两个物体（`Head_Control` 常常还在原点，旋转 -180°），
-人物的胸、颈、头**不认**它们。要补一条链，把人物接上去（形状照作者成品
-`E:\BaiduNetdiskDownload\3D Asset\演奏者\drum\米娅-星彩_架子鼓.blend`）：
+人物的胸、颈、头**不认**它们。要补一条链，把人物接上去（形状照作者手工做的一份成品文件）：
 
 ```
   头骨（頭 / head） ──世界空间复制旋转──▶  Head_Control        ← 头的朝向直接等于它
@@ -276,6 +288,7 @@ config.setup_all_objects()
 | 头链：头朝向 | 头骨朝向 = 控制器 ≤ 1°；头 Z 轴指向视点 ≤ 2° | 0.000°；0.07° |
 | 头链：弯曲方向 | 中间关节朝极向量偏 ≤ 5° | 0.0° |
 | 头链：rest 网格 | 接链前后 ≤ 1e-4 m | 2.0e-6 m |
+| 父子关系 | 控件上的 `matrix_parent_inverse` 全为单位阵（`parent_inverse` 一节） | Mia 6 个乐器版 47 项 0 处 |
 
 **为什么动作验收用「test 与实际逐骨对比」，而不是「目标点误差」**：
 
@@ -383,16 +396,27 @@ ADAPTER = {
 
 ## 命令
 
+先按自己的环境填两个变量，下面所有例子都用它们（`<仓库>` 指你下载下来的本仓库目录，`<工作目录>` 随便建）：
+
+```powershell
+$blender = "<Blender 可执行文件，如 ...\Blender 5.0\blender.exe>"
+$repo    = "<仓库目录>"
+$skill   = "$repo\skills\music-doll-instrument-controls"
+```
+
+> 命令是 PowerShell 写法（Windows）。在 bash / zsh 里把开头的 `&` 去掉、行尾反引号续行换成 `\`，
+> 变量直接赋值即可；脚本只用 Blender 自带模块，跨平台。
+
 ### 安装
 
 ```powershell
-& "D:\Program Files\Blender Foundation\Blender 5.0\blender.exe" -b --factory-startup `
-  -P "H:\music_doll_blender\skills\music-doll-instrument-controls\scripts\install_instrument_controls.py" -- `
-  --file "H:\music_doll_blender\temp\rig_work\mia\米娅-星彩.blend" `
+& $blender -b --factory-startup `
+  -P "$skill\scripts\install_instrument_controls.py" -- `
+  --file "<工作目录>\<角色名>.blend" `
   --performer Mia `
   --instrument key_ripple `
-  --adapter-file "H:\music_doll_blender\skills\music-doll-instrument-controls\adapters\key_ripple.py" `
-  --out "H:\music_doll_blender\temp\rig_work\mia\instruments\key_ripple\米娅-星彩_钢琴.blend" `
+  --adapter-file "$skill\adapters\key_ripple.py" `
+  --out "<工作目录>\<角色名>_钢琴.blend" `
   --report "install_report.json"
 ```
 
@@ -419,10 +443,10 @@ ADAPTER = {
 
 ```powershell
 & $blender -b --factory-startup `
-  -P "H:\music_doll_blender\skills\music-doll-instrument-controls\scripts\install_instrument_controls.py" -- `
-  --file "…\米娅-星彩_架子鼓.blend" --performer Mia --instrument beat_bloom `
-  --adapter-file "…\adapters\beat_bloom.py" `
-  --head-chain-only --out "…\米娅-星彩_架子鼓_修.blend"
+  -P "$skill\scripts\install_instrument_controls.py" -- `
+  --file "<工作目录>\<角色名>_架子鼓.blend" --performer Mia --instrument beat_bloom `
+  --adapter-file "$skill\adapters\beat_bloom.py" `
+  --head-chain-only --out "<工作目录>\<角色名>_架子鼓_修.blend"
 ```
 
 它只做头链这一步：重摆 `Head_Control` / `Look_At`、摘掉旧的 `MD_*_upper` 再挂回去、
@@ -432,11 +456,11 @@ ADAPTER = {
 ### 独立验收（test 删除后也能跑）
 
 ```powershell
-& "D:\Program Files\Blender Foundation\Blender 5.0\blender.exe" -b --factory-startup `
-  -P "H:\music_doll_blender\skills\music-doll-instrument-controls\scripts\verify_instrument_controls.py" -- `
-  --file "H:\music_doll_blender\temp\rig_work\mia\米娅-星彩_小提琴.blend" `
+& $blender -b --factory-startup `
+  -P "$skill\scripts\verify_instrument_controls.py" -- `
+  --file "<工作目录>\<角色名>_小提琴.blend" `
   --performer Mia --instrument string_flow --variant violin `
-  --reference "H:\music_doll_blender\temp\rig_work\mia\米娅-星彩.blend" `
+  --reference "<工作目录>\<角色名>.blend" `
   --report "violin_verify_report.json"
 ```
 
@@ -492,6 +516,18 @@ ADAPTER = {
 
 **Q：初始化报「名字只能使用英文字母和数字」**
 A：`create_performer` 的硬限制；换 `Mia` / `Miya` 这类 ASCII 名字，不要用中文。
+
+**Q：Blender 里一切正常，进 Unreal 后头部（或手、鼓槌）落到身体另一侧 / 腰以下**
+A：先查父子关系，不是动画数据坏了。`Ctrl+P`（Keep Transform）或把 `matrix_parent_inverse`
+写成父级世界矩阵的逆，会让 `location` / `rotation` 里存下世界值 —— Blender 里两项抵消、自洽，
+导出后引擎按"父级 × 本地"再乘一遍父级就飞了。查 `matrix_parent_inverse` 是不是单位阵
+（`check_parent_inverse.py` 或 verify 的 `parent_inverse` 一节）；修法见第 5 步那一段，
+修完**必须重录基准姿势**。
+
+**Q：为什么只有某个控件坏，其它都正常**
+A：只有它挂在"带旋转 / 缩放的父级"下面。挂在 `controller_root`、单位变换父级下的控件，
+"局部值"与"世界值"本来就相等，所以看不出区别；一旦父级是乐器支点（竖琴 95°）、手腕（米娅 98°）、
+带缩放的根节点，同一串数字换个引擎就落到别处。
 
 **Q：setup 成功，但实际控件都在原点**
 A：正常。`create_or_update_object` 只建不摆；第 4 步负责摆。
@@ -591,7 +627,10 @@ A：链长 = 颈骨往上数、到腰骨**之前**的级数（`首 → 上半身
 **Q：能不能在原始 rig 文件上直接跑**
 A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 
-## 本机现状
+## 实测记录（作者环境的验证日志）
+
+> 下面的表格是作者在自己工作目录里跑出来的记录，`instruments/...`、`temp/rig_work/...` 是当时的目录布局，
+> 不用照着建 —— 有用的是结论、映射表和各项误差量级。
 
 ### 第一次全量（2026-11-24）
 
@@ -634,7 +673,7 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 `fallback_controls` 补脚控件）装完 + 验收 PASS，rest 网格 1.4 µm、进度块里头链一行写 `absent`
 ——说明这一步没把不带头部控件的乐器改坏。
 
-对照作者成品（`E:\BaiduNetdiskDownload\3D Asset\演奏者\drum\米娅-星彩_架子鼓.blend`）的三处差异：
+对照作者手工做的成品（同一角色的架子鼓版 `.blend`，不在仓库里）的三处差异：
 
 1. 他的 `Head_Control` 在颈尾**前上方约 1.4 cm**，rest 下 IK 把躯干掰了约 1 cm（颈尾离控制器 0.99 cm）；
    我们摆在颈尾上，rest 是精确解。**按规矩摆，不要照抄他的偏移。**
@@ -642,6 +681,34 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
    距离只影响视点的疏密，不影响弯曲平面。
 3. 他的约束名是手工加的 `IK` / `Copy Rotation`，链上关节 `use_connect` 全是 0
    （拖控制器时链能散）；我们用 `MD_IK_upper` / `MD_Rot_upper` 命名、并在关节本来就重合时接上。
+
+### 米娅全套文件复查：父子关系（2026-11-28）
+
+作者在米娅-架子鼓上遇到"Blender 里正常、进 Unreal 头/手落到别处"，修法是"先把出问题的控件
+`Alt+P`（保持变换）摘下来 → `Ctrl+P` 不带 inverse 挂回去 → 重录所有基准姿势"。
+事后把 `temp/rig_work/mia/` 下 47 个 `.blend`（6 个乐器版 + 各阶段副本）逐个数了一遍
+`matrix_parent_inverse`：
+
+| 类别 | 文件数 | 结果 |
+|---|---|---|
+| 还留着 rig 阶段 `*_test` 控件的（`米娅-星彩.blend`、各备份、`headchain_test/上链*`、`violin_work/试装*`） | 11 | **每个文件 20 处**：`I/M/R/P/T_*_test` 与其 pole 挂在 `H_*_test`（rest 朝向 98.4°）下，`matrix_parent_inverse` 是手腕世界矩阵的逆，`location` 存的是世界值；"父级世界 × 本地"与真实位置差 **1.18 m / 98.4°** |
+| 乐器阶段成品（6 个乐器 + `instruments/` 与 `headchain_test/` 里的副本） | 36 | **0 处**：模块自己只写 `parent`（不动 parent inverse），test 控件在导出前已删除，所以导出的都是真局部值 |
+
+源头在 rig 阶段的 `rig_apply.py`：手指控制器挂到手腕下时写的是
+`matrix_parent_inverse = hand.matrix_world.inverted()`（保留变换），于是 `location` 记的是世界值；
+录制基准用的正是 `obj.location`（`beat_bloom/state.py` 的 `_read_ctrl`），录进去的也就是世界值，
+导出器再原样写进 `.drummer` / `.harpist` —— 引擎按"父级 × 本地"一乘，头/手就飞了。
+2026-11-28 已把 `rig_apply.py`、`rig_units.py`、`install_instrument_controls.py` 里的四处改成
+"parent 设好后把 parent inverse 归零，再写回世界矩阵"，并给 `rig_verify.py` /
+`verify_instrument_controls.py` 各加了一条断言。
+
+**同一批文件里还有一处要留意**（与父子关系无关）：这些乐器版都生成于第 6 步之前，
+`Head_Control_Mia` 还在原点（离头骨 1.46 m），`首` 上也没有 `MD_IK_upper`（只有 `古筝_上链`
+搭了一条还指着 test 控件的链）。这种文件拿去导 `.drummer`，头会被拉到原点 —— 正是"头停在腰以下"那类现象。
+用 `--head-chain-only` 补一次链再录基准（见上面"重搭上半身 / 头部链"）。
+
+老文件的修法（已经导过 Unreal 的那批）：`Alt+P` 保持变换摘下 → `Ctrl+P` 不带 inverse 挂回 →
+**重录全部基准姿势** → 重新导出。只改父级不重录，旧基准里仍然是世界值。
 
 ### 乐器的特殊点
 
@@ -672,8 +739,8 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 
 ### 小提琴细节
 
-- 输入：`H:\music_doll_blender\temp\rig_work\mia\米娅-星彩.blend`（rig skill 改造完成，650 骨，28 个 test 控件）
-- 输出：`H:\music_doll_blender\temp\rig_work\mia\violin_work\米娅-星彩_小提琴.blend`
+- 输入：`<工作目录>\<角色名>.blend`（rig skill 改造完成，650 骨，28 个 test 控件）
+- 输出：`<工作目录>\violin_work\<角色名>_小提琴.blend`
 - 演奏者：`Mia`，乐器：`string_flow`，变体：`violin`，骨架：`米娅-星彩_arm_Mia`
 - `controller_root`：`COPY_LOCATION` + `COPY_ROTATION` 跟随 `首`，误差 `0.0 m / 0.0°`；
   颈骨转 5° 时根节点转 `4.99997°`，颈骨转 15° 时 `H_L` 移动 `0.122 m`
@@ -691,7 +758,7 @@ A：不要。脚本默认另存；原始 rig 文件留着做对照和回退。
 |---|---|
 | `scripts/install_instrument_controls.py` | 初始化 + setup + controller_root 对齐 + 控件对齐 + 替换 + 上半身/头部链 + 验收 + 删 test + 另存；`--head-chain-only` 只重搭头链 |
 | `scripts/head_chain.py` | 上半身 / 头部链：认躯干骨、摆控件、连关节、颈上 IK、头骨复制旋转、标定 `pole_angle`、自检探针 |
-| `scripts/verify_instrument_controls.py` | 独立验收：controller_root 跟随、控件齐全、无 test 残留、极向量、动作响应、rest 网格对照、上半身 / 头部链 |
+| `scripts/verify_instrument_controls.py` | 独立验收：controller_root 跟随、控件齐全、无 test 残留、极向量、动作响应、rest 网格对照、**父子关系（parent inverse 必须为单位阵）**、上半身 / 头部链 |
 | `adapters/key_ripple.py` / `beat_bloom.py` / `fret_dance.py` / `bellows_pulse.py` / `zheng_drift.py` | 各乐器的 test→实际映射、controller_root 规则、head_chain 声明、动作样本、fallback 控件 |
 
 两个入口脚本都支持 `--help`（`head_chain.py` 是被它们 import 的模块，没有命令行）；

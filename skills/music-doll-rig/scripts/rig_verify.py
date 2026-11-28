@@ -536,6 +536,44 @@ def verify_legacy_constraints(part, armature_object, chain_names, checker, label
                   else "原件约束全部 mute，只剩 MD_*")
 
 
+def verify_controller_parenting(checker):
+    """控制器之间的父子关系必须是"无逆"的（`matrix_parent_inverse` 为单位阵）。
+
+    Blender 的世界 = 父级 × `matrix_parent_inverse` × 本地。用 Ctrl+P（Keep Transform）
+    或者把 parent inverse 写成父级世界矩阵的逆，前两项正好抵消，`location` 里存下的就是世界值。
+    本阶段里看着一切正常（抵消掉了），但这些控制器正是接下来要录基准、导给引擎的那一批：
+    引擎只拿 `location` / `rotation`，按"父级 × 本地"重建 —— 世界值被当成局部值又乘一遍父级，
+    部件就落到别处（手腕该父级偏 1 m 级，带缩放的父级偏到几公里）。
+    """
+    from mathutils import Matrix
+    identity = Matrix.Identity(4)
+    checked = 0
+    offenders = []
+    for obj in bpy.data.objects:
+        if obj.type == 'ARMATURE' or obj.parent is None:
+            continue
+        if obj.parent_type != 'OBJECT':
+            continue
+        if not obj.name.endswith("_test"):
+            continue
+        checked += 1
+        deviation = max(abs(obj.matrix_parent_inverse[row][column] - identity[row][column])
+                        for row in range(4) for column in range(4))
+        if deviation <= 1e-6:
+            continue
+        engine_position = (obj.parent.matrix_world @ obj.matrix_basis).translation
+        error = (engine_position - obj.matrix_world.translation).length
+        offenders.append("%s（父级 %s，偏 %.3f）" % (obj.name, obj.parent.name, error))
+    if not checked:
+        checker.info("struct", "controller_parenting", "没有 test 控制器，跳过")
+        return
+    checker.check("struct", "控制器父子关系无逆（parent inverse 为单位阵）",
+                  not offenders,
+                  ("保留变换地挂过父级：" + "、".join(offenders)
+                   + "（Alt+P 保持变换摘下 → Ctrl+P 不带 inverse 挂回 → 重录基准）")
+                  if offenders else "%d 个控制器的 parent inverse 都是单位阵" % checked)
+
+
 # ── 上半身 / 头部控制链 ─────────────────────────────────────────────────
 def upper_spine(armature_object):
     """认这条人物身上的躯干链（颈 / 上胸 / 胸 + 头）；认不出返回 None。
@@ -1013,6 +1051,10 @@ def main():
             continue
         verify_finger(armature_object, part, finger, checker)
         verified_parts.append(part)
+
+    print("")
+    print("== 控制器父子关系 ==")
+    verify_controller_parenting(checker)
 
     failed = checker.failed()
     print("")

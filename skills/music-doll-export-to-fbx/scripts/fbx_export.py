@@ -35,6 +35,8 @@ def print_unit_table(plan):
             parent_text = "骨骼网格（连骨架导出）"
         elif parent["type"] == "bone":
             parent_text = f"绑骨：{parent['bone']}（零偏移挂载）"
+        elif unit.get("root_bone"):
+            parent_text = f"世界原点，骨骼网格（根骨 {unit['root_bone']}）"
         else:
             parent_text = "世界原点（原地摆放）"
         rows.append([unit["file"], parent_text, str(sum(record["vertices"] for record in unit["meshes"]))])
@@ -96,6 +98,29 @@ def main():
             print(
                 f"  导出 {unit['file']}：骨架 + {len(meshes)} 个网格，"
                 f"{size / 1024 / 1024:.2f} MB（rest 姿势）"
+            )
+        elif unit.get("root_bone"):
+            record = unit["meshes"][0]
+            source_obj = bpy.data.objects[record["object"]]
+            bake_matrix = fbx_common.load_bake_matrix(record["bake_matrix"])
+            duplicate, deviation = fbx_common.bake_duplicate(source_obj, bake_matrix)
+            bake_deviations[record["object"]] = deviation
+            bone_armature = None
+            try:
+                if deviation > fbx_common.BAKE_TOLERANCE_UNITS:
+                    raise RuntimeError(
+                        f"{record['object']} 烘焙自检失败：顶点偏差 {deviation * millimetres:.4f} mm"
+                        f"（上限 {fbx_common.BAKE_TOLERANCE_UNITS * millimetres:.4f} mm）"
+                    )
+                bone_armature = fbx_common.create_root_bone_armature(unit["root_bone"])
+                fbx_common.skin_to_root_bone(duplicate, bone_armature, unit["root_bone"])
+                size = fbx_common.export_objects([bone_armature, duplicate], filepath)
+            finally:
+                fbx_common.drop_duplicate(duplicate, source_obj)
+                fbx_common.remove_object(bone_armature)
+            print(
+                f"  导出 {unit['file']}：{record['object']} + 一根根骨 {unit['root_bone']}，"
+                f"{size / 1024:.0f} KB，烘焙偏差 {deviation * millimetres:.5f} mm"
             )
         else:
             record = unit["meshes"][0]
@@ -166,6 +191,8 @@ def main():
             how = "作为人物本体：SkeletalMesh，骨架就是本文件里的那一套"
         elif parent["type"] == "bone":
             how = f"挂到骨 {parent['bone']}，相对变换 = 0（顶点已经是骨骼空间的坐标）"
+        elif unit.get("root_bone"):
+            how = f"摆在原点，按 SkeletalMesh 导入（自带根骨 {unit['root_bone']} 与形态键）"
         else:
             how = "直接摆在原点（顶点已经是世界坐标）"
         print(f"  {unit['file']} → {how}")
@@ -181,16 +208,26 @@ def build_assembly_section(units):
         {"file": unit["file"], "bone": unit["parent"]["bone"], "relative_transform": "identity"}
         for unit in units if unit["parent"]["type"] == "bone"
     ]
-    world_parts = [unit["file"] for unit in units if unit["parent"]["type"] == "world"]
+    world_parts = [
+        unit["file"] for unit in units
+        if unit["parent"]["type"] == "world" and not unit.get("root_bone")
+    ]
+    world_skeletal_parts = [
+        {"file": unit["file"], "bone": unit["root_bone"], "attach": "place_at_origin"}
+        for unit in units if unit.get("root_bone")
+    ]
     return {
         "skeletal_meshes": skeletal_files,
         "bone_parts": bone_parts,
         "world_parts": world_parts,
+        "world_skeletal_parts": world_skeletal_parts,
         "rules": [
             "骨骼网格直接作为人物本体导入，不要额外挂父级。",
             "绑骨部件的顶点坐标已经是骨骼空间（原点在骨头、朝向是骨头的朝向），"
             "进 UE 后挂到对应骨骼并把相对变换保持为 0。",
             "世界坐标部件按原点摆放；它们本来就是场景里不动的东西（鼓台、凳子）。",
+            "world_skeletal_parts 里的部件也摆原点，但必须按 SkeletalMesh 导入（它们带形态键，"
+            "文件里那一根根骨只是为了让 UE 认成骨骼网格，不要拿它做动画）。",
             "FBX 里没有动画，也没有叶骨骼；单位是厘米（场景单位 0.01 米）。",
         ],
     }

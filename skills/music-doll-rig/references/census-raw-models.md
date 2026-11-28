@@ -1,9 +1,9 @@
 # 原始模型形态普查（阶段 1 产物）
 
-普查对象：`E:\BaiduNetdiskDownload\Blender原神角色模型 …\T0001-56款原神角色3D模型` 下已解压的
-**39 个角色 `.blend`**（不含武器/道具/动作库；zip 里未解压的同型号未计入）。
-工具：`rig_survey.py` + `rig_analyze.py`（只读）。中间数据是 `temp/rig_work/` 下的 `survey_raw.json` / `analyze_raw.json`
-（`temp/` 可能被清理，需要时用同一批文件重跑一遍即可复现）。
+普查对象：一批公开的「原神角色 3D 模型」合集（T0001-56 款，约 56 个型号）里**已解压的 39 个角色 `.blend`**
+（不含武器/道具/动作库；zip 里未解压的型号未计入）。
+工具：`rig_survey.py` + `rig_analyze.py`（只读）。中间数据是工作目录下的 `survey_raw.json` / `analyze_raw.json`
+（临时目录可能被清理，需要时用同一批文件重跑一遍即可复现）。
 
 ## 规模
 

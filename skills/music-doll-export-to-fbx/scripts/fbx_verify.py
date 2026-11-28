@@ -147,6 +147,22 @@ def check_unit(unit, expectation, scale, context):
         "detail": f"源 {sorted(expected_names)} / 导入 {sorted(imported_names)}",
     })
 
+    if unit.get("root_bone"):
+        if not imported_armatures:
+            checks.append({
+                "check": "根骨骨架",
+                "ok": False,
+                "detail": "fbx 里没有骨架 —— UE 会把它当静态网格导入，形态键会丢",
+            })
+        else:
+            root_armature = imported_armatures[0]
+            imported_bone_names = sorted(bone.name for bone in root_armature.data.bones)
+            checks.append({
+                "check": "根骨骨架（应该只有一根骨头）",
+                "ok": imported_bone_names == [unit["root_bone"]],
+                "detail": f"期望 [{unit['root_bone']}] / 导入 {imported_bone_names}",
+            })
+
     if unit.get("armature"):
         if not imported_armatures:
             checks.append({"check": "骨架存在", "ok": False, "detail": "fbx 里没有骨架"})
@@ -273,6 +289,25 @@ def check_unit(unit, expectation, scale, context):
                         f"（{'，'.join(not_exportable[:6])} …）"
                     ),
                 })
+
+        if unit.get("root_bone"):
+            root_weights = weight_map(imported_mesh, {unit["root_bone"]})
+            unweighted = [
+                vertex.index for vertex in imported_mesh.data.vertices
+                if vertex.index not in root_weights
+            ]
+            lightest = min(
+                (weight for items in root_weights.values() for _, weight in items),
+                default=0.0,
+            )
+            checks.append({
+                "check": f"{object_name} 根骨蒙皮",
+                "ok": not unweighted and lightest >= 1.0 - WEIGHT_TOLERANCE,
+                "detail": (
+                    f"{len(root_weights)}/{len(imported_mesh.data.vertices)} 个顶点有权重；"
+                    f"没蒙到的 {len(unweighted)} 个；最小权重 {lightest:.5f}"
+                ),
+            })
 
         if mesh_expectation["weights"] is not None:
             imported_weights = weight_map(imported_mesh, context["source_bone_names"])

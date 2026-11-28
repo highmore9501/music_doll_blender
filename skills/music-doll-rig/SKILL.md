@@ -14,6 +14,8 @@ description: 改造 MusicDoll 演奏者骨架（Blender .blend）：先把场景
 **不能用固定脚本的原因**：认出哪根是哪根、判断现有层级好不好、决定要不要动，这些必须现场判断；
 但判断清楚之后，改造动作本身是确定性的。所以形状是：**agent 分析 → 出一份改造单 → 脚本执行 → 脚本验收**。
 
+**环境**：实测于 Blender 5.0（Windows），脚本只用 `bpy` 标准 API，不依赖本机路径；命令行示例见「脚本」一节。
+
 ## 什么时候别用它
 
 - 控制器重的骨架（`Skirk` / `Skandrone` 这类，形变骨之间根本不互为父子链）——不要盲改，报给人；
@@ -38,6 +40,7 @@ description: 改造 MusicDoll 演奏者骨架（Blender .blend）：先把场景
 先放大，后面所有工作就都直接是厘米尺度，不用二次换算。
 
 ```powershell
+# $blender / $skill 的取法见下面「脚本」那一节
 & $blender -b --factory-startup -P "$skill\rig_units.py" -- <file.blend> --dry-run
 & $blender -b --factory-startup -P "$skill\rig_units.py" -- <file.blend> --out <副本.blend>
 ```
@@ -200,8 +203,8 @@ MMD 的腿经常同时长着两根脚趾骨。**哪一根算链条的下一节�
 
 ## 上半身 / 头部朝向控制链（第 6 步，2026-11-25 作者定）
 
-四肢改完，人物还缺两个把手：**上半身怎么摆**、**头朝哪看**。这一步补上，形状照作者的成品
-（`E:\BaiduNetdiskDownload\3D Asset\演奏者\zheng\米娅-星彩_古筝.blend`）：
+四肢改完，人物还缺两个把手：**上半身怎么摆**、**头朝哪看**。这一步补上，形状照一份已经做完的成品文件
+（对照用的参照是作者手上一个古筝版 `.blend`；你自己做的时候拿任一已完成这一步的文件当参照即可）：
 
 ```
   头骨（頭 / head） ──世界空间复制旋转──▶  Head_Control_test     ← 头的朝向直接等于它
@@ -297,13 +300,14 @@ rest 姿势下链条已经接近**绷直**（三节骨长之和 0.4373、链根�
 | `rig_pole_sweep.py` | 标定 `pole_angle`：扫角度、量中间关节朝凸侧 / 朝极向量的偏离（`--convex front` 给腿用） |
 | `rig_arrows.py` | 生成 / 读取 / 删除指甲方向箭头（人工复核手指朝向用） |
 | `reset_finger_tests.py` | 删掉手指的测试控制器（`T/I/M/R/P_<侧>_test`）并清掉引用它们的 IK，换口径重跑前用 |
+| `check_parent_inverse.py` | **导出前自查**：列出所有 `matrix_parent_inverse` 不是单位阵的物体，并算"父级世界 × 本地"与场景实际位置的偏差；有偏差就以非 0 退出 |
+| `fix_parent_inverse.py` | **批量修**：把目录 / 文件里所有"保留变换挂父级"的物体按无逆写法重挂（PI 归零 + basis = PI×basis），世界变换一点不变；改前自动备份；自带关键帧动画的默认跳过，`--animate` 才连关键帧一起换算 |
 
 ```powershell
-$blender = "D:\Program Files\Blender Foundation\Blender 5.0\blender.exe"
-$skill   = "H:\music_doll_blender\skills\music-doll-rig\scripts"
-
-# 只读分析
-& $blender -b --factory-startup -P "$skill\rig_analyze.py" -- <file.blend> --armature <名字>
+# 先按自己的环境填这两个变量：Blender 可执行文件、本 skill 的 scripts 目录
+$blender = "<Blender 可执行文件，如 ...\Blender 5.0\blender.exe>"
+$skill   = "<下载下来的仓库>\skills\music-doll-rig\scripts"
+# 只读分析& $blender -b --factory-startup -P "$skill\rig_analyze.py" -- <file.blend> --armature <名字>
 
 # 改造（先 dry-run，再另存）
 & $blender -b --factory-startup -P "$skill\rig_apply.py" -- <file.blend> --armature <名字> `
@@ -340,7 +344,13 @@ $skill   = "H:\music_doll_blender\skills\music-doll-rig\scripts"
 # 影子链多半要掰尾端：带权重的影子骨必须同时 --reanchor-drive，否则形变会歪
 & $blender -b --factory-startup -P "$skill\rig_connect.py" -- <file.blend> --armature <名字> `
     --chains "足D.L>ひざD.L>足首D.L>足先EX.L;足D.R>ひざD.R>足首D.R>足先EX.R" --fix-tails --reanchor-drive --save
+
+# 导出前自查父子关系（有雷就以非 0 退出；--all 连没问题的也逐条列）
+& $blender -b --factory-startup -P "$skill\check_parent_inverse.py" -- <file.blend>
 ```
+
+> 上面的命令是 PowerShell 写法（Windows）。在 bash / zsh 里把开头的 `&` 去掉、把行尾的反引号续行换成 `\`，
+> 变量用 `blender=...`、`skill=...` 直接赋值即可；脚本本身跨平台，只依赖 Blender 的 Python。
 
 ## 手指：指甲方向的取法
 
@@ -413,6 +423,61 @@ $skill   = "H:\music_doll_blender\skills\music-doll-rig\scripts"
 > 重标后胳膊回到 90°、残差约 1 mm；**腿这条不稳**：MMD 的 rest 腿本身是塌的、膝盖几乎压在弦上，
 > 方向没有意义，扫出来的角度不可信（实测偏 88°）。腿这一段要人看一眼，别信脚本。
 
+## 父子关系：只能"无逆"地挂（2026-11-28 作者定，跨引擎唯一的硬约束）
+
+**给控件改父级，只能走"无逆"那一种。** 判据只有一条：改完 `matrix_parent_inverse` 必须是单位阵。
+
+为什么：Blender 算世界位置用的是
+
+    世界 = 父级世界 × matrix_parent_inverse × 本地（location / rotation / scale）
+
+`Ctrl+P` → Object (Keep Transform)，以及任何"设 `parent` 再把 `matrix_parent_inverse` 写成
+父级世界矩阵的逆"的代码，都让前两项互相抵消 —— 于是 **location / rotation 里存下来的其实是世界值**。
+Blender 自己怎么算都自洽（抵消掉了），所以文件里看着一点毛病都没有；
+可导出器（`.harpist` / `.drummer` / `.animation` / 控制器 FBX）只写 location / rotation，
+引擎按"父级 × 本地"重建，世界值被当成局部值又乘了一遍父级 —— 部件就飞到别处去了。
+实测：父级是转 98° 的手腕时偏 1.18 m；父级带 99 倍缩放时偏 11 km。**只有跨引擎才暴露。**
+
+- **UI 里**：先 `Alt+P`（这里"保持变换"是对的，把子物体摘下来）→ 再 `Ctrl+P` → **Object**
+  （不要选 "Object (Keep Transform)"）。
+- **脚本里**：
+
+  ```python
+  bpy.context.view_layer.update()
+  world = obj.matrix_world.copy()
+  obj.parent = parent
+  obj.matrix_parent_inverse.identity()   # ← 区别只有这一行
+  obj.matrix_world = world               # basis 于是等于 父级⁻¹ × 世界，是真正的局部值
+  bpy.context.view_layer.update()
+  ```
+
+  **不要**写 `obj.matrix_parent_inverse = parent.matrix_world.inverted()` —— 那正好是要避免的那一种。
+
+两条自查断言（`check_parent_inverse.py` 一次跑完，退出码非 0 就是有雷）：
+
+1. 任何父级不是单位变换的物体，`matrix_parent_inverse` 必须是单位阵 —— 否则它记录的"局部值"是假的；
+2. 反向验收：拿基准值做 `父级世界 × 本地`，算出的落点必须等于场景里的实际位置；
+   跨引擎再算一遍（×100、Y 轴取反、四元数取共轭之后），两边必须落在同一点。
+
+踩过 / 会踩的地方（前两处是 2026-11-28 改掉的，后两处靠这条规矩防）：
+
+| 位置 | 场景 | 父级带什么 |
+|---|---|---|
+| `rig_apply.py` 手指控制器挂手腕（实测中招） | `I_L_test` / `I_L_pole_test` → `H_L_test` | 手腕 rest 朝向（米娅 98.4°） |
+| `rig_units.py` 缩放后挂回父级 | 网格 / 骨架挂回演奏者根 | 成人骨架通常是单位阵，换个父级带旋转的绑定就会中 |
+| `install_instrument_controls.py` 补控件 / 换父级 | 吉他补的 `F_*`、test 父级换成实际控件 | 同上 |
+| 手工或工具里把控件挂到乐器支点 | 竖琴 `Head` → `harp_pivot`（95°） | 支点倾角（芭芭拉那次的现场） |
+
+**已经中过招的文件怎么修**：把子物体 `Alt+P`（保持变换）摘下来 → `Ctrl+P` 不带 inverse 挂回去 →
+**重新录一遍所有基准姿势**（旧基准是按"世界值冒充局部值"记的，不重录等于没修）。
+实测修完画面不动（世界矩阵差 1.3e-7 m），而写进文件的数字从"世界值"变成"父级⁻¹ × 世界"。
+
+文件多的时候别手工点：`check_parent_inverse.py` 扫一遍看清楚 → `fix_parent_inverse.py --dry-run` 看它要动谁 →
+正式跑（默认按相对路径备份到文件旁边的 `_parent_fix_backup/`，加 `--backup-dir` 可以挪走）。
+脚本是把 `basis` 换成 `PI × basis`，所以父级带非均匀缩放、分解不出无剪切矩阵的会自己跳过并报告。
+带关键帧动画的物体默认不碰（关键帧还停在旧空间），要一起换算得加 `--animate`——换算后关键帧之间
+会有毫米级插值差，重要动画建议在原流程里重烘，别指望这一步无损。
+
 ## 实测常数（截至 2026-11-17，三条链都扫过了）
 
 | 链 | `pole_angle` | 依据 |
@@ -462,8 +527,10 @@ $skill   = "H:\music_doll_blender\skills\music-doll-rig\scripts"
    这个模型的原始 Z 左右不对称（左手四指朝手心、右手四指朝手背，差 173° / 16°），
    "现有 Z 多数票"和"手指 rest 拱形"两个办法在这里都会给出错误答案（它的拱形凸侧在**手心**那侧）。
 13. **给控制器改父级之前要先 `view_layer.update()`**：同一轮里刚造出来的空物体，`matrix_world` 还是单位阵，
-   直接读出来再写回去，控制器会被搬到原点（实测右手的 `P_R_test` 掉到 (0,0,0)，网格位移 9.4 cm）。
-   正确顺序是：update → 记下 `matrix_world` → 设 `parent` 与 `matrix_parent_inverse` → 写回 `matrix_world` → 再 update。
+    直接读出来再写回去，控制器会被搬到原点（实测右手的 `P_R_test` 掉到 (0,0,0)，网格位移 9.4 cm）。
+    正确顺序是：update → 记下 `matrix_world` → 设 `parent`、**把 `matrix_parent_inverse` 归零** → 写回
+    `matrix_world` → 再 update。归零那一步不能省：写成"设 parent 与 `matrix_parent_inverse`（=父级世界矩阵的逆）"
+    就是把世界值烙进 location，Blender 里看不出、导出到 Unreal 才炸（见「父子关系：只能无逆地挂」那一节）。
 14. **`use_connect = True` 会把子骨的头吸到父骨的尾上**（Blender 的行为：连上就锁定头的位置）。所以顺序必须是
    "先把父尾对到子头，再连"；反过来先把子骨的头挪过去，整段肢体就跟着挪了。差值在阈值内时也会被吸一点点
    （`瓦列里` 实测 13 根骨的头被吸走 ≤1.6e-5，网格最大位移 3.8e-5 —— 等于没动，可以不管）。
@@ -516,12 +583,15 @@ $skill   = "H:\music_doll_blender\skills\music-doll-rig\scripts"
   （含静音状态）、两个控件在哪 / 有没有父级、同名族里还有谁"一次摊开，不写任何东西。
   表里没有 `upper` 行就当没装过；有、但 `status` 又不是 DONE，说明加了没验，跑一次全量 `rig_verify` 即可。
 
-## 现状
+## 实测记录（作者环境的验证日志）
+
+> 下面这些阶段日志是作者在自己工作目录里跑出来的，里面 `temp/rig_work/...` 之类的路径是**当时的布局**，
+> 不用照着建目录 —— 有用的是每站带回的结论与数字。
 
 阶段 1（普查 + 体检器）、阶段 2（左手手臂 + `pole_angle` / 拱形两个实验）、阶段 3（右手 + 十指 + 双腿）**全部完成**：
 `沙中净水1` 的副本上 14 条链（两臂 / 十指 / 两腿）`rig_verify` 106 项断言全过，进度块 `status=DONE`。
-三条链的 `pole_angle` 都扫过（手臂 90°、手指 90°、腿 −90°）。规则与实测记录见仓库
-`docs/plans/骨骼改造skill探索.md`。
+三条链的 `pole_angle` 都扫过（手臂 90°、手指 90°、腿 −90°）。规则与踩坑已经都并进上面几节，
+不再单独维护探索笔记。
 
 阶段 4（换角色验证）第一站已做：**`米提亚`**（原神 MMD 转换的 `.pmx`，扁平日文命名 `左腕/左ひじ/左手首`，
 779 骨、61913 顶点），14 条链 `rig_verify` **111 项断言全过**（0 失败），进度块 `status=DONE`。
@@ -578,7 +648,7 @@ IK 约束没有 `MD_` 前缀、没有 MCH 主骨、没有进度块，所以**没
 `temp/rig_work/mia/米娅-星彩_古筝.blend`（四肢 + 乐器控件都已装好、进度块 `DONE`，但躯干没有任何控制），
 产物 `temp/rig_work/mia/米娅-星彩_古筝_上链.blend`。实测（链 = `上半身 → 上半身2 → 首 → 頭`，链长 0.4330）：
 
-- `pole_angle` 标定 **90°**，与作者成品（`E:\BaiduNetdiskDownload\3D Asset\演奏者\zheng\米娅-星彩_古筝.blend`）
+- `pole_angle` 标定 **90°**，与作者手摆的成品文件（另一份已做好的古筝版 `.blend`）
   手工摆的取值一致；标定曲线 0°/45°/90°/180° = 23.5 / 12.8 / **0.000** / 23.5 mm，V 形谷很干净；
 - **rest 网格位移 0.000002 m**（48 550 顶点全量；18 332 个躯干顶点 0.000001 m）—— 头部控制器压在颈尾上时，
   rest 就是这条 IK 链的精确解，不需要再"要不要接受几毫米"的取舍；
@@ -591,5 +661,14 @@ IK 约束没有 `MD_` 前缀、没有 MCH 主骨、没有进度块，所以**没
 仍待做：这条链还没在"没有颈 / 头骨命名"的骨架（控制器骨架 `Skirk`、Rigify 版）上验过 ——
 Rigify 是 `spine.003 / neck / head`，英文关键词那条分支应该能认，但没实测；
 `Middle_Hand` 那套"视点跟着双手中点走"的机制留给乐器阶段，本阶段不建。
+
+**2026-11-28 跨引擎父子关系复查（作者在米娅-架子鼓上踩到）**：把 `temp/rig_work/mia/` 下 47 个米娅
+`.blend` 逐个查了 `matrix_parent_inverse`。凡是还留着 `*_test` 控件的 11 个文件，**每个都 20 处** ——
+十指目标与十指极向量挂在 `H_*_test`（rest 朝向 98.4°）下，parent inverse 被写成手腕世界矩阵的逆，
+`location` 里存的是世界值：Blender 里一切正常，按"父级世界 × 本地"重建却偏 **1.18 m / 98.4°**。
+源头是 `rig_apply.py` 挂手腕那段（保留变换），已改成"parent inverse 归零 + 写回世界矩阵"；
+`rig_verify.py` 也多了一条「控制器父子关系无逆」的断言。乐器阶段的成品反而是干净的（0 处），
+因为它们不保留变换地挂父级、test 控件在导出前就删了。修法见上面
+「父子关系：只能无逆地挂」那一节。
 
 
